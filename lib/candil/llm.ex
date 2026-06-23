@@ -8,28 +8,28 @@ defmodule Candil.Llm do
   # models — whether they run locally via `llama.cpp` or remotely via an API
   # provider such as OpenAI, Anthropic or Ollama.
 
-  ## Concepts
+  # Concepts
 
-  ### Engine
+  # Engine
 
   An engine is a local `llama-server` binary that serves one model at a time
   over an OpenAI-compatible HTTP API. You can use a pre-existing binary on the
   machine or let Apero download the official precompiled release from the
   [llama.cpp releases page](https://github.com/ggml-org/llama.cpp/releases).
 
-  ### Provider
+  # Provider
 
   A provider is a remote HTTP API (OpenAI, Anthropic, Ollama, or any
   OpenAI-compatible endpoint). Ollama is treated as a remote provider because
   it manages its own process and model storage independently.
 
-  ### Model
+  # Model
 
   A model is either:
   - **Local** — a `.gguf` file on disk, associated with an engine.
   - **Remote** — a model name / ID offered by a provider.
 
-  ## Lifecycle — local model
+  # Lifecycle — local model
 
       # 1. Define engine and model
       engine = %Candil.Engine{
@@ -67,7 +67,7 @@ defmodule Candil.Llm do
       # 5. Stop engine
       :ok = Candil.stop_engine(:llama3)
 
-  ## Lifecycle — remote model
+  # Lifecycle — remote model
 
       provider = %Candil.Provider{
         alias: :openai,
