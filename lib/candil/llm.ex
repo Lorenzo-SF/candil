@@ -1,10 +1,12 @@
 defmodule Candil.Llm do
-  @moduledoc """
-  LLM management for Candil.
-
-  Provides a unified interface for running, managing and querying large language
-  models — whether they run locally via `llama.cpp` or remotely via an API
-  provider such as OpenAI, Anthropic or Ollama.
+  @moduledoc false
+  # Public API is exposed through `Candil`; this module is the internal
+  # implementation. The original moduledoc is preserved below as a comment
+  # block for reference.
+  #
+  # Provides a unified interface for running, managing and querying large language
+  # models — whether they run locally via `llama.cpp` or remotely via an API
+  # provider such as OpenAI, Anthropic or Ollama.
 
   ## Concepts
 
@@ -86,8 +88,9 @@ defmodule Candil.Llm do
       {:ok, response} = Candil.chat(:gpt4o, provider, [
         %{role: "user", content: "Hello!"}
       ])
-
-  """
+  #
+  # The moduledoc above is preserved as a comment for reference. The public
+  # API is now `Candil.*`; `Candil.Llm` is the internal implementation.
 
   alias Candil.{Config, Engine, Inference, Installer, Model, Provider, Stream}
 
