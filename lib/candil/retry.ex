@@ -84,11 +84,11 @@ defmodule Candil.Retry do
     end
   end
 
-  defp retryable?(_reason, retry_on) when is_list(retry_on), do: true
-
-  defp retryable?(reason, retry_on) do
+  defp retryable?(reason, retry_on) when is_list(retry_on) do
     reason in retry_on
   end
+
+  defp retryable?(_reason, _retry_on), do: false
 
   defp calculate_delay(attempt, base_delay, max_delay, jitter) do
     exponential = :math.pow(2, attempt) * base_delay
