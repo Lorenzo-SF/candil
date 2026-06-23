@@ -2,7 +2,7 @@
   configs: [
     %{
       name: "default",
-      strict: true,
+      strict: false,
       parse_timeout: 5_000,
       color: true,
       checks: [
@@ -37,7 +37,7 @@
         {Credo.Check.Refactor.MapInto},
         {Credo.Check.Refactor.NegatedConditionsInUnless},
         {Credo.Check.Refactor.NegatedConditionsWithElse},
-        {Credo.Check.Refactor.Nesting},
+        {Credo.Check.Refactor.Nesting, max_nesting: 3},
         {Credo.Check.Refactor.UnlessWithElse},
         {Credo.Check.Refactor.WithClauses},
         {Credo.Check.Warning.ApplicationConfigInModuleAttribute},

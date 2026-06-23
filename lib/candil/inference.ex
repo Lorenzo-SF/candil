@@ -263,7 +263,12 @@ defmodule Candil.Inference do
           try do
             Jason.decode!(args_json)
           rescue
-            _ -> %{}
+            # Tool-call arguments come from the model and may be
+            # malformed JSON. Treat decode errors as empty arguments
+            # rather than crashing the whole response. Other exceptions
+            # (FunctionClauseError, etc.) propagate so real bugs are
+            # not silently swallowed.
+            Jason.DecodeError -> %{}
           end
       }
     end)

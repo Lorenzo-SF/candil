@@ -14,6 +14,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Tests for the new modules: `test/candil/cost_test.exs`, `test/candil/request_builder_test.exs`.
 
 ### Changed
+- **i18n**: documented the existing English-only public surface under Project history and linked the 1.0.0 release to hex.pm.
 - **`chat_remote/4` refactored**: collapsed 5 pattern-match clauses into a single function with `build_request_body/4` and `response_parser/1` dispatch. Adding a new provider is now a 2-line change.
 - Deps changed to `{:apero, github: "Lorenzo-SF/apero"}` and `{:arrea, github: "Lorenzo-SF/arrea"}` (no hex publishing).
 - Mix.exs adds doc groups_for_modules, dialyzer_config, and a new `CHANGELOG.md`.
@@ -25,4 +26,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 ## [1.0.0] - 2026-06-10
 
 ### Added
-- Initial release: local llama.cpp engine, OpenAI/Anthropic/Ollama remote providers, conversation, streaming, embeddings.
+- Initial open source release: local llama.cpp engine, OpenAI/Anthropic/Ollama remote providers, conversation, streaming, embeddings.
+
+[1.0.0]: https://hex.pm/packages/candil/1.0.0
