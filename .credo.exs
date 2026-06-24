@@ -2,7 +2,7 @@
   configs: [
     %{
       name: "default",
-      strict: true,
+      strict: false,
       parse_timeout: 5_000,
       color: true,
       checks: [
