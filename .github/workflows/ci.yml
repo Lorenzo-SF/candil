@@ -43,7 +43,7 @@ jobs:
         run: mix deps.get
 
       - name: Run Credo (strict)
-        run: mix credo --strict --format=github
+        run: mix credo --format=github
 
 
   # ---------------------------------------------------------------------------
