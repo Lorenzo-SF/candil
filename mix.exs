@@ -4,7 +4,7 @@ defmodule Candil.MixProject do
   def project do
     [
       app: :candil,
-      version: "1.0.0",
+      version: "0.2.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -48,6 +48,9 @@ defmodule Candil.MixProject do
   defp docs do
     [
       main: "readme",
+      source_url: "https://github.com/Lorenzo-SF/candil",
+      homepage_url: "https://github.com/Lorenzo-SF/candil",
+      source_ref: "v0.1.0",
       extras: ["README.md", "LICENSE.md"],
       groups_for_modules: [
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],
