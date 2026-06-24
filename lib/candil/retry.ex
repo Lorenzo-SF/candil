@@ -72,11 +72,19 @@ defmodule Candil.Retry do
   The original `with_retry/2` still uses `:timer.sleep` and is
   appropriate for scripts / one-off code paths.
   """
-  @spec schedule_retry((-> {:ok, term()} | {:error, term()}), non_neg_integer(),
-                        non_neg_integer(), non_neg_integer(), float(), [atom()],
-                        non_neg_integer()) :: {pos_integer(), tuple()}
+  @spec schedule_retry(
+          (-> {:ok, term()} | {:error, term()}),
+          non_neg_integer(),
+          non_neg_integer(),
+          non_neg_integer(),
+          float(),
+          [atom()],
+          non_neg_integer()
+        ) :: {pos_integer(), tuple()}
   def schedule_retry(fun, max_retries, base_delay, max_delay, jitter, retry_on, attempt) do
-    message = {:candil_retry, fun, max_retries, base_delay, max_delay, jitter, retry_on, attempt + 1}
+    message =
+      {:candil_retry, fun, max_retries, base_delay, max_delay, jitter, retry_on, attempt + 1}
+
     delay = calculate_delay(attempt, base_delay, max_delay, jitter)
     {delay, message}
   end
