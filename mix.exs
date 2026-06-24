@@ -48,6 +48,9 @@ defmodule Candil.MixProject do
   defp docs do
     [
       main: "readme",
+      source_url: "https://github.com/Lorenzo-SF/candil",
+      homepage_url: "https://github.com/Lorenzo-SF/candil",
+      source_ref: "v0.1.0",
       extras: ["README.md", "LICENSE.md"],
       groups_for_modules: [
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],
@@ -58,9 +61,6 @@ defmodule Candil.MixProject do
         Retry: [Candil.Retry]
       ]
     ]
-      source_url: "https://github.com/Lorenzo-SF/candil",
-      homepage_url: "https://github.com/Lorenzo-SF/candil",
-      source_ref: "v0.1.0",
   end
 
   defp dialyzer_config do
