@@ -7,6 +7,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-06-24
+
 ### Added
 - `Candil.Cost` — cost estimation for LLM API usage with pricing table for OpenAI, Anthropic, and local models.
 - `Candil.Application` — OTP application with ETS-based config and DynamicSupervisor for engine management.
@@ -29,3 +31,5 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Initial open source release: local llama.cpp engine, OpenAI/Anthropic/Ollama remote providers, conversation, streaming, embeddings.
 
 [1.0.0]: https://hex.pm/packages/candil/1.0.0
+
+[0.2.0]: https://github.com/Lorenzo-SF/candil/releases/tag/v0.2.0
