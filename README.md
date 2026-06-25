@@ -7,7 +7,7 @@ LLM inference and model management for Elixir. Run local models via llama.cpp or
 ```elixir
 def deps do
   [
-    {:candil, "~> 1.0"}
+    {:candil, "~> 0.2"}
   ]
 end
 ```
@@ -238,8 +238,8 @@ IO.puts(response.content)
 
 This library was developed as part of a larger internal toolkit and extracted
 to open source in mid-2026. The single commit visible on `main` represents the
-OSS cut-over point — all the features shipped in `1.0.0` were built and tested
-before being made public. Subsequent releases (`1.0.1`, `1.1.0`, ...) will be
+OSS cut-over point — all the features shipped in `0.2.0` were built and tested
+before being made public. Subsequent releases (`0.2.1`, `0.3.0`, ...) will be
 tagged normally, providing a clean public history going forward.
 
 ## License
