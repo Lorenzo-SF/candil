@@ -7,6 +7,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-06-27
+
+### Added
+- New `Candil.Provider` struct (in `lib/candil/provider.ex`) that
+  encapsulates remote LLM provider configuration: name, base_url,
+  api_key, default model, max_tokens, and provider-specific options.
+  Replaces the previous pattern of passing raw keyword lists to
+  `Candil.Client.chat/3`.
+
+### Changed
+- Bumped version to 0.3.0 to tag the release that includes the
+  `Candil.Provider` struct. Pre-v0.3.0, downstream consumers using
+  `%Candil.Provider{}` would fail to compile with
+  `Candil.Provider.__struct__/1 is undefined`.
+
+## [0.2.0] - 2026-06-24
+
 ## [0.2.0] - 2026-06-24
 
 ### Added
