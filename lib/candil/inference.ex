@@ -393,9 +393,8 @@ defmodule Candil.Inference do
   defp estimate_tokens(messages) when is_list(messages) do
     messages
     |> Enum.reduce(0, fn msg, acc ->
-      (acc + (msg[:content] || msg["content"] || ""))
-      |> String.length()
-      |> div(4)
+      tokens = (msg[:content] || msg["content"] || "") |> String.length() |> div(4)
+      acc + tokens
     end)
     |> Kernel.+(length(messages) * 4)
   end
