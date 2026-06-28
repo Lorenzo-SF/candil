@@ -73,12 +73,14 @@ defmodule Candil.ConfigTest do
   end
 
   describe "get_provider/1" do
-    test "returns {:ok, provider} when provider exists with plain api_key" do
+    test "returns {:ok, provider} when provider exists with {:system, env_var} api_key" do
+      System.put_env("TEST_PROVIDER_KEY", "sk-test123")
+
       provider = %Provider{
         alias: :test_provider,
         type: :openai,
         base_url: "https://api.test.com",
-        api_key: "sk-test123"
+        api_key: {:system, "TEST_PROVIDER_KEY"}
       }
 
       Config.register_provider(provider)

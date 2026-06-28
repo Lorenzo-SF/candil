@@ -34,6 +34,7 @@ defmodule Candil.Engine do
             binary_dir: nil,
             use_precompiled: true,
             precompiled_version: :latest,
+            checksum_sha256: nil,
             host: "127.0.0.1",
             port: 8080,
             start_args: []
@@ -45,6 +46,7 @@ defmodule Candil.Engine do
           binary_dir: binary() | nil,
           use_precompiled: boolean(),
           precompiled_version: version(),
+          checksum_sha256: binary() | nil,
           host: binary(),
           port: :inet.port_number(),
           start_args: [binary()]

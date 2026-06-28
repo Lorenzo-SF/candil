@@ -88,11 +88,13 @@ defmodule Candil.Inference do
           {:error, Error.engine_not_running(model_alias)}
 
         base_url ->
-          body =
-            RequestBuilder.build_openai_body(to_string(model_alias), messages, opts)
+          with :ok <- validate_context(model_alias, messages, opts) do
+            body =
+              RequestBuilder.build_openai_body(to_string(model_alias), messages, opts)
 
-          HTTP.post_json("#{base_url}/v1/chat/completions", body, [], opts)
-          |> parse_openai_response()
+            HTTP.post_json("#{base_url}/v1/chat/completions", body, [], opts)
+            |> parse_openai_response()
+          end
       end
 
     duration = System.monotonic_time() - start
@@ -119,13 +121,15 @@ defmodule Candil.Inference do
     start = System.monotonic_time()
     :telemetry.execute([:candil, :llm, :chat, :start], %{}, %{model: model.name})
 
-    body = build_request_body(provider.type, model.name, messages, opts)
-    headers = Provider.auth_headers(provider)
-    parser = response_parser(provider.type)
-
     result =
-      HTTP.post_json(Provider.chat_url(provider), body, headers, opts)
-      |> parser.()
+      with :ok <- validate_context(model, messages, opts) do
+        body = build_request_body(provider.type, model.name, messages, opts)
+        headers = Provider.auth_headers(provider)
+        parser = response_parser(provider.type)
+
+        HTTP.post_json(Provider.chat_url(provider), body, headers, opts)
+        |> parser.()
+      end
 
     duration = System.monotonic_time() - start
 
@@ -365,4 +369,36 @@ defmodule Candil.Inference do
       total_tokens: input + output
     }
   end
+
+  defp validate_context(model_alias, messages, opts) when is_atom(model_alias) do
+    case Config.get_model(model_alias) do
+      {:ok, model} -> validate_context(model, messages, opts)
+      {:error, _} -> :ok
+    end
+  end
+
+  defp validate_context(%Model{context_size: ctx}, messages, _opts)
+       when is_integer(ctx) and ctx > 0 do
+    estimated = estimate_tokens(messages)
+
+    if estimated > ctx do
+      {:error, Error.context_overflow(estimated, ctx)}
+    else
+      :ok
+    end
+  end
+
+  defp validate_context(_, _, _), do: :ok
+
+  defp estimate_tokens(messages) when is_list(messages) do
+    messages
+    |> Enum.reduce(0, fn msg, acc ->
+      (acc + (msg[:content] || msg["content"] || ""))
+      |> String.length()
+      |> div(4)
+    end)
+    |> Kernel.+(length(messages) * 4)
+  end
+
+  defp estimate_tokens(_), do: 0
 end

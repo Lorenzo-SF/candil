@@ -100,12 +100,27 @@ defmodule Candil.Config do
   Registers a provider definition.
 
   Overwrites any existing entry with the same alias.
+
+  Raises `ArgumentError` if `api_key` is a plain string — only
+  `{:system, "ENV_VAR"}` tuples are accepted (see moduledoc).
   """
   @spec register_provider(Provider.t()) :: :ok
-  def register_provider(%Provider{alias: a} = provider) when is_atom(a) do
-    :ets.insert(@table_providers, {a, provider})
-    :ok
+  def register_provider(%Provider{alias: a, api_key: key} = provider) when is_atom(a) do
+    case validate_api_key(key) do
+      :ok ->
+        :ets.insert(@table_providers, {a, provider})
+        :ok
+
+      {:error, reason} ->
+        raise ArgumentError, reason
+    end
   end
+
+  defp validate_api_key(nil), do: :ok
+  defp validate_api_key({:system, var}) when is_binary(var), do: :ok
+
+  defp validate_api_key(_),
+    do: {:error, "api_key must be {:system, \"ENV_VAR\"} tuple or nil, got plain string"}
 
   @doc """
   Looks up an engine by alias.

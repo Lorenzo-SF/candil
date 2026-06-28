@@ -1,29 +1,30 @@
 defmodule Candil.HTTP do
   @moduledoc """
-  Shared HTTP client with retry and backoff for Candil.
+  Shared HTTP client with circuit breaker, retry, and rate limiting for Candil.
 
-  This module consolidates HTTP logic previously duplicated between
-  `Candil.Inference` and `Candil.Stream`, providing:
-
-  - Automatic retry with exponential backoff for transient errors
-  - Configurable timeouts
-  - Rate limiting detection (429 responses)
-  - Proper error transformation to `Candil.Error`
+  Wraps `Arrea.CircuitBreaker` around all outbound HTTP calls. Uses
+  `Apero.Retry` with exponential backoff for transient failures.
+  Implements a sliding-window rate limiter per breaker name.
   """
 
-  alias Candil.{Error, Retry}
+  alias Candil.Error
+
+  alias Apero.Retry
+  alias Arrea.CircuitBreaker
 
   @default_timeout_ms 60_000
   @default_stream_timeout_ms 120_000
 
   @doc """
-  Performs a POST request with JSON body and optional retry.
+  Performs a POST request with JSON body, protected by circuit breaker and retry.
 
   ## Options
 
     * `:timeout_ms` — request timeout in milliseconds (default: 60_000)
     * `:retry` — enable retry with backoff (default: true)
     * `:max_retries` — maximum retry attempts (default: 3)
+    * `:breaker_name` — circuit breaker name (default: from URL host)
+    * `:rate_limit` — max requests per second (default: no limit)
 
   ## Returns
 
@@ -34,18 +35,34 @@ defmodule Candil.HTTP do
           {:ok, map()} | {:error, Error.t()}
   def post_json(url, body, headers, opts \\ []) do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
-    retry? = Keyword.get(opts, :retry, true)
+    breaker = Keyword.get(opts, :breaker_name, breaker_name(url))
+    rate_limit = Keyword.get(opts, :rate_limit)
 
     request_fn = fn ->
-      do_post_json(url, body, headers, timeout)
+      with :ok <- check_rate_limit(breaker, rate_limit) do
+        CircuitBreaker.call(breaker, fn ->
+          do_post_json(url, body, headers, timeout)
+        end)
+        |> case do
+          {:ok, result} -> result
+          {:error, :circuit_open} -> {:error, Error.wrap(:circuit_open)}
+          {:error, :execution_failed} -> {:error, Error.wrap(:execution_failed)}
+          other -> other
+        end
+      end
     end
 
-    if retry? do
+    if Keyword.get(opts, :retry, true) do
       request_fn
-      |> Retry.with_retry(
-        max_retries: Keyword.get(opts, :max_retries, 3),
+      |> Retry.with(
+        max_attempts: Keyword.get(opts, :max_retries, 3) + 1,
         base_delay: Keyword.get(opts, :base_delay, 1000),
-        retry_on: [:timeout, :rate_limited]
+        max_delay: Keyword.get(opts, :max_delay, 30_000),
+        retry_on: fn
+          {:ok, %{status: status}} when status in 429..599 -> true
+          {:error, %{reason: :timeout}} -> true
+          _ -> false
+        end
       )
       |> wrap_error()
     else
@@ -136,6 +153,42 @@ defmodule Candil.HTTP do
 
   defp stream_callback(:done, acc) do
     {:halt, Enum.reverse(acc)}
+  end
+
+  defp breaker_name(url) do
+    host = URI.parse(url).host
+    existing_atom(host) || :default_breaker
+  rescue
+    _ -> :default_breaker
+  end
+
+  defp existing_atom(name) when is_binary(name) do
+    String.to_existing_atom(name)
+  rescue
+    ArgumentError -> nil
+  end
+
+  defp check_rate_limit(_breaker, nil), do: :ok
+
+  defp check_rate_limit(breaker, max_per_second) do
+    key = {breaker, :rate_limit}
+    now = System.monotonic_time(:millisecond)
+    window_ms = 1000
+
+    timestamps =
+      case Process.get(key) do
+        nil -> []
+        list when is_list(list) -> list
+      end
+
+    recent = Enum.filter(timestamps, &(now - &1 < window_ms))
+
+    if length(recent) < max_per_second do
+      Process.put(key, [now | recent])
+      :ok
+    else
+      {:error, Error.rate_limited(window_ms - (now - List.last(recent)))}
+    end
   end
 
   defp wrap_error({:ok, %{status: status, body: body}}) when status in 200..299 do
