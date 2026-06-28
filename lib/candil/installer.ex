@@ -8,6 +8,8 @@ defmodule Candil.Installer do
   - Downloading and extracting it to the engine's `binary_dir`.
   - Downloading GGUF model files from any HTTP/HTTPS URL.
   - Resuming interrupted downloads via HTTP `Range` requests where supported.
+  - SHA-256 checksum verification when `checksum_sha256` is provided on the
+    engine or model struct.
 
   All downloads stream to disk — files are never loaded fully into memory.
   """
@@ -61,14 +63,14 @@ defmodule Candil.Installer do
     {:error, "download_url is not set on this model"}
   end
 
-  def download_model(%Model{} = model) do
+  def download_model(%Model{checksum_sha256: checksum} = model) do
     dest = Model.file_path(model)
 
     if File.exists?(dest) do
       {:ok, dest}
     else
       :ok = File.mkdir_p(model.model_dir)
-      stream_download(model.download_url, dest)
+      stream_download(model.download_url, dest, checksum)
     end
   end
 
@@ -77,7 +79,7 @@ defmodule Candil.Installer do
     bin_dir = Engine.binary_dir(engine)
 
     with :ok <- File.mkdir_p(bin_dir),
-         {:ok, _} <- stream_download(url, tmp_zip),
+         {:ok, _} <- stream_download(url, tmp_zip, engine.checksum_sha256),
          :ok <- extract_engine_zip(tmp_zip, bin_dir) do
       File.rm(tmp_zip)
       :ok
@@ -102,20 +104,37 @@ defmodule Candil.Installer do
     end
   end
 
-  defp stream_download(url, dest_path) do
+  defp stream_download(url, dest_path, checksum) do
     case Req.get(url,
            into: dest_path,
            receive_timeout: :infinity,
            headers: [{"user-agent", "apero-llm/0.1"}]
          ) do
       {:ok, %{status: status}} when status in 200..299 ->
-        {:ok, dest_path}
+        if checksum do
+          case verify_checksum(dest_path, checksum) do
+            :ok -> {:ok, dest_path}
+            {:error, reason} -> {:error, reason}
+          end
+        else
+          {:ok, dest_path}
+        end
 
       {:ok, %{status: status}} ->
         {:error, "HTTP #{status} downloading #{url}"}
 
       {:error, reason} ->
         {:error, "Download failed: #{inspect(reason)}"}
+    end
+  end
+
+  defp verify_checksum(path, expected) do
+    actual = :crypto.hash(:sha256, File.read!(path)) |> Base.encode16(case: :lower)
+
+    if actual == String.downcase(expected) do
+      :ok
+    else
+      {:error, "SHA-256 checksum mismatch: expected #{expected}, got #{actual}"}
     end
   end
 end
