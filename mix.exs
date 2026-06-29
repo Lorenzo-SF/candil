@@ -33,8 +33,8 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      {:apero, github: "Lorenzo-SF/apero"},
-      {:arrea, github: "Lorenzo-SF/arrea"},
+      {:apero, github: "Lorenzo-SF/apero", branch: "main"},
+      {:arrea, github: "Lorenzo-SF/arrea", branch: "main"},
       {:jason, "~> 1.4"},
       {:req, "~> 0.5"},
       {:mox, "~> 1.0", only: :test},
