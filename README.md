@@ -227,6 +227,9 @@ IO.puts(response.content)
 - **Candil.Provider** - Remote API provider abstraction (OpenAI, Anthropic, Ollama)
 - **Candil.Model** - Model definitions (local or remote)
 - **Candil.Config** - ETS-based registry for engines, models, and providers
+- **Candil.ConfigManager** - Config validation and normalization for ad-hoc provider connections
+- **Candil.Health** - Health probes (ping, latency, model availability) for LLM providers
+- **Candil.Embeddings** - Embedding generation across ollama, local, and OpenAI-compatible APIs
 - **Candil.Detector** - OS/GPU detection for binary selection
 - **Candil.Installer** - Download and extraction utilities
 - **Candil.Conversation** - Conversation history with context window management

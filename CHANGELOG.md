@@ -7,6 +7,19 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+- `Candil.Health` — provider health probes (ping, probe) migrated from `Apero.Llm.Health`.
+- `Candil.ConfigManager` — config validation and normalization for LLM/embedding providers,
+  migrated from `Apero.Llm.ConfigManager`. Complements `Candil.Config` (ETS registry)
+  by handling raw map-based config.
+- `Candil.Embeddings` — embedding generation abstraction for ollama, local, and
+  OpenAI-compatible providers, migrated from `Apero.Llm.Embeddings`.
+
+### Fixed
+- `Candil.Registry` is now started in `Candil.Application` — previously it was only
+  created in `test_helper.exs`, causing `Candil.Engine.Server.start_link/1` to crash
+  in production with `"Candil.Registry not started"`.
+
 ## [0.3.0] - 2026-06-27
 
 ### Added

@@ -12,6 +12,7 @@ defmodule Candil.Application do
   @impl true
   def start(_type, _args) do
     children = [
+      {Registry, keys: :unique, name: Candil.Registry},
       Candil.Config,
       {DynamicSupervisor, name: Candil.EngineSupervisor, strategy: :one_for_one}
     ]
