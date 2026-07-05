@@ -54,7 +54,8 @@ defmodule Candil.MixProject do
       extras: ["README.md", "LICENSE.md"],
       groups_for_modules: [
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],
-        Config: [Candil.Config, Candil.Model, Candil.Provider],
+        Config: [Candil.Config, Candil.ConfigManager, Candil.Model, Candil.Provider],
+        Diagnostics: [Candil.Health, Candil.Embeddings],
         Conversation: [Candil.Conversation],
         Inference: [Candil.Inference, Candil.RequestBuilder, Candil.Stream, Candil.HTTP],
         Engine: [Candil.Engine, Candil.Engine.Server, Candil.Detector, Candil.Installer],
