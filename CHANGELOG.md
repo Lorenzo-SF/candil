@@ -60,14 +60,8 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 [1.0.0]: https://hex.pm/packages/candil/1.0.0
 
+[0.2.0]: https://github.com/Lorenzo-SF/candil/releases/tag/v0.2.0
 
-> ## A note on versioning
->
-> The only canonical tag is `v1.0.0` — the initial open-source
-> cut-over. Any `[0.X.Y]` headers above are **planning milestones**,
-> not releases: they have no corresponding git tag. `mix.exs`
-> `version` reflects the current development state and may be ahead
-> of the public surface.
 
 > ## A note on history
 >
