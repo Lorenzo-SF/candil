@@ -50,7 +50,7 @@ defmodule Candil.MixProject do
       main: "readme",
       source_url: "https://github.com/Lorenzo-SF/candil",
       homepage_url: "https://github.com/Lorenzo-SF/candil",
-      source_ref: "v0.3.0",
+      source_ref: "1.0.0",
       extras: ["README.md", "LICENSE.md"],
       groups_for_modules: [
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],
