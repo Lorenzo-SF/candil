@@ -37,8 +37,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [0.2.0] - 2026-06-24
 
-## [0.2.0] - 2026-06-24
-
 ### Added
 - `Candil.Cost` — cost estimation for LLM API usage with pricing table for OpenAI, Anthropic, and local models.
 - `Candil.Application` — OTP application with ETS-based config and DynamicSupervisor for engine management.
@@ -63,3 +61,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 [1.0.0]: https://hex.pm/packages/candil/1.0.0
 
 [0.2.0]: https://github.com/Lorenzo-SF/candil/releases/tag/v0.2.0
+
+
+> ## A note on history
+>
+> The git history of this repository was rewritten as part of a
+> deliberate cleanup effort. The commits you can read describe the
+> codebase as it stands today — they do not preserve the original
+> chronology of development.
+>
+> Anything worth keeping from before the rewrite was carried forward
+> as tagged releases with explicit `CHANGELOG.md` entries. Anything
+> not preserved is, by the maintainer's choice, no longer part of the
+> canonical development line.
+>
+> Tag `v1.0.0` points to the initial open-source cut-over.
+> All versioned artifacts on Hex.pm and GitHub Releases follow this
+> convention.
