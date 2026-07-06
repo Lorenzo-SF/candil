@@ -104,14 +104,18 @@ defmodule Candil.ConfigManager do
 
   defp check_url_format(errors, config) do
     case Map.get(config, "url") do
-      nil -> errors
+      nil ->
+        errors
+
       url when is_binary(url) ->
         if String.starts_with?(url, "http://") or String.starts_with?(url, "https://") do
           errors
         else
           [errors | "url must start with http:// or https://"]
         end
-      _ -> errors
+
+      _ ->
+        errors
     end
   end
 

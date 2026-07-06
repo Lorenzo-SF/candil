@@ -95,8 +95,11 @@ defmodule Candil.Health do
   end
 
   defp http_post(url, body, timeout) do
-    case Req.post(url, body: body, headers: [{"content-type", "application/json"}],
-                   receive_timeout: timeout) do
+    case Req.post(url,
+           body: body,
+           headers: [{"content-type", "application/json"}],
+           receive_timeout: timeout
+         ) do
       {:ok, %{status: s, body: body}} -> {:ok, s, body}
       {:error, reason} -> {:error, inspect(reason)}
     end

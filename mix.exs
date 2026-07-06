@@ -50,7 +50,7 @@ defmodule Candil.MixProject do
       main: "readme",
       source_url: "https://github.com/Lorenzo-SF/candil",
       homepage_url: "https://github.com/Lorenzo-SF/candil",
-      source_ref: "v0.1.0",
+      source_ref: "v0.3.0",
       extras: ["README.md", "LICENSE.md"],
       groups_for_modules: [
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],
@@ -58,8 +58,7 @@ defmodule Candil.MixProject do
         Diagnostics: [Candil.Health, Candil.Embeddings],
         Conversation: [Candil.Conversation],
         Inference: [Candil.Inference, Candil.RequestBuilder, Candil.Stream, Candil.HTTP],
-        Engine: [Candil.Engine, Candil.Engine.Server, Candil.Detector, Candil.Installer],
-        Retry: [Candil.Retry]
+        Engine: [Candil.Engine, Candil.Engine.Server, Candil.Detector, Candil.Installer]
       ]
     ]
   end
