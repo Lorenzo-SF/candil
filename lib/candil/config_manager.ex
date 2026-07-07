@@ -96,8 +96,8 @@ defmodule Candil.ConfigManager do
 
   defp check_required_field(errors, config, field) do
     case Map.get(config, field) do
-      nil -> [errors | "missing required field: #{field}"]
-      v when v in [nil, "", " "] -> [errors | "#{field} is empty"]
+      nil -> errors ++ ["missing required field: #{field}"]
+      v when v in [nil, "", " "] -> errors ++ ["#{field} is empty"]
       _ -> errors
     end
   end
@@ -111,7 +111,7 @@ defmodule Candil.ConfigManager do
         if String.starts_with?(url, "http://") or String.starts_with?(url, "https://") do
           errors
         else
-          [errors | "url must start with http:// or https://"]
+          errors ++ ["url must start with http:// or https://"]
         end
 
       _ ->
@@ -123,7 +123,7 @@ defmodule Candil.ConfigManager do
     case Map.get(config, "timeout_ms") do
       nil -> errors
       t when is_integer(t) and t > 0 and t <= 300_000 -> errors
-      _ -> [errors | "timeout_ms must be between 1 and 300000"]
+      _ -> errors ++ ["timeout_ms must be between 1 and 300000"]
     end
   end
 end
