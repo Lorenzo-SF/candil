@@ -2,6 +2,11 @@ defmodule Candil.FacadeTest do
   use ExUnit.Case, async: true
 
   describe "Candil facade" do
+    setup do
+      Code.ensure_loaded(Candil)
+      :ok
+    end
+
     test "chat/2 is exported" do
       assert function_exported?(Candil, :chat, 2)
     end
