@@ -21,6 +21,12 @@ defmodule Candil.Engine do
       (default: `8080`)
     * `:start_args` — extra CLI arguments passed to `llama-server` at startup
       (e.g. `["--n-gpu-layers", "35"]`)
+    * `:launcher` — module implementing `Candil.Engine.Launcher` to start
+      the engine out-of-band (systemd, docker, another process). When set,
+      Candil does NOT spawn `llama-server` itself and does NOT download the
+      binary. Default: `nil` (default: Candil owns the binary lifecycle).
+
+  See `Candil.Engine.Launcher` for the custom-launcher contract.
   """
 
   @type alias :: atom()
@@ -37,7 +43,8 @@ defmodule Candil.Engine do
             checksum_sha256: nil,
             host: "127.0.0.1",
             port: 8080,
-            start_args: []
+            start_args: [],
+            launcher: nil
 
   @type version :: :latest | binary()
 
@@ -49,7 +56,8 @@ defmodule Candil.Engine do
           checksum_sha256: binary() | nil,
           host: binary(),
           port: :inet.port_number(),
-          start_args: [binary()]
+          start_args: [binary()],
+          launcher: module() | nil
         }
 
   @doc """
@@ -84,7 +92,9 @@ defmodule Candil.Engine do
   Starts a `llama-server` process loaded with `model`.
 
   If `engine.use_precompiled` is `true` and the binary does not exist,
-  this function automatically downloads it before starting.
+  this function automatically downloads it before starting. If
+  `engine.launcher` is set, the launcher is invoked instead and Candil
+  never spawns the binary itself — see `Candil.Engine.Launcher`.
 
   Registers the running server in `Candil.Registry` under the model alias.
   Returns `{:ok, pid}` or `{:error, reason}`.
@@ -96,8 +106,11 @@ defmodule Candil.Engine do
 
   defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
     cond do
+      engine.launcher != nil ->
+        start_via_launcher(engine, model)
+
       binary_exists?(engine) ->
-        Server.start_link(%{engine: engine, model: model})
+        start_via_server(engine, model)
 
       engine.use_precompiled ->
         case Installer.download_engine(engine) do
@@ -107,6 +120,28 @@ defmodule Candil.Engine do
 
       true ->
         {:error, "Binary not found at #{binary_path(engine)}. Run Candil.download_engine/1."}
+    end
+  end
+
+  defp start_via_server(%__MODULE__{} = engine, %Candil.Model{} = model) do
+    Server.start_link(%{engine: engine, model: model})
+  end
+
+  defp start_via_launcher(%__MODULE__{} = engine, %Candil.Model{} = model) do
+    case engine.launcher.launch(engine, model) do
+      {:ok, %{base_url: base_url, pid: external_pid}} ->
+        child_spec =
+          {Candil.Engine.Server.External,
+           %{base_url: base_url, pid: external_pid, engine: engine, model: model}}
+
+        case DynamicSupervisor.start_child(Candil.EngineSupervisor, child_spec) do
+          {:ok, _pid} -> :ok
+          {:error, {:already_started, _pid}} -> :ok
+          {:error, reason} -> {:error, reason}
+        end
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 
