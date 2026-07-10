@@ -33,8 +33,9 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      {:apero, github: "Lorenzo-SF/apero", branch: "main"},
-      {:arrea, github: "Lorenzo-SF/arrea", branch: "main"},
+      {:apero, "~> 3.0.0"},
+      {:arrea, "~> 2.1.0"},
+      {:trebejo, path: "../trebejo"},
       {:jason, "~> 1.4"},
       {:req, "~> 0.5"},
       {:mox, "~> 1.0", only: :test},
@@ -50,7 +51,7 @@ defmodule Candil.MixProject do
       main: "readme",
       source_url: "https://github.com/Lorenzo-SF/candil",
       homepage_url: "https://github.com/Lorenzo-SF/candil",
-      source_ref: "2.0.0",
+      source_ref: "2.1.0",
       extras: ["README.md", "LICENSE.md"],
       groups_for_modules: [
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],

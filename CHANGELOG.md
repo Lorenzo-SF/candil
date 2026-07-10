@@ -5,6 +5,22 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [2.1.0] - 2026-XX-XX
+
+### Added
+- `Candil.Engine.Launcher` behaviour for custom engine launchers (external
+  processes, systemd units, docker containers).
+- `Candil.Engine.Server.External` GenServer for managing engines whose
+  lifecycle is handled outside Candil.
+- `:launcher` field in `Candil.Engine` struct.
+
+### Changed
+- `Candil.Engine.Server` now delegates port management to
+  `Arrea.LongRunning` instead of opening ports directly. Adds automatic
+  supervision, registry, telemetry, and graceful shutdown. Polling interval
+  raised from 500ms to 5s (responsiveness is now driven by telemetry events
+  + on-demand health checks).
+
 ## [2.0.0] - 2026-07-07
 
 This entry consolidates everything between `1.0.0` and the current

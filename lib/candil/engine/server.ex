@@ -1,36 +1,52 @@
 defmodule Candil.Engine.Server do
   @moduledoc """
-  GenServer that manages a single `llama-server` OS process.
+  GenServer that supervises a single `llama-server` OS process.
 
-  Each running model occupies one `Server` process. The server is registered
-  in `Candil.Registry` under the model alias so callers can look it up
-  by name.
+  The OS process itself is owned by `Arrea.LongRunning`, which gives us
+  for free:
 
-  The OS process is started with `Port.open/2` and monitored. If the process
-  dies unexpectedly the GenServer terminates, which causes the Registry entry
-  to be removed automatically.
+    * Registration in `Arrea.Registry` under `{:candil_engine, model.alias}`
+      so other apps can `Arrea.LongRunning.state(id)` / `health(id)` /
+      `stop(id)` without going through Candil.
+    * Telemetry events on `[:arrea, :long_running, ...]` for started /
+      stopped / crashed / data.
+    * Automatic port cleanup on crash (Arrea links the port and the
+      GenServer; if the binary dies, Arrea dies, and the link cascade
+      kills this GenServer too).
+    * Crash isolation via `Arrea.WorkerSupervisor`'s `:one_for_one`
+      strategy.
+
+  What this GenServer keeps:
+
+    * The Candil-side `Candil.Registry` registration under the model
+      alias (so `Candil.Engine.stop/1`, `healthy?/1`, `base_url/1` keep
+      working through the existing API).
+    * A cached `healthy` boolean refreshed by a 5s `/health` poll
+      (informational; Arrea also runs the probe for telemetry).
+    * The `terminate/2` cleanup that calls `Arrea.LongRunning.stop/1`
+      explicitly when Candil stops the engine normally.
   """
 
   use GenServer
 
   alias Candil.Engine
 
-  @startup_timeout_ms 30_000
-  @health_poll_ms 500
+  alias Arrea.LongRunning
+
+  @health_poll_ms 5_000
 
   @type state :: %{
           engine: Engine.t(),
           model: Candil.Model.t(),
-          port: port(),
           base_url: binary(),
-          healthy: boolean(),
-          startup_timer: reference() | nil
+          lr_pid: pid(),
+          healthy: boolean()
         }
 
   @doc false
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(%{model: model} = init_arg) do
-    registry = registry()
+    registry = Engine.registry()
     GenServer.start_link(__MODULE__, init_arg, name: {:via, Registry, {registry, model.alias}})
   end
 
@@ -40,24 +56,30 @@ defmodule Candil.Engine.Server do
     binary = Engine.binary_path(engine)
     base_url = "http://#{engine.host}:#{engine.port}"
 
-    port =
-      Port.open(
-        {:spawn_executable, binary},
-        [:binary, :exit_status, :stderr_to_stdout, args: args]
+    {:ok, lr_pid} =
+      LongRunning.start_link(
+        id: {:candil_engine, model.alias},
+        binary: binary,
+        args: args,
+        cd: model_dir_safe(model),
+        env: [],
+        health: fn ->
+          case Req.get("#{base_url}/health", receive_timeout: 1_000) do
+            {:ok, %{status: 200}} -> :ok
+            other -> {:error, other}
+          end
+        end
       )
-
-    timer = Process.send_after(self(), :startup_timeout, @startup_timeout_ms)
 
     state = %{
       engine: engine,
       model: model,
-      port: port,
       base_url: base_url,
-      healthy: false,
-      startup_timer: timer
+      lr_pid: lr_pid,
+      healthy: false
     }
 
-    send(self(), :poll_health)
+    Process.send_after(self(), :poll_health, @health_poll_ms)
     {:ok, state}
   end
 
@@ -71,52 +93,20 @@ defmodule Candil.Engine.Server do
   end
 
   @impl GenServer
-  def handle_info(:poll_health, %{base_url: url, healthy: false, startup_timer: timer} = state) do
-    case do_health_check(url) do
-      :ok ->
-        _ = Process.cancel_timer(timer)
-        {:noreply, %{state | healthy: true, startup_timer: nil}}
-
-      :not_ready ->
-        Process.send_after(self(), :poll_health, @health_poll_ms)
-        {:noreply, state}
-    end
-  end
-
   def handle_info(:poll_health, state) do
-    {:noreply, state}
+    healthy = probe_health(state.base_url)
+    Process.send_after(self(), :poll_health, @health_poll_ms)
+    {:noreply, %{state | healthy: healthy}}
   end
 
-  def handle_info(:startup_timeout, %{healthy: false, port: os_port, model: model} = state) do
-    if Port.info(os_port) != nil do
-      Port.close(os_port)
-    end
-
-    {:stop, {:startup_timeout, model.alias}, state}
-  end
-
-  def handle_info(:startup_timeout, state) do
-    {:noreply, state}
-  end
-
-  def handle_info({os_port, {:data, _output}}, %{port: os_port} = state) do
-    {:noreply, state}
-  end
-
-  def handle_info({os_port, {:exit_status, code}}, %{port: os_port, model: model} = state) do
-    {:stop, {:engine_exited, code, model.alias}, state}
-  end
-
-  def handle_info(_msg, state) do
-    {:noreply, state}
-  end
+  def handle_info(_msg, state), do: {:noreply, state}
 
   @impl GenServer
-  def terminate(_reason, %{port: os_port}) do
-    if Port.info(os_port) != nil do
-      Port.close(os_port)
-    end
-
+  def terminate(_reason, %{model: model}) do
+    # Explicit cleanup so the OS process goes away when Candil asks it
+    # to. If we got here because the link already died (port crashed),
+    # this returns {:error, :not_found} harmlessly.
+    _ = LongRunning.stop({:candil_engine, model.alias})
     :ok
   end
 
@@ -141,24 +131,13 @@ defmodule Candil.Engine.Server do
   defp model_args(%{model_args: args}) when is_list(args), do: args
   defp model_args(_), do: []
 
-  defp do_health_check(base_url) do
-    case Req.get("#{base_url}/health", receive_timeout: @startup_timeout_ms) do
-      {:ok, %{status: 200}} -> :ok
-      _ -> :not_ready
+  defp model_dir_safe(%{model_dir: nil}), do: "."
+  defp model_dir_safe(%{model_dir: dir}) when is_binary(dir), do: dir
+
+  defp probe_health(base_url) do
+    case Req.get("#{base_url}/health", receive_timeout: 1_000) do
+      {:ok, %{status: 200}} -> true
+      _ -> false
     end
-  end
-
-  @doc """
-  Returns the Registry module to use for engine registration.
-
-  Can be configured via application config:
-
-      config :candil, :registry, MyApp.CustomRegistry
-
-  Defaults to `Candil.Registry`.
-  """
-  @spec registry() :: module()
-  def registry do
-    Application.get_env(:candil, :registry, Candil.Registry)
   end
 end
