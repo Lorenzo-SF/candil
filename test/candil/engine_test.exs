@@ -1,5 +1,21 @@
+defmodule Candil.EngineTest.NoopLauncher do
+  @moduledoc false
+  @behaviour Candil.Engine.Launcher
+
+  @impl true
+  def launch(_engine, _model), do: {:ok, %{base_url: "http://127.0.0.1:65535", pid: nil}}
+end
+
+defmodule Candil.EngineTest.FailingLauncher do
+  @moduledoc false
+  @behaviour Candil.Engine.Launcher
+
+  @impl true
+  def launch(_engine, _model), do: {:error, :launcher_failed}
+end
+
 defmodule Candil.EngineTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
   alias Candil.Engine
 
@@ -63,6 +79,73 @@ defmodule Candil.EngineTest do
       }
 
       assert {:error, _} = Engine.start(engine, model)
+    end
+  end
+
+  describe "struct fields" do
+    test "has :launcher field with default nil" do
+      engine = %Engine{alias: :test}
+      assert Map.has_key?(engine, :launcher)
+      assert engine.launcher == nil
+    end
+
+    test "accepts a launcher module" do
+      engine = %Engine{alias: :test, launcher: Candil.EngineTest.NoopLauncher}
+      assert engine.launcher == Candil.EngineTest.NoopLauncher
+    end
+  end
+
+  describe "launcher branch in do_start/2" do
+    test "invokes launcher.launch/2 when configured and bypasses binary check" do
+      model_alias = :launcher_test_model
+
+      engine = %Engine{
+        alias: :launcher_test,
+        # Binary does not exist AND use_precompiled is false — would
+        # normally return an error. The launcher branch must short-circuit.
+        binary_dir: "/nonexistent",
+        use_precompiled: false,
+        host: "127.0.0.1",
+        port: 65_535,
+        launcher: Candil.EngineTest.NoopLauncher
+      }
+
+      model = %Candil.Model{
+        alias: model_alias,
+        type: :local,
+        model_dir: "/models",
+        filename: "launcher_test.gguf"
+      }
+
+      assert :ok = Engine.start(engine, model)
+
+      assert [{pid, _}] = Registry.lookup(Candil.Registry, model_alias)
+      assert GenServer.call(pid, :base_url) == "http://127.0.0.1:65535"
+      assert Engine.base_url(model_alias) == "http://127.0.0.1:65535"
+
+      :ok = Engine.stop(model_alias)
+    end
+
+    test "propagates launcher errors verbatim" do
+      engine = %Engine{
+        alias: :failing_launcher_test,
+        binary_dir: "/nonexistent",
+        use_precompiled: false,
+        launcher: Candil.EngineTest.FailingLauncher
+      }
+
+      model = %Candil.Model{
+        alias: :failing_launcher_model,
+        type: :local,
+        model_dir: "/models",
+        filename: "x.gguf"
+      }
+
+      assert {:error, :launcher_failed} = Engine.start(engine, model)
+    end
+
+    test "returns {:error, :not_running} when launcher was never called" do
+      assert Engine.stop(:never_launched) == {:error, :not_running}
     end
   end
 
