@@ -35,6 +35,7 @@ defmodule Candil.MixProject do
     [
       {:apero, path: "../apero"},
       {:arrea, path: "../arrea"},
+      {:trebejo, path: "../trebejo"},
       {:jason, "~> 1.4"},
       {:req, "~> 0.5"},
       {:mox, "~> 1.0", only: :test},
