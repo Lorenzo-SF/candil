@@ -8,7 +8,7 @@ defmodule Candil.Detector do
 
   ## Detection strategy
 
-    1. OS and architecture are read via `Trebejo.OS`.
+    1. OS type is read via `Apero.OS.type/0`; architecture via `Trebejo.OS.arch/0`.
     2. GPU detection tries, in order: NVIDIA (`nvidia-smi`), AMD (`rocminfo`),
        Apple Metal (via OS type), and Intel Arc (`sycl-ls`).
     3. The detected combination is mapped to the llama.cpp asset name pattern.
@@ -27,13 +27,11 @@ defmodule Candil.Detector do
       llama-b4561-bin-win-cuda-cu12.4.1-x64.zip
   """
 
-  alias Trebejo.OS
-
   @github_releases_url "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 
   @type gpu_backend :: :cuda | :rocm | :metal | :vulkan | :sycl | :cpu
   @type detection :: %{
-          os: Trebejo.OS.os_type(),
+          os: Apero.OS.os_type(),
           arch: Trebejo.OS.arch(),
           gpu: gpu_backend(),
           cuda_version: binary() | nil,
@@ -48,8 +46,8 @@ defmodule Candil.Detector do
   """
   @spec detect() :: detection()
   def detect do
-    os = OS.type()
-    arch = OS.arch()
+    os = Apero.OS.type()
+    arch = Trebejo.OS.arch()
     {gpu, cuda_version} = detect_gpu(os)
 
     %{
@@ -120,7 +118,7 @@ defmodule Candil.Detector do
   @doc """
   Returns the GPU backend detected on the current machine.
   """
-  @spec detect_gpu(Trebejo.OS.os_type()) :: {gpu_backend(), binary() | nil}
+  @spec detect_gpu(Apero.OS.os_type()) :: {gpu_backend(), binary() | nil}
   def detect_gpu(:macos), do: {:metal, nil}
 
   def detect_gpu(_os) do
