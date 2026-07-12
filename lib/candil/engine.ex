@@ -104,13 +104,13 @@ defmodule Candil.Engine do
     do_start(engine, model)
   end
 
-  defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
+defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
     cond do
       engine.launcher != nil ->
-        start_via_launcher(engine, model)
+        register_start_result(start_via_launcher(engine, model), engine)
 
       binary_exists?(engine) ->
-        start_via_server(engine, model)
+        register_start_result(start_via_server(engine, model), engine)
 
       engine.use_precompiled ->
         case Installer.download_engine(engine) do
@@ -120,6 +120,18 @@ defmodule Candil.Engine do
 
       true ->
         {:error, "Binary not found at #{binary_path(engine)}. Run Candil.download_engine/1."}
+    end
+  end
+
+  defp register_start_result(res, engine) do
+    case res do
+      {:ok, pid} ->
+        Candil.EnginePool.put(engine)
+        {:ok, pid}
+      :ok ->
+        Candil.EnginePool.put(engine)
+        :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

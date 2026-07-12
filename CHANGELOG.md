@@ -12,6 +12,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   processes, systemd units, docker containers).
 - `Candil.Engine.Server.External` GenServer for managing engines whose
   lifecycle is handled outside Candil.
+- `Candil.EnginePool` LRU pool to track and manage engine usage.
 - `:launcher` field in `Candil.Engine` struct.
 
 ### Changed
