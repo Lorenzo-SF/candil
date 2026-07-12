@@ -6,19 +6,18 @@ defmodule Candil.Embeddings do
   (ollama, local llama.cpp, OpenAI-compatible API). Used as a lower-level
   embedding backend independent from `Candil.Llm` — this module accepts
   raw provider parameters (URL, model, api_key) rather than Candil structs.
+
+  All HTTP requests are routed through `Candil.HTTP.post_json/4` which
+  provides circuit breaker, retry, and rate limiting.
   """
+
+  alias Candil.HTTP
 
   @typedoc "Embedding vector"
   @type embedding :: [float()]
 
   @doc """
   Generates an embedding vector for a single text string.
-
-  ## Provider-specific behaviour
-
-  - `"ollama"` — POST /api/embed with `model` and `input`
-  - `"local"` — POST /v1/embeddings with `model` and `input`
-  - `"openai"` — POST /v1/embeddings with `model`, `input`, auth header
 
   ## Options
 
@@ -62,17 +61,18 @@ defmodule Candil.Embeddings do
   # ── Ollama ──────────────────────────────────────────────────────────
 
   defp embed_ollama(text, url, model, timeout) do
-    body = Jason.encode!(%{model: model, input: text})
+    body = %{model: model, input: text}
+    headers = [{"content-type", "application/json"}]
 
-    case req_post("#{url}/api/embed", body, timeout) do
-      {:ok, %{"embeddings" => [vec | _]}} when is_list(vec) ->
+    case HTTP.post_json("#{url}/api/embed", body, headers, timeout_ms: timeout, retry: false) do
+      {:ok, %{body: %{"embeddings" => [vec | _]}}} when is_list(vec) ->
         {:ok, vec}
 
       {:ok, _} ->
         {:error, "unexpected Ollama response format"}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, inspect(reason)}
     end
   end
 
@@ -81,17 +81,18 @@ defmodule Candil.Embeddings do
     model = Keyword.get(opts, :model, "llama3.2")
     timeout = Keyword.get(opts, :timeout, 60_000)
 
-    body = Jason.encode!(%{model: model, input: texts})
+    body = %{model: model, input: texts}
+    headers = [{"content-type", "application/json"}]
 
-    case req_post("#{url}/api/embed", body, timeout) do
-      {:ok, %{"embeddings" => vectors}} when is_list(vectors) ->
+    case HTTP.post_json("#{url}/api/embed", body, headers, timeout_ms: timeout, retry: false) do
+      {:ok, %{body: %{"embeddings" => vectors}}} when is_list(vectors) ->
         {:ok, vectors}
 
       {:ok, _} ->
         {:error, "unexpected Ollama batch response format"}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, inspect(reason)}
     end
   end
 
@@ -102,26 +103,27 @@ defmodule Candil.Embeddings do
 
     headers =
       if api_key && api_key != "" do
-        [{"authorization", "Bearer #{api_key}"}]
+        [{"authorization", "Bearer #{api_key}"}, {"content-type", "application/json"}]
       else
-        []
+        [{"content-type", "application/json"}]
       end
 
-    case req_post("#{url}/v1/embeddings", Jason.encode!(req_body), timeout, headers) do
-      {:ok, %{"data" => [%{"embedding" => vec} | _]}} when is_list(vec) ->
+    case HTTP.post_json("#{url}/v1/embeddings", req_body, headers,
+           timeout_ms: timeout,
+           retry: false
+         ) do
+      {:ok, %{body: %{"data" => [%{"embedding" => vec} | _]}}} when is_list(vec) ->
         {:ok, vec}
 
       {:ok, _} ->
         {:error, "unexpected OpenAI-compat response format"}
 
       {:error, reason} ->
-        {:error, reason}
+        {:error, inspect(reason)}
     end
   end
 
   defp embed_batch_openai_compat(texts, opts) do
-    # Some providers (e.g., llama.cpp) don't support true batching;
-    # fall back to sequential individual calls.
     results =
       Enum.reduce_while(texts, {:ok, []}, fn text, {:ok, acc} ->
         case embed(text, opts) do
@@ -134,22 +136,5 @@ defmodule Candil.Embeddings do
       {:ok, vecs} -> {:ok, Enum.reverse(vecs)}
       error -> error
     end
-  end
-
-  # ── HTTP helpers ───────────────────────────────────────────────────
-
-  defp req_post(url, body, timeout, headers \\ []) do
-    case Req.post(url,
-           body: body,
-           headers: [{"content-type", "application/json"} | headers],
-           receive_timeout: timeout
-         ) do
-      {:ok, %{status: s, body: body}} when s in 200..299 -> {:ok, body}
-      {:ok, %{status: s}} -> {:error, "HTTP #{s}"}
-      {:error, %{reason: reason}} -> {:error, reason}
-      {:error, reason} -> {:error, inspect(reason)}
-    end
-  rescue
-    e in [Mint.TransportError] -> {:error, Exception.message(e)}
   end
 end

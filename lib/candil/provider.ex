@@ -120,29 +120,33 @@ defmodule Candil.Provider do
   Includes authentication headers appropriate to the provider type.
   """
   @spec auth_headers(t()) :: [{binary(), binary()}]
-  def auth_headers(%__MODULE__{type: :openai, api_key: key, org_id: org}) when is_binary(key) do
+  def auth_headers(%__MODULE__{type: :openai, api_key: key, org_id: org, headers: extra})
+      when is_binary(key) do
     base = [{"authorization", "Bearer #{key}"}, {"content-type", "application/json"}]
-    if org, do: [{"openai-organization", org} | base], else: base
+    merged = if org, do: [{"openai-organization", org} | base], else: base
+    merged ++ extra
   end
 
-  def auth_headers(%__MODULE__{type: :openai_compatible, api_key: key}) when is_binary(key) do
-    [{"authorization", "Bearer #{key}"}, {"content-type", "application/json"}]
+  def auth_headers(%__MODULE__{type: :openai_compatible, api_key: key, headers: extra})
+      when is_binary(key) do
+    [{"authorization", "Bearer #{key}"}, {"content-type", "application/json"} | extra]
   end
 
-  def auth_headers(%__MODULE__{type: :openai_compatible}) do
-    [{"content-type", "application/json"}]
+  def auth_headers(%__MODULE__{type: :openai_compatible, headers: extra}) do
+    [{"content-type", "application/json"} | extra]
   end
 
-  def auth_headers(%__MODULE__{type: :anthropic, api_key: key}) when is_binary(key) do
+  def auth_headers(%__MODULE__{type: :anthropic, api_key: key, headers: extra}) when is_binary(key) do
     [
       {"x-api-key", key},
       {"anthropic-version", "2023-06-01"},
       {"content-type", "application/json"}
+      | extra
     ]
   end
 
-  def auth_headers(%__MODULE__{type: :ollama}) do
-    [{"content-type", "application/json"}]
+  def auth_headers(%__MODULE__{type: :ollama, headers: extra}) do
+    [{"content-type", "application/json"} | extra]
   end
 
   def auth_headers(%__MODULE__{headers: extra}) do

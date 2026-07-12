@@ -87,13 +87,43 @@ defmodule Candil.HTTP do
           {:ok, term()} | {:error, Error.t()}
   def post_streaming(url, body, headers, opts \\ [], streaming_opts \\ []) do
     timeout = Keyword.get(opts, :timeout_ms, @default_stream_timeout_ms)
+    breaker = Keyword.get(opts, :breaker_name, breaker_name(url))
+    rate_limit = Keyword.get(opts, :rate_limit)
 
-    case do_post_streaming(url, body, headers, timeout, streaming_opts) do
-      {:ok, _} = result ->
-        result
+    request_fn = fn ->
+      with :ok <- check_rate_limit(breaker, rate_limit) do
+        CircuitBreaker.call(breaker, fn ->
+          do_post_streaming(url, body, headers, timeout, streaming_opts)
+        end)
+        |> case do
+          {:ok, _} = result -> result
+          {:error, :circuit_open} -> {:error, Error.wrap(:circuit_open)}
+          {:error, :execution_failed} -> {:error, Error.wrap(:execution_failed)}
+          other -> other
+        end
+      end
+    end
 
-      {:error, reason} ->
-        {:error, wrap_reason(reason)}
+    result =
+      if Keyword.get(opts, :retry, true) do
+        request_fn
+        |> Retry.with(
+          max_attempts: Keyword.get(opts, :max_retries, 3) + 1,
+          base_delay: Keyword.get(opts, :base_delay, 1000),
+          max_delay: Keyword.get(opts, :max_delay, 30_000),
+          retry_on: fn
+            {:ok, %{status: status}} when status in 429..599 -> true
+            {:error, %{reason: :timeout}} -> true
+            _ -> false
+          end
+        )
+      else
+        request_fn.()
+      end
+
+    case result do
+      {:ok, _} = ok -> ok
+      {:error, reason} -> {:error, wrap_reason(reason)}
     end
   end
 
