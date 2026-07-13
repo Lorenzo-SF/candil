@@ -67,8 +67,9 @@ defmodule Candil.Detector do
   def latest_release_tag do
     url = "#{@github_releases_url}/latest"
 
-    case Req.get(url,
-           headers: [{"accept", "application/vnd.github+json"}],
+    case Apero.Http.get(
+           url,
+           [{"accept", "application/vnd.github+json"}],
            receive_timeout: 15_000
          ) do
       {:ok, %{status: 200, body: %{"tag_name" => tag}}} ->
@@ -76,6 +77,9 @@ defmodule Candil.Detector do
 
       {:ok, %{status: status}} ->
         {:error, {:http_error, status}}
+
+      {:error, %Apero.Http.Error{reason: reason}} ->
+        {:error, reason}
 
       {:error, reason} ->
         {:error, reason}
@@ -100,8 +104,9 @@ defmodule Candil.Detector do
     detection = detect()
     url = "#{@github_releases_url}/tags/#{tag}"
 
-    case Req.get(url,
-           headers: [{"accept", "application/vnd.github+json"}],
+    case Apero.Http.get(
+           url,
+           [{"accept", "application/vnd.github+json"}],
            receive_timeout: 15_000
          ) do
       {:ok, %{status: 200, body: %{"assets" => assets}}} ->
@@ -109,6 +114,9 @@ defmodule Candil.Detector do
 
       {:ok, %{status: status}} ->
         {:error, {:http_error, status}}
+
+      {:error, %Apero.Http.Error{reason: reason}} ->
+        {:error, reason}
 
       {:error, reason} ->
         {:error, reason}

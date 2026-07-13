@@ -37,7 +37,6 @@ defmodule Candil.MixProject do
       {:arrea, path: "../arrea", override: true},
       {:trebejo, path: "../trebejo", override: true},
       {:jason, "~> 1.4"},
-      {:req, "~> 0.5"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, ">= 1.0.0", only: [:dev, :test], runtime: false},

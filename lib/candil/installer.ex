@@ -105,12 +105,33 @@ defmodule Candil.Installer do
   end
 
   defp stream_download(url, dest_path, checksum) do
-    case Req.get(url,
-           into: dest_path,
-           receive_timeout: :infinity,
-           headers: [{"user-agent", "apero-llm/0.1"}]
-         ) do
-      {:ok, %{status: status}} when status in 200..299 ->
+    # Write streamed chunks to file
+    stream_fun = fn entry, {:file, io_device} ->
+      case entry do
+        {:data, data} ->
+          IO.binwrite(io_device, data)
+          {:cont, {:file, io_device}}
+
+        {:done, _} ->
+          :ok = File.close(io_device)
+          {:halt, {:done, dest_path}}
+
+        _ ->
+          {:cont, {:file, io_device}}
+      end
+    end
+
+    # Open file and start streaming
+    {:ok, file} = File.open(dest_path, [:write, :binary])
+
+    case Apero.Http.stream(
+           :get,
+           url,
+           nil,
+           [{"user-agent", "apero-llm/0.1"}],
+           {:file, file},
+           stream_fun, receive_timeout: :infinity) do
+      {:ok, {:done, ^dest_path}} ->
         if checksum do
           case verify_checksum(dest_path, checksum) do
             :ok -> {:ok, dest_path}
@@ -120,10 +141,15 @@ defmodule Candil.Installer do
           {:ok, dest_path}
         end
 
-      {:ok, %{status: status}} ->
-        {:error, "HTTP #{status} downloading #{url}"}
+      {:ok, _} ->
+        {:error, "Download interrupted"}
+
+      {:error, %{reason: reason}} ->
+        _ = File.close(file)
+        {:error, "Download failed: #{inspect(reason)}"}
 
       {:error, reason} ->
+        _ = File.close(file)
         {:error, "Download failed: #{inspect(reason)}"}
     end
   end

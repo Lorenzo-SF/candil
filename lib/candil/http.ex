@@ -5,6 +5,9 @@ defmodule Candil.HTTP do
   Wraps `Arrea.CircuitBreaker` around all outbound HTTP calls. Uses
   `Apero.Retry` with exponential backoff for transient failures.
   Implements a sliding-window rate limiter per breaker name.
+
+  Transport is provided by `Apero.Http` — a dedicated Finch pool managed
+  by `Apero.Http.Finch`.
   """
 
   alias Candil.Error
@@ -140,20 +143,20 @@ defmodule Candil.HTTP do
   def get(url, headers \\ [], opts \\ []) do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
 
-    case Req.get(url, headers: headers, receive_timeout: timeout) do
-      {:ok, %{status: status, body: body}} when status in 200..299 ->
+    case Apero.Http.get(url, headers, receive_timeout: timeout) do
+      {:ok, %Apero.Http.Response{status: status, body: body}} when status in 200..299 ->
         {:ok, %{status: status, body: body}}
 
-      {:ok, %{status: 429, body: body}} ->
+      {:ok, %Apero.Http.Response{status: 429, body: body}} ->
         {:error, Error.rate_limited(body["retry_after"])}
 
-      {:ok, %{status: status, body: body}} ->
+      {:ok, %Apero.Http.Response{status: status, body: body}} ->
         {:error, Error.http_error(status, body)}
 
-      {:error, %{reason: :timeout}} ->
+      {:error, %Apero.Http.Error{reason: :timeout}} ->
         {:error, Error.timeout(%{url: url})}
 
-      {:error, reason} ->
+      {:error, %Apero.Http.Error{reason: reason}} ->
         {:error, Error.wrap(reason)}
     end
   end
@@ -161,28 +164,47 @@ defmodule Candil.HTTP do
   # Internal implementation
 
   defp do_post_json(url, body, headers, timeout) do
-    Req.post(url,
-      json: body,
-      headers: headers,
-      receive_timeout: timeout
-    )
+    case Apero.Http.post(url, body, headers, receive_timeout: timeout) do
+      {:ok, %Apero.Http.Response{status: status, headers: headers, body: body}} ->
+        {:ok, %{status: status, headers: headers, body: body}}
+
+      {:error, %Apero.Http.Error{} = error} ->
+        {:error, error}
+    end
   end
 
   defp do_post_streaming(url, body, headers, timeout, streaming_opts) do
-    Req.post(url,
-      json: body,
-      headers: headers,
-      receive_timeout: timeout,
-      into: Keyword.get(streaming_opts, :into, &stream_callback/2)
-    )
+    # Build a Finch-compatible streaming callback that:
+    # 1. Skips status/headers entries (handled by the transport)
+    # 2. Forwards {:data, data} and :done to the user's callback
+    user_callback = Keyword.get(streaming_opts, :into, &default_stream_callback/2)
+
+    stream_fun = fn entry, acc ->
+      case entry do
+        {:data, _data} -> user_callback.(entry, acc)
+        {:done, _} -> {:halt, acc}
+        _ -> {:cont, acc}
+      end
+    end
+
+    case Apero.Http.stream(:post, url, body, headers, [], stream_fun, receive_timeout: timeout) do
+      {:ok, acc} ->
+        {:ok, acc}
+
+      {:error, %Apero.Http.Error{reason: :timeout}} ->
+        {:error, Error.timeout()}
+
+      {:error, %Apero.Http.Error{reason: reason}} ->
+        {:error, Error.wrap(reason)}
+    end
   end
 
-  defp stream_callback({:data, data}, acc) do
+  defp default_stream_callback({:data, data}, acc) do
     {:cont, [data | acc]}
   end
 
-  defp stream_callback(:done, acc) do
-    {:halt, Enum.reverse(acc)}
+  defp default_stream_callback(:done, _acc) do
+    {:halt, []}
   end
 
   defp breaker_name(url) do
