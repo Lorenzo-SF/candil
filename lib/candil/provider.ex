@@ -136,7 +136,8 @@ defmodule Candil.Provider do
     [{"content-type", "application/json"} | extra]
   end
 
-  def auth_headers(%__MODULE__{type: :anthropic, api_key: key, headers: extra}) when is_binary(key) do
+  def auth_headers(%__MODULE__{type: :anthropic, api_key: key, headers: extra})
+      when is_binary(key) do
     [
       {"x-api-key", key},
       {"anthropic-version", "2023-06-01"},

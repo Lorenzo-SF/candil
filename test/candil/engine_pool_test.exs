@@ -21,7 +21,13 @@ defmodule Candil.EnginePoolTest do
   end
 
   defp do_restore([]), do: :ok
-  defp do_restore([e | rest]), do: (EnginePool.put(e); do_restore(rest))
+
+  defp do_restore([e | rest]),
+    do:
+      (
+        EnginePool.put(e)
+        do_restore(rest)
+      )
 
   test "put and get LRU ordering" do
     e1 = %{alias: :e1}
@@ -52,7 +58,8 @@ defmodule Candil.EnginePoolTest do
   test "registering existing engine updates order" do
     e1 = %{alias: :e1}
     EnginePool.put(e1)
-    EnginePool.put(e1) # duplicate
+    # duplicate
+    EnginePool.put(e1)
     assert EnginePool.get() == e1
     assert EnginePool.get() == e1
   end

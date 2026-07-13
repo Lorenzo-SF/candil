@@ -104,7 +104,7 @@ defmodule Candil.Engine do
     do_start(engine, model)
   end
 
-defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
+  defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
     cond do
       engine.launcher != nil ->
         register_start_result(start_via_launcher(engine, model), engine)
@@ -128,10 +128,13 @@ defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
       {:ok, pid} ->
         Candil.EnginePool.put(engine)
         {:ok, pid}
+
       :ok ->
         Candil.EnginePool.put(engine)
         :ok
-      {:error, reason} -> {:error, reason}
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

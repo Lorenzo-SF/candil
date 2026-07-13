@@ -234,10 +234,7 @@ defmodule Candil.ProviderTest do
       assert auth_headers == []
     end
 
-    test "includes extra headers when there is no type-specific function" do
-      # Note: The current implementation has a bug where type-specific functions
-      # are matched before the catch-all, so extra headers aren't included.
-      # This test documents the actual (buggy) behavior.
+    test "includes extra headers merged with type-specific headers" do
       provider = %Provider{
         alias: :test,
         type: :openai_compatible,
@@ -247,9 +244,8 @@ defmodule Candil.ProviderTest do
 
       headers = Provider.auth_headers(provider)
 
-      # The extra headers are NOT included due to the bug in Provider.auth_headers/1
-      # Extra headers would need to be added to each type-specific function
-      refute {"x-custom", "value"} in headers
+      assert {"x-custom", "value"} in headers
+      assert {"content-type", "application/json"} in headers
     end
   end
 

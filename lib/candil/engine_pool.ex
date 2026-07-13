@@ -58,6 +58,7 @@ defmodule Candil.EnginePool do
   end
 
   def handle_call(:get, _from, []), do: {:reply, :empty, []}
+
   def handle_call(:get, _from, state) do
     {least, rest} = List.pop_at(state, -1)
     new_state = [least | rest]
@@ -65,6 +66,7 @@ defmodule Candil.EnginePool do
   end
 
   def handle_call(:evict, _from, []), do: {:reply, :empty, []}
+
   def handle_call(:evict, _from, state) do
     {least, rest} = List.pop_at(state, -1)
     {:reply, least, rest}
