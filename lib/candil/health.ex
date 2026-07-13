@@ -84,27 +84,24 @@ defmodule Candil.Health do
   end
 
   defp http_get(url, timeout) do
-    # Use Req if available, fall back to :httpc
-    case Req.get(url, receive_timeout: timeout) do
+    case Candil.HTTP.get(url, [], timeout_ms: timeout) do
       {:ok, %{status: s, body: body}} -> {:ok, s, body}
-      {:error, %{reason: reason}} -> {:error, reason}
+      {:error, %Candil.Error{reason: :timeout}} -> {:error, "timeout"}
+      {:error, %Candil.Error{reason: reason}} -> {:error, inspect(reason)}
       {:error, reason} -> {:error, inspect(reason)}
     end
-  rescue
-    e in [Mint.TransportError] -> {:error, Exception.message(e)}
   end
 
   defp http_post(url, body, timeout) do
-    case Req.post(url,
-           body: body,
-           headers: [{"content-type", "application/json"}],
-           receive_timeout: timeout
+    case Candil.HTTP.post_json(url, body, [{"content-type", "application/json"}],
+           timeout_ms: timeout,
+           retry: false
          ) do
       {:ok, %{status: s, body: body}} -> {:ok, s, body}
+      {:error, %Candil.Error{reason: :timeout}} -> {:error, "timeout"}
+      {:error, %Candil.Error{reason: reason}} -> {:error, inspect(reason)}
       {:error, reason} -> {:error, inspect(reason)}
     end
-  rescue
-    e in [Mint.TransportError] -> {:error, Exception.message(e)}
   end
 
   defp detect_provider(url) do

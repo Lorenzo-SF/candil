@@ -33,7 +33,7 @@ defmodule Candil.Engine.Server do
 
   alias Arrea.LongRunning
 
-  @health_poll_ms 5_000
+  alias Candil.Engine.HealthPoller
 
   @type state :: %{
           engine: Engine.t(),
@@ -64,9 +64,9 @@ defmodule Candil.Engine.Server do
         cd: model_dir_safe(model),
         env: [],
         health: fn ->
-          case Req.get("#{base_url}/health", receive_timeout: 1_000) do
-            {:ok, %{status: 200}} -> :ok
-            other -> {:error, other}
+          case HealthPoller.probe_health(base_url) do
+            true -> :ok
+            false -> {:error, :not_ready}
           end
         end
       )
@@ -79,25 +79,18 @@ defmodule Candil.Engine.Server do
       healthy: false
     }
 
-    Process.send_after(self(), :poll_health, @health_poll_ms)
+    Process.send_after(self(), :poll_health, HealthPoller.poll_interval())
     {:ok, state}
   end
 
   @impl GenServer
-  def handle_call(:health, _from, %{healthy: healthy} = state) do
-    {:reply, if(healthy, do: :ok, else: :not_ready), state}
-  end
+  def handle_call(:health, _from, state), do: HealthPoller.handle_health_call(state)
 
-  def handle_call(:base_url, _from, %{base_url: url} = state) do
-    {:reply, url, state}
-  end
+  def handle_call(:base_url, _from, state),
+    do: HealthPoller.handle_base_url_call(state, state.base_url)
 
   @impl GenServer
-  def handle_info(:poll_health, state) do
-    healthy = probe_health(state.base_url)
-    Process.send_after(self(), :poll_health, @health_poll_ms)
-    {:noreply, %{state | healthy: healthy}}
-  end
+  def handle_info(:poll_health, state), do: HealthPoller.handle_poll_health(state)
 
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -133,11 +126,4 @@ defmodule Candil.Engine.Server do
 
   defp model_dir_safe(%{model_dir: nil}), do: "."
   defp model_dir_safe(%{model_dir: dir}) when is_binary(dir), do: dir
-
-  defp probe_health(base_url) do
-    case Req.get("#{base_url}/health", receive_timeout: 1_000) do
-      {:ok, %{status: 200}} -> true
-      _ -> false
-    end
-  end
 end
