@@ -27,6 +27,8 @@ defmodule Candil.Error do
           | :invalid_request
           | :engine_exited
           | :startup_timeout
+          | :circuit_open
+          | :execution_failed
           | term()
 
   @doc """

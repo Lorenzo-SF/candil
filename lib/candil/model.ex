@@ -103,6 +103,10 @@ defmodule Candil.Model do
 
   def file_path(%__MODULE__{model_dir: dir, filename: filename})
       when is_binary(dir) and is_binary(filename) do
+    if path_traversal?(dir) or path_traversal?(filename) do
+      raise ArgumentError, "model_dir/filename must not contain path traversal (..)"
+    end
+
     Path.join(dir, filename)
   end
 
@@ -151,6 +155,11 @@ defmodule Candil.Model do
     |> then(fn e ->
       if is_nil(m.filename), do: ["filename is required for local models" | e], else: e
     end)
+    |> then(fn e ->
+      if path_traversal?(m.model_dir) or path_traversal?(m.filename),
+        do: ["model_dir/filename must not contain path traversal (..)" | e],
+        else: e
+    end)
   end
 
   defp validate_type_fields(errors, %{type: :remote} = m) do
@@ -164,6 +173,11 @@ defmodule Candil.Model do
   end
 
   defp validate_type_fields(errors, %{type: t}), do: ["unknown type: #{t}" | errors]
+
+  # Rejects paths containing ".." to prevent directory traversal attacks.
+  defp path_traversal?(nil), do: false
+  defp path_traversal?(path) when is_binary(path), do: String.contains?(path, "..")
+  defp path_traversal?(_), do: false
 
   defp validate_usage(errors, %{usage: usages}) when is_list(usages) do
     invalid = Enum.reject(usages, &(&1 in @usage_types))

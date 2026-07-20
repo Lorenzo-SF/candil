@@ -56,31 +56,34 @@ defmodule Candil.Engine.Server do
     binary = Engine.binary_path(engine)
     base_url = "http://#{engine.host}:#{engine.port}"
 
-    {:ok, lr_pid} =
-      LongRunning.start_link(
-        id: {:candil_engine, model.alias},
-        binary: binary,
-        args: args,
-        cd: model_dir_safe(model),
-        env: [],
-        health: fn ->
-          case HealthPoller.probe_health(base_url) do
-            true -> :ok
-            false -> {:error, :not_ready}
-          end
-        end
-      )
+    case LongRunning.start_link(
+           id: {:candil_engine, model.alias},
+           binary: binary,
+           args: args,
+           cd: model_dir_safe(model),
+           env: [],
+           health: fn ->
+             case HealthPoller.probe_health(base_url) do
+               true -> :ok
+               false -> {:error, :not_ready}
+             end
+           end
+         ) do
+      {:ok, lr_pid} ->
+        state = %{
+          engine: engine,
+          model: model,
+          base_url: base_url,
+          lr_pid: lr_pid,
+          healthy: false
+        }
 
-    state = %{
-      engine: engine,
-      model: model,
-      base_url: base_url,
-      lr_pid: lr_pid,
-      healthy: false
-    }
+        Process.send_after(self(), :poll_health, HealthPoller.poll_interval())
+        {:ok, state}
 
-    Process.send_after(self(), :poll_health, HealthPoller.poll_interval())
-    {:ok, state}
+      {:error, reason} ->
+        {:stop, reason}
+    end
   end
 
   @impl GenServer
@@ -104,6 +107,10 @@ defmodule Candil.Engine.Server do
   end
 
   defp build_args(%Engine{start_args: engine_args, host: host, port: port}, model) do
+    if String.contains?(model.model_dir, "..") or String.contains?(model.filename, "..") do
+      raise ArgumentError, "model path must not contain path traversal (..)"
+    end
+
     model_path = Path.join(model.model_dir, model.filename)
     context = to_string(model.context_size || 4096)
 

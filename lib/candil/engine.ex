@@ -64,13 +64,21 @@ defmodule Candil.Engine do
   Returns the effective binary directory for an engine.
 
   Falls back to `~/.apero/llm/bin` when `binary_dir` is `nil`.
+
+  Raises `ArgumentError` if the configured path contains `..` (path traversal).
   """
   @spec binary_dir(t()) :: binary()
   def binary_dir(%__MODULE__{binary_dir: nil}) do
     Path.join([System.user_home!(), ".apero", "llm", "bin"])
   end
 
-  def binary_dir(%__MODULE__{binary_dir: dir}), do: dir
+  def binary_dir(%__MODULE__{binary_dir: dir}) do
+    if String.contains?(dir, "..") do
+      raise ArgumentError, "binary_dir must not contain path traversal (..): #{inspect(dir)}"
+    end
+
+    dir
+  end
 
   @doc """
   Returns the full path to the `llama-server` binary for this engine.

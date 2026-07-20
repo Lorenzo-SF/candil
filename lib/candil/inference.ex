@@ -65,13 +65,15 @@ defmodule Candil.Inference do
   @spec chat_local(atom(), [message()], keyword()) :: {:ok, response()} | {:error, Error.t()}
   def chat_local(model_alias, messages, opts \\ []) do
     with {:ok, model} <- Config.get_model(model_alias),
-         true <-
-           :chat in model.usage || :completion in model.usage ||
-             (model.type == :remote && :chat in model.usage) do
+         false <- model.type == :remote,
+         true <- :chat in model.usage || :completion in model.usage do
       do_chat_local(model_alias, messages, opts)
     else
       {:error, :not_found} ->
         {:error, Error.model_not_found(model_alias)}
+
+      true ->
+        {:error, Error.invalid_request("Model #{model_alias} is remote, use chat_remote/4")}
 
       false ->
         {:error, Error.invalid_request("Model #{model_alias} does not support chat")}
@@ -174,11 +176,15 @@ defmodule Candil.Inference do
           {:ok, embed_response()} | {:error, Error.t()}
   def embed_local(model_alias, texts, _opts \\ []) do
     with {:ok, model} <- Config.get_model(model_alias),
+         false <- model.type == :remote,
          true <- :embeddings in model.usage do
       do_embed_local(model_alias, texts)
     else
       {:error, :not_found} ->
         {:error, Error.model_not_found(model_alias)}
+
+      true ->
+        {:error, Error.invalid_request("Model #{model_alias} is remote, use embed_remote/4")}
 
       false ->
         {:error, Error.invalid_request("Model #{model_alias} does not support embeddings")}

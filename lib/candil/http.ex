@@ -18,6 +18,8 @@ defmodule Candil.HTTP do
   @default_timeout_ms 60_000
   @default_stream_timeout_ms 120_000
 
+  @type response :: %{status: pos_integer(), body: any(), headers: list()}
+
   @doc """
   Performs a POST request with JSON body, protected by circuit breaker and retry.
 
@@ -31,11 +33,11 @@ defmodule Candil.HTTP do
 
   ## Returns
 
-    * `{:ok, map()}` — successful response body
+    * `{:ok, Candil.HTTP.response()}` — response map with status, body, headers
     * `{:error, Candil.Error.t()}` — error with unified error types
   """
   @spec post_json(binary(), map(), [{binary(), binary()}], keyword()) ::
-          {:ok, map()} | {:error, Error.t()}
+          {:ok, response()} | {:error, Error.t()}
   def post_json(url, body, headers, opts \\ []) do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
     breaker = Keyword.get(opts, :breaker_name, breaker_name(url))
@@ -223,24 +225,7 @@ defmodule Candil.HTTP do
   defp check_rate_limit(_breaker, nil), do: :ok
 
   defp check_rate_limit(breaker, max_per_second) do
-    key = {breaker, :rate_limit}
-    now = System.monotonic_time(:millisecond)
-    window_ms = 1000
-
-    timestamps =
-      case Process.get(key) do
-        nil -> []
-        list when is_list(list) -> list
-      end
-
-    recent = Enum.filter(timestamps, &(now - &1 < window_ms))
-
-    if length(recent) < max_per_second do
-      Process.put(key, [now | recent])
-      :ok
-    else
-      {:error, Error.rate_limited(window_ms - (now - List.last(recent)))}
-    end
+    Candil.RateLimiter.check(breaker, max_per_second)
   end
 
   defp wrap_error({:ok, %{status: status, body: body}}) when status in 200..299 do
