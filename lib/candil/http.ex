@@ -10,10 +10,10 @@ defmodule Candil.HTTP do
   by `Apero.Http.Finch`.
   """
 
-  alias Candil.Error
-
+  alias Apero.Http, as: AperoHTTP
   alias Apero.Retry
   alias Arrea.CircuitBreaker
+  alias Candil.{Error, RateLimiter}
 
   @default_timeout_ms 60_000
   @default_stream_timeout_ms 120_000
@@ -145,20 +145,20 @@ defmodule Candil.HTTP do
   def get(url, headers \\ [], opts \\ []) do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
 
-    case Apero.Http.get(url, headers, receive_timeout: timeout) do
-      {:ok, %Apero.Http.Response{status: status, body: body}} when status in 200..299 ->
+    case AperoHTTP.get(url, headers, receive_timeout: timeout) do
+      {:ok, %AperoHTTP.Response{status: status, body: body}} when status in 200..299 ->
         {:ok, %{status: status, body: body}}
 
-      {:ok, %Apero.Http.Response{status: 429, body: body}} ->
+      {:ok, %AperoHTTP.Response{status: 429, body: body}} ->
         {:error, Error.rate_limited(body["retry_after"])}
 
-      {:ok, %Apero.Http.Response{status: status, body: body}} ->
+      {:ok, %AperoHTTP.Response{status: status, body: body}} ->
         {:error, Error.http_error(status, body)}
 
-      {:error, %Apero.Http.Error{reason: :timeout}} ->
+      {:error, %AperoHTTP.Error{reason: :timeout}} ->
         {:error, Error.timeout(%{url: url})}
 
-      {:error, %Apero.Http.Error{reason: reason}} ->
+      {:error, %AperoHTTP.Error{reason: reason}} ->
         {:error, Error.wrap(reason)}
     end
   end
@@ -166,11 +166,11 @@ defmodule Candil.HTTP do
   # Internal implementation
 
   defp do_post_json(url, body, headers, timeout) do
-    case Apero.Http.post(url, body, headers, receive_timeout: timeout) do
-      {:ok, %Apero.Http.Response{status: status, headers: headers, body: body}} ->
+    case AperoHTTP.post(url, body, headers, receive_timeout: timeout) do
+      {:ok, %AperoHTTP.Response{status: status, headers: headers, body: body}} ->
         {:ok, %{status: status, headers: headers, body: body}}
 
-      {:error, %Apero.Http.Error{} = error} ->
+      {:error, %AperoHTTP.Error{} = error} ->
         {:error, error}
     end
   end
@@ -189,14 +189,14 @@ defmodule Candil.HTTP do
       end
     end
 
-    case Apero.Http.stream(:post, url, body, headers, [], stream_fun, receive_timeout: timeout) do
+    case AperoHTTP.stream(:post, url, body, headers, [], stream_fun, receive_timeout: timeout) do
       {:ok, acc} ->
         {:ok, acc}
 
-      {:error, %Apero.Http.Error{reason: :timeout}} ->
+      {:error, %AperoHTTP.Error{reason: :timeout}} ->
         {:error, Error.timeout()}
 
-      {:error, %Apero.Http.Error{reason: reason}} ->
+      {:error, %AperoHTTP.Error{reason: reason}} ->
         {:error, Error.wrap(reason)}
     end
   end
@@ -225,11 +225,12 @@ defmodule Candil.HTTP do
   defp check_rate_limit(_breaker, nil), do: :ok
 
   defp check_rate_limit(breaker, max_per_second) do
-    Candil.RateLimiter.check(breaker, max_per_second)
+    RateLimiter.check(breaker, max_per_second)
   end
 
-  defp wrap_error({:ok, %{status: status, body: body}}) when status in 200..299 do
-    {:ok, %{status: status, body: body}}
+  @spec wrap_error(term()) :: {:ok, response()} | {:error, Error.t()}
+  defp wrap_error({:ok, %{status: status} = response}) when status in 200..299 do
+    {:ok, response}
   end
 
   defp wrap_error({:ok, %{status: 429, body: body}}) do

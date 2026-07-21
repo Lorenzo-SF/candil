@@ -27,7 +27,8 @@ defmodule Candil.Embeddings do
     - `:api_key` — API key for authenticated providers
     - `:timeout` — request timeout in ms (default: 30_000)
   """
-  @spec embed(String.t(), keyword()) :: {:ok, embedding()} | {:error, String.t()}
+  @spec embed(String.t(), keyword()) ::
+          {:ok, embedding()} | {:error, String.t() | Exception.t()}
   def embed(text, opts \\ []) when is_binary(text) do
     provider = Keyword.get(opts, :provider, "local")
     url = Keyword.get(opts, :url, "http://127.0.0.1:8080")
@@ -48,7 +49,8 @@ defmodule Candil.Embeddings do
 
   Falls back to individual requests if batching is not supported by the provider.
   """
-  @spec embed_batch([String.t()], keyword()) :: {:ok, [embedding()]} | {:error, String.t()}
+  @spec embed_batch([String.t()], keyword()) ::
+          {:ok, [embedding()]} | {:error, String.t() | Exception.t()}
   def embed_batch(texts, opts \\ []) when is_list(texts) do
     provider = Keyword.get(opts, :provider, "local")
 

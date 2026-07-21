@@ -7,6 +7,8 @@ defmodule Candil.Health do
   (e.g., Botica.Doctor) to surface actionable status to the user.
   """
 
+  alias Candil.{Error, HTTP}
+
   @typedoc "Health status for a single provider"
   @type t :: %__MODULE__{
           provider: String.t(),
@@ -64,7 +66,7 @@ defmodule Candil.Health do
   @spec ping(String.t(), String.t(), keyword()) :: :ok | {:error, String.t()}
   def ping(url, model, opts \\ []) do
     timeout = Keyword.get(opts, :timeout, 5_000)
-    body = Jason.encode!(%{model: model, input: "ping", encoding_format: "float"})
+    body = %{model: model, input: "ping", encoding_format: "float"}
 
     case http_post("#{url}/v1/embeddings", body, timeout) do
       {:ok, status, _} when status in 200..299 -> :ok
@@ -84,23 +86,21 @@ defmodule Candil.Health do
   end
 
   defp http_get(url, timeout) do
-    case Candil.HTTP.get(url, [], timeout_ms: timeout) do
+    case HTTP.get(url, [], timeout_ms: timeout) do
       {:ok, %{status: s, body: body}} -> {:ok, s, body}
-      {:error, %Candil.Error{reason: :timeout}} -> {:error, "timeout"}
-      {:error, %Candil.Error{reason: reason}} -> {:error, inspect(reason)}
-      {:error, reason} -> {:error, inspect(reason)}
+      {:error, %Error{reason: :timeout}} -> {:error, "timeout"}
+      {:error, %Error{reason: reason}} -> {:error, inspect(reason)}
     end
   end
 
   defp http_post(url, body, timeout) do
-    case Candil.HTTP.post_json(url, body, [{"content-type", "application/json"}],
+    case HTTP.post_json(url, body, [{"content-type", "application/json"}],
            timeout_ms: timeout,
            retry: false
          ) do
       {:ok, %{status: s, body: body}} -> {:ok, s, body}
-      {:error, %Candil.Error{reason: :timeout}} -> {:error, "timeout"}
-      {:error, %Candil.Error{reason: reason}} -> {:error, inspect(reason)}
-      {:error, reason} -> {:error, inspect(reason)}
+      {:error, %Error{reason: :timeout}} -> {:error, "timeout"}
+      {:error, %Error{reason: reason}} -> {:error, inspect(reason)}
     end
   end
 
