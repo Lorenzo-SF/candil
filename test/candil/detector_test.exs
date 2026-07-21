@@ -1,7 +1,27 @@
 defmodule Candil.DetectorTest do
-  use ExUnit.Case, async: true
+  use ExUnit.Case, async: false
 
-  alias Candil.Detector
+  import Mox
+
+  alias Apero.Http.{Request, Response}
+  alias Candil.{Detector, HTTPAdapterMock}
+
+  setup :verify_on_exit!
+
+  setup do
+    previous_adapter = Application.get_env(:apero, :http_adapter)
+    Application.put_env(:apero, :http_adapter, HTTPAdapterMock)
+
+    on_exit(fn ->
+      if previous_adapter do
+        Application.put_env(:apero, :http_adapter, previous_adapter)
+      else
+        Application.delete_env(:apero, :http_adapter)
+      end
+    end)
+
+    :ok
+  end
 
   describe "detect/0" do
     test "returns a detection map with required keys" do
@@ -27,23 +47,40 @@ defmodule Candil.DetectorTest do
     end
   end
 
-  # Note: Testing GPU detection and latest_release_tag/asset_url requires
-  # mocking System.cmd/3 and Req.get/2 which is complex without modifying the code.
-  # These tests would be integration tests.
-
   describe "latest_release_tag/0" do
-    test "returns an error tuple or ok tuple" do
-      # Without mocking Req, we can't predict the result
-      # Just verify it returns the expected format
-      result = Detector.latest_release_tag()
-      assert is_tuple(result)
+    test "returns the latest release tag" do
+      expect(HTTPAdapterMock, :request, fn %Request{method: :get, url: url} ->
+        assert String.ends_with?(url, "/latest")
+        {:ok, %Response{status: 200, headers: [], body: %{"tag_name" => "b123"}}}
+      end)
+
+      assert {:ok, "b123"} = Detector.latest_release_tag()
     end
   end
 
   describe "asset_url/1" do
-    test "returns an error tuple or ok tuple" do
-      result = Detector.asset_url(:latest)
-      assert is_tuple(result)
+    test "resolves the matching asset from the latest release" do
+      pattern = Detector.detect().asset_pattern
+      download_url = "https://example.test/llama-b123.zip"
+
+      expect(HTTPAdapterMock, :request, 2, fn %Request{method: :get, url: url} ->
+        if String.ends_with?(url, "/latest") do
+          {:ok, %Response{status: 200, headers: [], body: %{"tag_name" => "b123"}}}
+        else
+          body = %{
+            "assets" => [
+              %{
+                "name" => "llama-b123-#{pattern}.zip",
+                "browser_download_url" => download_url
+              }
+            ]
+          }
+
+          {:ok, %Response{status: 200, headers: [], body: body}}
+        end
+      end)
+
+      assert {:ok, ^download_url} = Detector.asset_url(:latest)
     end
   end
 end

@@ -27,6 +27,8 @@ defmodule Candil.Detector do
       llama-b4561-bin-win-cuda-cu12.4.1-x64.zip
   """
 
+  alias Apero.Http
+
   @github_releases_url "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 
   @type gpu_backend :: :cuda | :rocm | :metal | :vulkan | :sycl | :cpu
@@ -67,7 +69,7 @@ defmodule Candil.Detector do
   def latest_release_tag do
     url = "#{@github_releases_url}/latest"
 
-    case Apero.Http.get(
+    case Http.get(
            url,
            [{"accept", "application/vnd.github+json"}],
            receive_timeout: 15_000
@@ -78,10 +80,7 @@ defmodule Candil.Detector do
       {:ok, %{status: status}} ->
         {:error, {:http_error, status}}
 
-      {:error, %Apero.Http.Error{reason: reason}} ->
-        {:error, reason}
-
-      {:error, reason} ->
+      {:error, %Http.Error{reason: reason}} ->
         {:error, reason}
     end
   end
@@ -104,7 +103,7 @@ defmodule Candil.Detector do
     detection = detect()
     url = "#{@github_releases_url}/tags/#{tag}"
 
-    case Apero.Http.get(
+    case Http.get(
            url,
            [{"accept", "application/vnd.github+json"}],
            receive_timeout: 15_000
@@ -115,10 +114,7 @@ defmodule Candil.Detector do
       {:ok, %{status: status}} ->
         {:error, {:http_error, status}}
 
-      {:error, %Apero.Http.Error{reason: reason}} ->
-        {:error, reason}
-
-      {:error, reason} ->
+      {:error, %Http.Error{reason: reason}} ->
         {:error, reason}
     end
   end
