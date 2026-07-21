@@ -8,7 +8,7 @@ vía llama.cpp o modelos remotos vía APIs compatibles con OpenAI.
 ```elixir
 def deps do
   [
-    {:candil, "~> 0.2"}
+    {:candil, "~> 2.1"}
   ]
 end
 ```
@@ -16,10 +16,10 @@ end
 ## Dependencias
 
 Candil requiere:
-- `:apero` — Utilidades de sistema (incluido vía path en dev)
-- `:arrea` — Ejecución paralela (incluido vía path en dev)
+- `:apero` — Transporte HTTP, reintentos y utilidades de sistema
+- `:arrea` — Circuit breakers y supervisión de procesos persistentes
+- `:trebejo` — Detección de sistema operativo y arquitectura
 - `:jason` — Codificación/decodificación JSON
-- `:req` — Cliente HTTP
 
 ## Configuración
 
@@ -93,7 +93,7 @@ Candil.Config.register_model(model)
 provider = %Candil.Provider{
   alias: :openai,
   type: :openai,
-  base_url: "https://api.openai.com/v1",
+  base_url: "https://api.openai.com",
   api_key: System.get_env("OPENAI_API_KEY")
 }
 
@@ -169,7 +169,7 @@ IO.puts(response.content)
 # Inferencia directa
 {:ok, response} = Candil.chat(model, provider, [
   %{role: "user", content: "¡Hola!"}
-])
+], [])
 
 IO.puts(response.content)
 ```
@@ -189,7 +189,7 @@ Candil.stream(model, provider, [
   %{role: "user", content: "Escribe un cuento"}
 ], fn chunk ->
   IO.write(chunk.content)
-end)
+end, [])
 ```
 
 ### Embeddings
@@ -199,7 +199,7 @@ end)
 {:ok, embeddings} = Candil.embed(:llama3, ["Hola mundo", "¿Cómo estás?"])
 
 # Embeddings remotos
-{:ok, embeddings} = Candil.embed(model, provider, ["Hola mundo", "¿Cómo estás?"])
+{:ok, embeddings} = Candil.embed(model, provider, ["Hola mundo", "¿Cómo estás?"], [])
 ```
 
 ### Gestión de conversación
@@ -223,11 +223,18 @@ IO.puts(response.content)
 - **Candil.Llm** — Punto de entrada principal para todas las operaciones LLM
 - **Candil.Engine** — Gestiona procesos locales de llama-server
 - **Candil.Engine.Server** — GenServer que envuelve el proceso OS de llama-server
+- **Candil.EnginePool** — Seguimiento LRU de engines activos
 - **Candil.Inference** — Maneja chat completions y embeddings
+- **Candil.HTTP** — Cliente HTTP compartido con reintentos, circuit breaker y rate limiting
 - **Candil.Stream** — Soporte de streaming SSE
 - **Candil.Provider** — Abstracción de provider remoto (OpenAI, Anthropic, Ollama)
 - **Candil.Model** — Definiciones de modelos (local o remoto)
 - **Candil.Config** — Registro ETS para engines, modelos y providers
+- **Candil.ConfigManager** — Validación y normalización de configuración de providers
+- **Candil.Error** — Errores unificados de inferencia y transporte
+- **Candil.Cost** — Estimación de coste por tokens para modelos conocidos
+- **Candil.Health** — Diagnóstico de conectividad, latencia y modelos disponibles
+- **Candil.Embeddings** — Embeddings con Ollama y APIs compatibles con OpenAI
 - **Candil.Detector** — Detección de OS/GPU para selección de binario
 - **Candil.Installer** — Utilidades de descarga y extracción
 - **Candil.Conversation** — Historial de conversación con gestión de context window
