@@ -264,9 +264,8 @@ defmodule Candil.Config do
   defp safe_to_atom(k) when is_atom(k), do: {:ok, k}
 
   defp safe_to_atom(k) when is_binary(k) do
-    # Known config keys come as strings from Application config; they
-    # are not user input, so String.to_atom/1 is safe here.
-    # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
-    {:ok, String.to_atom(k)}
+    {:ok, String.to_existing_atom(k)}
+  rescue
+    ArgumentError -> {:error, {:unknown_config_key, k}}
   end
 end
