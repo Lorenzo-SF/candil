@@ -46,6 +46,7 @@ defmodule Candil.Cost do
     "gemma2" => {0.0, 0.0}
   }
 
+  @doc "Estimates the USD cost for a model and token counts."
   @spec estimate(String.t(), non_neg_integer(), non_neg_integer()) ::
           {:ok, float()} | :unknown
   def estimate(model, input_tokens, output_tokens) do
@@ -61,6 +62,7 @@ defmodule Candil.Cost do
     end
   end
 
+  @doc "Returns the model names with known pricing."
   @spec known_models() :: [String.t()]
   def known_models, do: Map.keys(@pricing)
 
