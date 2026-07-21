@@ -14,6 +14,7 @@ defmodule Candil.Installer do
   All downloads stream to disk — files are never loaded fully into memory.
   """
 
+  alias Apero.Http
   alias Candil.{Detector, Engine, Model}
 
   @doc """
@@ -116,7 +117,7 @@ defmodule Candil.Installer do
     timeout = Keyword.get(opts, :receive_timeout, @download_timeout_ms)
 
     with {:ok, file} <- File.open(dest_path, [:write, :binary]) do
-      case Apero.Http.stream(
+      case Http.stream(
              :get,
              url,
              nil,

@@ -1,7 +1,7 @@
 defmodule Candil.InferenceTest do
   use ExUnit.Case, async: true
 
-  alias Candil.{Error, Inference}
+  alias Candil.{Config, Error, Inference, Model}
 
   describe "chat_local/3" do
     test "returns error when model not found" do
@@ -14,7 +14,7 @@ defmodule Candil.InferenceTest do
 
     test "returns error when model is remote" do
       # Register a remote model
-      model = %Candil.Model{
+      model = %Model{
         alias: :remote_test,
         type: :remote,
         name: "gpt-4o",
@@ -22,14 +22,14 @@ defmodule Candil.InferenceTest do
         usage: [:chat]
       }
 
-      Candil.Config.register_model(model)
+      Config.register_model(model)
 
       result = Inference.chat_local(:remote_test, [%{role: "user", content: "Hello"}], [])
 
       assert {:error, %Error{reason: :invalid_request}} = result
       assert elem(result, 1).context.message =~ "remote"
     after
-      Candil.Config.deregister_model(:remote_test)
+      Config.deregister_model(:remote_test)
     end
   end
 
@@ -43,7 +43,7 @@ defmodule Candil.InferenceTest do
     end
 
     test "returns error when model is remote" do
-      model = %Candil.Model{
+      model = %Model{
         alias: :remote_embed_test,
         type: :remote,
         name: "text-embedding-3-small",
@@ -51,14 +51,14 @@ defmodule Candil.InferenceTest do
         usage: [:embeddings]
       }
 
-      Candil.Config.register_model(model)
+      Config.register_model(model)
 
       result = Inference.embed_local(:remote_embed_test, ["Hello"], [])
 
       assert {:error, %Error{reason: :invalid_request}} = result
       assert elem(result, 1).context.message =~ "remote"
     after
-      Candil.Config.deregister_model(:remote_embed_test)
+      Config.deregister_model(:remote_embed_test)
     end
   end
 end

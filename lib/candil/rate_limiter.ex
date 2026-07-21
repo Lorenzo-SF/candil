@@ -10,6 +10,8 @@ defmodule Candil.RateLimiter do
   has its own sliding window of recent request timestamps.
   """
 
+  alias Candil.Error
+
   @table_name :candil_rate_limiter
 
   @doc """
@@ -28,7 +30,7 @@ defmodule Candil.RateLimiter do
   Returns `:ok` or `{:error, Candil.Error.t()}` with the retry-after
   delay in milliseconds.
   """
-  @spec check(binary() | atom(), pos_integer() | nil) :: :ok | {:error, Candil.Error.t()}
+  @spec check(binary() | atom(), pos_integer() | nil) :: :ok | {:error, Error.t()}
   def check(_breaker, nil), do: :ok
 
   def check(breaker, max_per_second) when is_integer(max_per_second) and max_per_second > 0 do
@@ -49,7 +51,7 @@ defmodule Candil.RateLimiter do
       :ok
     else
       retry_after = window_ms - (now - List.last(recent))
-      {:error, Candil.Error.rate_limited(max(retry_after, 0))}
+      {:error, Error.rate_limited(max(retry_after, 0))}
     end
   end
 

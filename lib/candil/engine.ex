@@ -32,7 +32,7 @@ defmodule Candil.Engine do
   @type alias :: atom()
 
   alias Candil.Engine.Server
-  alias Candil.Installer
+  alias Candil.{EnginePool, Installer}
 
   @enforce_keys [:alias]
 
@@ -134,11 +134,11 @@ defmodule Candil.Engine do
   defp register_start_result(res, engine) do
     case res do
       {:ok, pid} ->
-        Candil.EnginePool.put(engine)
+        EnginePool.put(engine)
         {:ok, pid}
 
       :ok ->
-        Candil.EnginePool.put(engine)
+        EnginePool.put(engine)
         :ok
 
       {:error, reason} ->

@@ -9,6 +9,8 @@ defmodule Candil.Engine.HealthPoller do
   `handle_info(:poll_health, ...)` patterns.
   """
 
+  alias Candil.HTTP
+
   @health_poll_ms 5_000
 
   @doc """
@@ -16,7 +18,7 @@ defmodule Candil.Engine.HealthPoller do
   """
   @spec probe_health(binary()) :: boolean()
   def probe_health(base_url) do
-    case Candil.HTTP.get("#{base_url}/health", [], timeout_ms: 1_000) do
+    case HTTP.get("#{base_url}/health", [], timeout_ms: 1_000) do
       {:ok, %{status: 200}} -> true
       _ -> false
     end
