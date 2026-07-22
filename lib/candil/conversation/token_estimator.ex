@@ -36,7 +36,8 @@ defmodule Candil.Conversation.TokenEstimator do
     # Multimodal content: list of parts (text + images)
     Enum.reduce(content, 0, fn
       %{type: :text, text: text}, acc when is_binary(text) -> acc + estimate_content(text)
-      _, acc -> acc + 100  # rough estimate for image content
+      # rough estimate for image content
+      _, acc -> acc + 100
     end)
   end
 
