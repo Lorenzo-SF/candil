@@ -19,7 +19,7 @@ defmodule Candil.InferenceTest do
       exports = Inference.module_info(:exports)
       assert is_list(exports)
       # The module should export its public functions (plus __info__ etc.)
-      assert length(exports) > 0
+      assert exports != []
     end
 
     test "module declares the expected behaviour" do
