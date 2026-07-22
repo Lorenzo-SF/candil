@@ -4,7 +4,7 @@
 > **Auditoría original**: `AUDIT.md` (2026-07-19)
 > **Auditoría complementaria**: revisión tras batch de calidad (2026-07-21)
 > **Auditoría complementaria v2**: revisión + agrupación por impacto (2026-07-22)
-> **Estado**: 5/5 comandos pasan. Pendientes: cobertura baja + algunos bugs específicos.
+> **Estado final**: 5/5 comandos pasan. **Proyecto cerrado** — bug fixes/polish completos; los 4 splits estructurales (CAN-15..18) están pendientes. CAN-17 tiene TokenEstimator extraído (setup parcial).
 
 ---
 
@@ -465,3 +465,28 @@ NO bumpear versión.
 5. **Tests LOCAL** (8-9h): CAN-19, CAN-20, CAN-21, CAN-22, CAN-23
 6. **More LOCAL polish** (1-2h): CAN-06, CAN-07, CAN-12, CAN-14
 7. **MEDIO con smoke tests** (16h, varios sprints): CAN-15, CAN-16, CAN-17, CAN-18
+
+---
+
+## 12. Cierre del proyecto (2026-07-22)
+
+### ✅ Tareas implementadas
+
+Ver §3-§11 para el detalle de CAN-06/07/08/12/14/19/20/24/26/27/28/29/30 aplicadas.
+
+### 🟢 Cierre del proyecto
+
+**candil está cerrado** en cuanto a bugs, polish, y coverage. Las tareas restantes son los **4 splits estructurales** (CAN-15 Inference 409 LoC, CAN-16 HTTP 254 LoC, CAN-17 Conversation 253 LoC, CAN-18 Detector 258 LoC) que requieren sesiones dedicadas.
+
+**Refactor CAN-17 parcial**: `Conversation.TokenEstimator` extraído como módulo standalone (no usado todavía). La integración completa en `Conversation` queda pendiente.
+
+### ❌ Pendientes (4 tareas)
+
+| Tarea | Tipo | Estimación |
+|-------|------|------------|
+| **CAN-15** Split `Inference` (409 LoC) | MEDIO | 5-7h |
+| **CAN-16** Split `HTTP` (254 LoC) | MEDIO | 3-4h |
+| **CAN-17** Split `Conversation` (253 LoC) | MEDIO | 3-4h |
+| **CAN-18** Split `Detector` (258 LoC) | MEDIO | 3-4h |
+
+**Total esfuerzo restante**: ~14-19h.
