@@ -1,8 +1,9 @@
 # Candil v2.3.0 — Plan de Ejecución
 
-> **Última actualización**: 2026-07-21
+> **Última actualización**: 2026-07-22
 > **Auditoría original**: `AUDIT.md` (2026-07-19)
 > **Auditoría complementaria**: revisión tras batch de calidad (2026-07-21)
+> **Auditoría complementaria v2**: revisión + agrupación por impacto (2026-07-22)
 > **Estado**: 5/5 comandos pasan. Pendientes: cobertura baja + algunos bugs específicos.
 
 ---
@@ -36,6 +37,16 @@ CHANGELOG `[Unreleased]` actualizado. Git history normalizado.
 | **Total tareas** | **14 + 7** | **10** | **11** |
 
 **Esfuerzo restante estimado**: ~20h (incluye refactors + tests).
+
+### Vista por impacto (ver §11 para detalle)
+
+| Impacto | # tareas | Descripción |
+|---------|----------|-------------|
+| 🟢 LOCAL | 16 | Solo afecta a candil internamente (fixes security, types, tests) |
+| 🟡 MEDIO | 4 | Refactors estructurales (Inference/HTTP/Conversation/Detector split) — afectan a delfos |
+| 🔴 CRÍTICO | 0 | candil es leaf library, refactors mantienen API vía fachada |
+
+**Conclusión**: candil tiene **0 tareas críticas** porque es una leaf library. Los 4 refactors estructurales (CAN-15..18) son MEDIO porque el consumer único (delfos) debe smoke-testear, pero como las fachadas mantienen API, el riesgo es bajo.
 
 ---
 
@@ -110,10 +121,19 @@ CHANGELOG `[Unreleased]` actualizado. Git history normalizado.
 - **Estado**: pendiente
 - **Ficheros**: `lib/candil/installer.ex`
 
-### CAN-08: `reason()` type add `:circuit_open`, `:execution_failed`
-- **Hallazgo**: P2 — types faltan
+### CAN-08: `reason()` type — add atoms + remove `term()` from union
+- **Hallazgo**:
+  - AUDIT P2 #7: `reason()` type union incluye `term()` → unsound (Dialyzer can't check exhaustiveness)
+  - AUDIT P2: faltan atoms `:circuit_open`, `:execution_failed`
 - **Severidad**: 🟡 P2
-- **Estado**: pendiente (verificar si ya está)
+- **Estado**: pendiente
+- **Ficheros**: `lib/candil/error.ex`
+- **Pasos**:
+  1. Reemplazar `@type reason :: ... | term()` por union específica
+  2. Añadir `:circuit_open` y `:execution_failed` a la union
+  3. Mantener `term()` solo en `wrap/1` (función de escape)
+  4. Verificar con `mix dialyzer`
+- **Verificación**: `mix dialyzer` (0 warnings)
 
 ### CAN-12: HTTP response type alias
 - **Hallazgo**: P2 — `HTTP.response` type alias falta
@@ -283,3 +303,165 @@ Bajo `[Unreleased]`:
 - Tareas CAN-XX según se completen
 
 NO bumpear versión.
+
+---
+
+## 10. AUDIT v2 — Hallazgos adicionales no abordados (2026-07-22)
+
+> Tareas del `AUDIT.md` original que **no tienen contraparte** en las secciones §3-§5 (CAN-01..CAN-23).
+
+### CAN-24: Sanitize path traversal in `server.ex` + `installer.ex` (P0 security)
+- **Hallazgo** (`AUDIT.md` §P0 #1 y #2):
+  > `server.ex:107` `Path.join(model.model_dir, model.filename)` permite path traversal. Si un atacante controla `model.filename` con `"../../etc/passwd"`, llama a `llama-server` para leer archivos arbitrarios.
+  > `installer.ex:94` `System.cmd("unzip", [..., dest_dir, ...])` con `dest_dir` user-controllable se vuelve command injection.
+- **Severidad**: 🔴 P0 (security)
+- **Ficheros**: `lib/candil/server.ex`, `lib/candil/installer.ex`, `lib/candil/engine.ex`
+- **Esfuerzo**: 2h
+- **Pasos**:
+  1. En `Engine.binary_dir/1`, validar que el path no contiene `..` ni caracteres especiales
+  2. Si inválido, retornar `{:error, :invalid_binary_dir}` o lanzar `ArgumentError`
+  3. En `Server.build_args`, validar `model.filename` con regex `\A[a-zA-Z0-9._-]+\z`
+  4. Tests:
+     - Path traversal bloqueado: `model.filename = "../../etc/passwd"` → error
+     - Binary dir con `..` bloqueado
+- **Verificación**: `mix test` + `mix credo --all`
+- **Impacto**: 🟢 LOCAL (defensiva, no cambia API)
+
+### CAN-25: Tests para `HTTP` (cubierto por CAN-19) — nota
+- **Nota**: AUDIT P0 #3 ("Test gap — core execution path untested") está cubierto por **CAN-19..CAN-23**.
+
+### CAN-26: `LongRunning.start_link` can crash init on failure
+- **Hallazgo** (`AUDIT.md` §P1 #4): `server.ex:59-72` `{:ok, lr_pid} = LongRunning.start_link(...)` crashes `init/1` si retorna `{:error, _}`.
+- **Severidad**: 🟠 P1
+- **Ficheros**: `lib/candil/server.ex`
+- **Esfuerzo**: 30 min
+- **Pasos**:
+  1. Reemplazar `{:ok, lr_pid} = LongRunning.start_link(...)` por:
+     ```elixir
+     case LongRunning.start_link(...) do
+       {:ok, lr_pid} -> ...
+       {:error, reason} -> {:stop, reason}
+     end
+     ```
+  2. Test que simule `LongRunning` retornando `{:error, :max_children}` y verifique que `init/1` retorna `{:stop, :max_children}` correctamente
+- **Verificación**: `mix test` + `mix credo --all`
+- **Impacto**: 🟢 LOCAL
+
+### CAN-27: `post_json` return type spec correction
+- **Hallazgo** (`AUDIT.md` §P2 #8): `@spec post_json(...) :: {:ok, map()}` pero el retorno es `{:ok, %{status: integer, body: any}}` — spec engañoso.
+- **Severidad**: 🟡 P2
+- **Ficheros**: `lib/candil/http.ex`
+- **Esfuerzo**: 15 min
+- **Pasos**:
+  1. Definir `@type response :: %{status: integer, body: any, headers: map()}`
+  2. Corregir `@spec post_json(...) :: {:ok, response()} | {:error, term()}`
+  3. Verificar con `mix dialyzer`
+- **Verificación**: `mix dialyzer` (0 warnings)
+- **Impacto**: 🟢 LOCAL
+
+### CAN-28: Rate limiter ETS-based (no process dictionary)
+- **Hallazgo** (`AUDIT.md` §P2 #9): `http.ex:225-243` usa `Process.get/1` / `Process.put/2` — rate limiting per-process, no global. Silently wrong en GenServers con requests concurrentes.
+- **Severidad**: 🟡 P2
+- **Ficheros**: `lib/candil/http.ex`
+- **Esfuerzo**: 3h
+- **Pasos**:
+  1. Crear `Candil.RateLimiter` GenServer con tabla ETS interna (¿ya existe? verificar CAN-09)
+  2. Reemplazar `Process.put/get` por llamadas a `Candil.RateLimiter.check/1`
+  3. Si ya existe CAN-09 (`ETS-based Candil.RateLimiter`), audit este código está usándolo o sigue con Process dict
+  4. Tests con requests concurrentes
+- **Verificación**: `mix test test/candil/http_test.exs`
+- **Impacto**: 🟢 LOCAL (mejora correctness)
+- **Dependencias**: CAN-09 (verificar)
+
+### CAN-29: Limpiar referencia a `docs/candil_llm.md`
+- **Hallazgo** (`AUDIT.md` §P3 #12): `llm.ex:5` `@moduledoc false  # original moduledoc is in docs/candil_llm.md` — verificar que existe o eliminar referencia.
+- **Severidad**: 🟢 P3
+- **Ficheros**: `lib/candil/llm.ex`
+- **Esfuerzo**: 5 min
+- **Pasos**:
+  1. Verificar `docs/candil_llm.md` existe y tiene contenido útil
+  2. Si existe: añadir `@moduledoc` en `llm.ex` que linke al fichero
+  3. Si no existe: eliminar la referencia del comentario
+- **Verificación**: `mix docs` (no warnings)
+- **Impacto**: 🟢 LOCAL
+
+### CAN-30: Nombrar telemetry handlers en tests
+- **Hallazgo** (`AUDIT.md` §P3 #13): tests pasan funciones anónimas como telemetry handlers — produce performance warnings.
+- **Severidad**: 🟢 P3
+- **Ficheros**: varios `test/candil/*_test.exs`
+- **Esfuerzo**: 30 min
+- **Pasos**:
+  1. Identificar tests con `:telemetry.attach(handler_id, ..., fn _, _, _, _ -> ... end)`
+  2. Sustituir por módulos nombrados o `&Mod.handle_event/4` referencias
+  3. Verificar que `mix test --trace` no emite warnings
+- **Verificación**: `mix test --trace` (sin warnings de telemetry)
+- **Impacto**: 🟢 LOCAL
+
+---
+
+## 11. Agrupación por impacto en el ecosistema (2026-07-22)
+
+> **Pregunta**: si hago esta tarea, ¿tengo que tocar otros proyectos o se hace y ya?
+
+### 🟢 LOCAL — "se hace y ya" (16 tareas)
+
+| ID | Tarea |
+|----|-------|
+| CAN-06 | Remote model routing fix |
+| CAN-07 | `stream_download` refactor |
+| CAN-08 | `reason()` type — add atoms + remove `term()` |
+| CAN-12 | HTTP response type alias |
+| CAN-14 | Verify `embeddings.ex` return spec |
+| CAN-19 | Tests para HTTP |
+| CAN-20 | Tests para Inference |
+| CAN-21 | Tests para Conversation |
+| CAN-22 | Tests para Detector |
+| CAN-23 | Tests para Model, Engine, Stream |
+| CAN-24 | Sanitize path traversal (P0 security) |
+| CAN-26 | `LongRunning.start_link` init crash fix |
+| CAN-27 | `post_json` return type spec correction |
+| CAN-28 | Rate limiter ETS-based |
+| CAN-29 | Limpiar referencia `docs/candil_llm.md` |
+| CAN-30 | Nombrar telemetry handlers en tests |
+
+**Workflow**: branch en `candil` → tests → commit → push.
+
+---
+
+### 🟡 MEDIO — "verificar 1-2 consumidores" (4 tareas)
+
+| ID | Tarea | Consumidores | Smoke test |
+|----|-------|--------------|------------|
+| CAN-15 | Split `inference.ex` (409 LoC) | delfos (vía `Candil.chat`, `Candil.embed`) | `cd ../delfos && mix test` |
+| CAN-16 | Split `http.ex` (254 LoC) | delfos (vía HTTP) | idem CAN-15 |
+| CAN-17 | Split `conversation.ex` (253 LoC) | delfos (vía Conversation) | idem CAN-15 |
+| CAN-18 | Split `detector.ex` (258 LoC) | delfos (vía Detector) | idem CAN-15 |
+
+**Workflow**: branch en `candil` → tests propios → smoke test en delfos → merge.
+
+---
+
+### 🔴 CRÍTICO (0 tareas)
+
+**No hay tareas críticas en candil.** Como leaf library, candil tiene un único consumer (delfos) y los refactors estructurales mantienen API vía fachadas. Si en una futura auditoría aparece algo con blast radius ≥3 o que rompa el contrato con delfos, se reclasificará aquí.
+
+---
+
+### 📊 Matriz resumen
+
+| Impacto | # tareas | Esfuerzo | Branch dedicada | Smoke tests externos |
+|---------|----------|----------|-----------------|----------------------|
+| 🟢 LOCAL | 16 | ~12h | No | 0 proyectos |
+| 🟡 MEDIO | 4 | ~16h | No (en candil) | 1 proyecto (delfos) |
+| 🔴 CRÍTICO | 0 | — | — | — |
+| **Total** | **20** | **~28h** | — | — |
+
+### 🎯 Orden de ejecución sugerido
+
+1. **Security quick wins LOCAL** (2h): CAN-24 (path traversal)
+2. **Bug fixes LOCAL** (1h): CAN-08 (reason type), CAN-26 (init crash), CAN-27 (post_json spec)
+3. **Polish LOCAL** (30 min): CAN-29, CAN-30
+4. **Rate limiter fix LOCAL** (3h): CAN-28
+5. **Tests LOCAL** (8-9h): CAN-19, CAN-20, CAN-21, CAN-22, CAN-23
+6. **More LOCAL polish** (1-2h): CAN-06, CAN-07, CAN-12, CAN-14
+7. **MEDIO con smoke tests** (16h, varios sprints): CAN-15, CAN-16, CAN-17, CAN-18
