@@ -2,6 +2,8 @@ defmodule Candil.Detector.Release do
   @moduledoc false
 
   alias Apero.Http
+  alias Candil.Detector
+  alias Candil.Detector.Models
 
   @github_releases_url "https://api.github.com/repos/ggml-org/llama.cpp/releases"
 
@@ -34,7 +36,7 @@ defmodule Candil.Detector.Release do
   end
 
   def asset_url(tag) when is_binary(tag) do
-    detection = Candil.Detector.detect()
+    detection = Detector.detect()
     url = "#{@github_releases_url}/tags/#{tag}"
 
     case Http.get(
@@ -43,7 +45,7 @@ defmodule Candil.Detector.Release do
            receive_timeout: 15_000
          ) do
       {:ok, %{status: 200, body: %{"assets" => assets}}} ->
-        Candil.Detector.Models.find_matching_asset(assets, detection.asset_pattern)
+        Models.find_matching_asset(assets, detection.asset_pattern)
 
       {:ok, %{status: status}} ->
         {:error, {:http_error, status}}

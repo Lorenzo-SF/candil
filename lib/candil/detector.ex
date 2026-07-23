@@ -27,6 +27,8 @@ defmodule Candil.Detector do
       llama-b4561-bin-win-cuda-cu12.4.1-x64.zip
   """
 
+  alias Candil.Detector.{GPU, Models}
+
   @type gpu_backend :: :cuda | :rocm | :metal | :vulkan | :sycl | :cpu
   @type detection :: %{
           os: Apero.OS.os_type(),
@@ -46,14 +48,14 @@ defmodule Candil.Detector do
   def detect do
     os = Apero.OS.type()
     arch = Trebejo.OS.arch()
-    {gpu, cuda_version} = Candil.Detector.GPU.detect_gpu(os)
+    {gpu, cuda_version} = GPU.detect_gpu(os)
 
     %{
       os: os,
       arch: arch,
       gpu: gpu,
       cuda_version: cuda_version,
-      asset_pattern: Candil.Detector.Models.build_asset_pattern(os, arch, gpu, cuda_version)
+      asset_pattern: Models.build_asset_pattern(os, arch, gpu, cuda_version)
     }
   end
 
@@ -71,13 +73,13 @@ defmodule Candil.Detector do
   Pass `:latest` as `version` to resolve the latest release automatically.
   """
   @spec asset_url(:latest | binary()) :: {:ok, binary()} | {:error, any()}
-  defdelegate asset_url(:latest), to: Candil.Detector.Release
-  defdelegate asset_url(tag), to: Candil.Detector.Release
+  def asset_url(:latest), do: Candil.Detector.Release.asset_url(:latest)
+  def asset_url(tag), do: Candil.Detector.Release.asset_url(tag)
 
   @doc """
   Returns the GPU backend detected on the current machine.
   """
   @spec detect_gpu(Apero.OS.os_type()) :: {gpu_backend(), binary() | nil}
-  defdelegate detect_gpu(:macos), to: Candil.Detector.GPU
-  defdelegate detect_gpu(os), to: Candil.Detector.GPU
+  def detect_gpu(:macos), do: GPU.detect_gpu(:macos)
+  def detect_gpu(os), do: GPU.detect_gpu(os)
 end

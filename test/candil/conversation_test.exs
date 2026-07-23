@@ -146,11 +146,11 @@ defmodule Candil.ConversationTest do
       }
 
       tokens = Conversation.token_estimate(conv)
-      # System "System prompt here" (17 bytes): 4 + div(17,4) + div(17,5) = 4 + 4 + 3 = 11
-      # User "Hello" (5 bytes): 4 + div(5,4) + div(5,5) = 4 + 1 + 1 = 6
-      # Assistant "Hi there!" (9 bytes): 4 + div(9,4) + div(9,5) = 4 + 2 + 1 = 7
-      # Total: 11 + 6 + 7 = 24
-      assert tokens == 24
+      # System "System prompt here" (17 bytes): ceil(17/4) = 5
+      # User "Hello" (5 bytes): ceil(5/4) + 4 = 6
+      # Assistant "Hi there!" (9 bytes): ceil(9/4) + 4 = 7
+      # Total: 5 + 6 + 7 = 18
+      assert tokens == 18
     end
 
     test "handles missing content gracefully" do
@@ -161,8 +161,8 @@ defmodule Candil.ConversationTest do
       }
 
       tokens = Conversation.token_estimate(conv)
-      # Missing content defaults to empty string: 4 (overhead) + 1 (min 1) = 5
-      assert tokens == 5
+      # Missing content defaults to empty string: ceil(0/4) + 4 = 0 + 4 = 4
+      assert tokens == 4
     end
   end
 

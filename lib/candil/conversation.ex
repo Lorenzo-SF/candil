@@ -22,8 +22,10 @@ defmodule Candil.Conversation do
       IO.puts(response.content)
   """
 
-  alias Candil.{Inference, Model, Provider}
   alias Candil.Conversation.Context
+  alias Candil.Inference
+  alias Candil.Model
+  alias Candil.Provider
 
   @type message :: Inference.message()
 
@@ -162,6 +164,4 @@ defmodule Candil.Conversation do
   @doc false
   @spec estimate_tokens(binary()) :: non_neg_integer()
   def estimate_tokens(text), do: Context.estimate_tokens(text)
-
-  def estimate_tokens(_), do: 0
 end

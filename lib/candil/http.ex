@@ -10,8 +10,9 @@ defmodule Candil.HTTP do
   by `Apero.Http.Finch`.
   """
 
-  alias Candil.HTTP.{Client, Retry}
   alias Candil.Error
+  alias Candil.HTTP.Client
+  alias Candil.HTTP.Retry
 
   @default_timeout_ms 60_000
   @default_stream_timeout_ms 120_000

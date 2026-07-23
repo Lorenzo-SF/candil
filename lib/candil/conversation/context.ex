@@ -12,7 +12,7 @@ defmodule Candil.Conversation.Context do
   Estimates the total token count for a conversation's messages.
   """
   @spec token_estimate([map()], String.t() | nil, map()) :: non_neg_integer()
-  def token_estimate(messages, system, opts \\ %{}) do
+  def token_estimate(messages, system, _opts \\ %{}) do
     system_tokens = if system, do: estimate_content_tokens(system), else: 0
     history_tokens = Enum.reduce(messages, 0, &(&2 + estimate_message_tokens(&1)))
     system_tokens + history_tokens
@@ -54,7 +54,7 @@ defmodule Candil.Conversation.Context do
   @doc "Estimates the tokens in a text string."
   @spec estimate_content_tokens(binary()) :: non_neg_integer()
   def estimate_content_tokens(text) when is_binary(text) do
-    TokenEstimator.estimate(text)
+    TokenEstimator.estimate_content(text)
   end
 
   def estimate_content_tokens(_), do: 0
@@ -62,7 +62,7 @@ defmodule Candil.Conversation.Context do
   @doc "Estimates tokens for any input."
   @spec estimate_tokens(binary()) :: non_neg_integer()
   def estimate_tokens(text) when is_binary(text) do
-    TokenEstimator.estimate(text)
+    TokenEstimator.estimate_tokens(text)
   end
 
   def estimate_tokens(_), do: 0
