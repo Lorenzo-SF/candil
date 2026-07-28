@@ -14,6 +14,7 @@ defmodule Candil.Installer do
   All downloads stream to disk — files are never loaded fully into memory.
   """
 
+  alias Apero.Http
   alias Candil.{Detector, Engine, Model}
 
   @doc """
@@ -91,6 +92,11 @@ defmodule Candil.Installer do
   end
 
   defp extract_engine_zip(zip_path, dest_dir) do
+    if String.contains?(dest_dir, "..") do
+      raise ArgumentError,
+            "dest_dir must not contain path traversal (..): #{inspect(dest_dir)}"
+    end
+
     case System.cmd("unzip", ["-o", "-j", zip_path, "llama-server", "llama-cli", "-d", dest_dir],
            stderr_to_stdout: true
          ) do
@@ -104,37 +110,77 @@ defmodule Candil.Installer do
     end
   end
 
-  defp stream_download(url, dest_path, checksum) do
-    case Req.get(url,
-           into: dest_path,
-           receive_timeout: :infinity,
-           headers: [{"user-agent", "apero-llm/0.1"}]
-         ) do
-      {:ok, %{status: status}} when status in 200..299 ->
-        if checksum do
-          case verify_checksum(dest_path, checksum) do
-            :ok -> {:ok, dest_path}
-            {:error, reason} -> {:error, reason}
-          end
-        else
-          {:ok, dest_path}
-        end
+  # Default download timeout: 30 minutes (models can be many GB).
+  @download_timeout_ms 1_800_000
 
-      {:ok, %{status: status}} ->
-        {:error, "HTTP #{status} downloading #{url}"}
+  defp stream_download(url, dest_path, checksum, opts \\ []) do
+    timeout = Keyword.get(opts, :receive_timeout, @download_timeout_ms)
 
-      {:error, reason} ->
-        {:error, "Download failed: #{inspect(reason)}"}
+    with {:ok, file} <- File.open(dest_path, [:write, :binary]) do
+      case Http.stream(
+             :get,
+             url,
+             nil,
+             [{"user-agent", "apero-llm/0.1"}],
+             {:file, file, dest_path},
+             &stream_to_file/2,
+             receive_timeout: timeout
+           ) do
+        {:ok, {:done, ^dest_path}} ->
+          finalize_download(dest_path, checksum)
+
+        {:ok, _} ->
+          _ = File.close(file)
+          {:error, "Download interrupted"}
+
+        {:error, reason} ->
+          _ = File.close(file)
+          {:error, "Download failed: #{inspect(reason)}"}
+      end
+    end
+  end
+
+  # Streaming callback: writes data chunks to the IO device.
+  defp stream_to_file({:data, data}, {:file, io_device}) do
+    IO.binwrite(io_device, data)
+    {:cont, {:file, io_device}}
+  end
+
+  defp stream_to_file({:done, _}, {:file, io_device, dest_path}) do
+    :ok = File.close(io_device)
+    {:halt, {:done, dest_path}}
+  end
+
+  defp stream_to_file({:data, data}, {:file, io_device, dest_path}) do
+    IO.binwrite(io_device, data)
+    {:cont, {:file, io_device, dest_path}}
+  end
+
+  defp stream_to_file(_, {:file, _, _} = state), do: {:cont, state}
+
+  # Post-download verification: optionally checks SHA-256 checksum.
+  defp finalize_download(dest_path, nil), do: {:ok, dest_path}
+
+  defp finalize_download(dest_path, checksum) do
+    case verify_checksum(dest_path, checksum) do
+      :ok -> {:ok, dest_path}
+      {:error, reason} -> {:error, reason}
     end
   end
 
   defp verify_checksum(path, expected) do
-    actual = :crypto.hash(:sha256, File.read!(path)) |> Base.encode16(case: :lower)
+    case File.read(path) do
+      {:ok, data} ->
+        actual = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
 
-    if actual == String.downcase(expected) do
-      :ok
-    else
-      {:error, "SHA-256 checksum mismatch: expected #{expected}, got #{actual}"}
+        if actual == String.downcase(expected) do
+          :ok
+        else
+          {:error, "SHA-256 checksum mismatch: expected #{expected}, got #{actual}"}
+        end
+
+      {:error, reason} ->
+        {:error, "Failed to read #{path} for checksum verification: #{inspect(reason)}"}
     end
   end
 end

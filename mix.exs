@@ -33,11 +33,10 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      {:apero, "~> 3.1.0"},
-      {:arrea, "~> 2.2.0"},
-      {:trebejo, "~> 1.0.0"},
+      {:apero, path: "../apero", override: true},
+      {:arrea, path: "../arrea", override: true},
+      {:trebejo, path: "../trebejo", override: true},
       {:jason, "~> 1.4"},
-      {:req, "~> 0.5"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, ">= 1.0.0", only: [:dev, :test], runtime: false},

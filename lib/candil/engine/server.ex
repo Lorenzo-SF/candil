@@ -33,7 +33,7 @@ defmodule Candil.Engine.Server do
 
   alias Arrea.LongRunning
 
-  @health_poll_ms 5_000
+  alias Candil.Engine.HealthPoller
 
   @type state :: %{
           engine: Engine.t(),
@@ -56,48 +56,44 @@ defmodule Candil.Engine.Server do
     binary = Engine.binary_path(engine)
     base_url = "http://#{engine.host}:#{engine.port}"
 
-    {:ok, lr_pid} =
-      LongRunning.start_link(
-        id: {:candil_engine, model.alias},
-        binary: binary,
-        args: args,
-        cd: model_dir_safe(model),
-        env: [],
-        health: fn ->
-          case Req.get("#{base_url}/health", receive_timeout: 1_000) do
-            {:ok, %{status: 200}} -> :ok
-            other -> {:error, other}
-          end
-        end
-      )
+    case LongRunning.start_link(
+           id: {:candil_engine, model.alias},
+           binary: binary,
+           args: args,
+           cd: model_dir_safe(model),
+           env: [],
+           health: fn ->
+             case HealthPoller.probe_health(base_url) do
+               true -> :ok
+               false -> {:error, :not_ready}
+             end
+           end
+         ) do
+      {:ok, lr_pid} ->
+        state = %{
+          engine: engine,
+          model: model,
+          base_url: base_url,
+          lr_pid: lr_pid,
+          healthy: false
+        }
 
-    state = %{
-      engine: engine,
-      model: model,
-      base_url: base_url,
-      lr_pid: lr_pid,
-      healthy: false
-    }
+        Process.send_after(self(), :poll_health, HealthPoller.poll_interval())
+        {:ok, state}
 
-    Process.send_after(self(), :poll_health, @health_poll_ms)
-    {:ok, state}
+      {:error, reason} ->
+        {:stop, reason}
+    end
   end
 
   @impl GenServer
-  def handle_call(:health, _from, %{healthy: healthy} = state) do
-    {:reply, if(healthy, do: :ok, else: :not_ready), state}
-  end
+  def handle_call(:health, _from, state), do: HealthPoller.handle_health_call(state)
 
-  def handle_call(:base_url, _from, %{base_url: url} = state) do
-    {:reply, url, state}
-  end
+  def handle_call(:base_url, _from, state),
+    do: HealthPoller.handle_base_url_call(state, state.base_url)
 
   @impl GenServer
-  def handle_info(:poll_health, state) do
-    healthy = probe_health(state.base_url)
-    Process.send_after(self(), :poll_health, @health_poll_ms)
-    {:noreply, %{state | healthy: healthy}}
-  end
+  def handle_info(:poll_health, state), do: HealthPoller.handle_poll_health(state)
 
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -111,6 +107,10 @@ defmodule Candil.Engine.Server do
   end
 
   defp build_args(%Engine{start_args: engine_args, host: host, port: port}, model) do
+    if String.contains?(model.model_dir, "..") or String.contains?(model.filename, "..") do
+      raise ArgumentError, "model path must not contain path traversal (..)"
+    end
+
     model_path = Path.join(model.model_dir, model.filename)
     context = to_string(model.context_size || 4096)
 
@@ -133,11 +133,4 @@ defmodule Candil.Engine.Server do
 
   defp model_dir_safe(%{model_dir: nil}), do: "."
   defp model_dir_safe(%{model_dir: dir}) when is_binary(dir), do: dir
-
-  defp probe_health(base_url) do
-    case Req.get("#{base_url}/health", receive_timeout: 1_000) do
-      {:ok, %{status: 200}} -> true
-      _ -> false
-    end
-  end
 end

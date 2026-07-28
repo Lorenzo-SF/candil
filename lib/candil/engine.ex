@@ -32,7 +32,7 @@ defmodule Candil.Engine do
   @type alias :: atom()
 
   alias Candil.Engine.Server
-  alias Candil.Installer
+  alias Candil.{EnginePool, Installer}
 
   @enforce_keys [:alias]
 
@@ -64,13 +64,21 @@ defmodule Candil.Engine do
   Returns the effective binary directory for an engine.
 
   Falls back to `~/.apero/llm/bin` when `binary_dir` is `nil`.
+
+  Raises `ArgumentError` if the configured path contains `..` (path traversal).
   """
   @spec binary_dir(t()) :: binary()
   def binary_dir(%__MODULE__{binary_dir: nil}) do
     Path.join([System.user_home!(), ".apero", "llm", "bin"])
   end
 
-  def binary_dir(%__MODULE__{binary_dir: dir}), do: dir
+  def binary_dir(%__MODULE__{binary_dir: dir}) do
+    if String.contains?(dir, "..") do
+      raise ArgumentError, "binary_dir must not contain path traversal (..): #{inspect(dir)}"
+    end
+
+    dir
+  end
 
   @doc """
   Returns the full path to the `llama-server` binary for this engine.
@@ -107,10 +115,10 @@ defmodule Candil.Engine do
   defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
     cond do
       engine.launcher != nil ->
-        start_via_launcher(engine, model)
+        register_start_result(start_via_launcher(engine, model), engine)
 
       binary_exists?(engine) ->
-        start_via_server(engine, model)
+        register_start_result(start_via_server(engine, model), engine)
 
       engine.use_precompiled ->
         case Installer.download_engine(engine) do
@@ -120,6 +128,21 @@ defmodule Candil.Engine do
 
       true ->
         {:error, "Binary not found at #{binary_path(engine)}. Run Candil.download_engine/1."}
+    end
+  end
+
+  defp register_start_result(res, engine) do
+    case res do
+      {:ok, pid} ->
+        EnginePool.put(engine)
+        {:ok, pid}
+
+      :ok ->
+        EnginePool.put(engine)
+        :ok
+
+      {:error, reason} ->
+        {:error, reason}
     end
   end
 

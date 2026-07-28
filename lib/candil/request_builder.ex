@@ -62,6 +62,8 @@ defmodule Candil.RequestBuilder do
     system = Keyword.get(opts, :system)
     tools = Keyword.get(opts, :tools, [])
     tool_choice = Keyword.get(opts, :tool_choice)
+    chat_template_kwargs = Keyword.get(opts, :chat_template_kwargs)
+    extra_body = Keyword.get(opts, :extra_body, %{})
 
     msgs = if system, do: [%{role: "system", content: system} | messages], else: messages
 
@@ -80,6 +82,16 @@ defmodule Candil.RequestBuilder do
         else: body
 
     body = if tool_choice, do: Map.put(body, :tool_choice, tool_choice), else: body
+
+    body =
+      if chat_template_kwargs,
+        do: Map.put(body, :chat_template_kwargs, chat_template_kwargs),
+        else: body
+
+    # Generic escape hatch: callers can pass arbitrary extra keys
+    # (e.g. %{"reasoning_effort" => "low"} for OpenAI o1/o3, or any
+    # vendor-specific JSON field).
+    body = if extra_body == %{}, do: body, else: Map.merge(body, extra_body)
 
     if stop != [], do: Map.put(body, :stop, stop), else: body
   end

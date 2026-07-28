@@ -27,7 +27,8 @@ defmodule Candil.Error do
           | :invalid_request
           | :engine_exited
           | :startup_timeout
-          | term()
+          | :circuit_open
+          | :execution_failed
 
   @doc """
   Creates an error for a model that was not found.

@@ -7,7 +7,7 @@ LLM inference and model management for Elixir. Run local models via llama.cpp or
 ```elixir
 def deps do
   [
-    {:candil, "~> 0.2"}
+    {:candil, "~> 2.1"}
   ]
 end
 ```
@@ -15,10 +15,10 @@ end
 ## Dependencies
 
 Candil requires:
-- `:apero` - System utilities (included automatically via path in dev)
-- `:arrea` - Parallel execution (included automatically via path in dev)
+- `:apero` - HTTP transport, retry, and system utilities
+- `:arrea` - Circuit breakers and long-running process supervision
+- `:trebejo` - OS and architecture detection
 - `:jason` - JSON encoding/decoding
-- `:req` - HTTP client
 
 ## Configuration
 
@@ -92,7 +92,7 @@ Candil.Config.register_model(model)
 provider = %Candil.Provider{
   alias: :openai,
   type: :openai,
-  base_url: "https://api.openai.com/v1",
+  base_url: "https://api.openai.com",
   api_key: System.get_env("OPENAI_API_KEY")
 }
 
@@ -168,7 +168,7 @@ IO.puts(response.content)
 # Run inference directly
 {:ok, response} = Candil.chat(model, provider, [
   %{role: "user", content: "Hello!"}
-])
+], [])
 
 IO.puts(response.content)
 ```
@@ -188,7 +188,7 @@ Candil.stream(model, provider, [
   %{role: "user", content: "Write a story"}
 ], fn chunk ->
   IO.write(chunk.content)
-end)
+end, [])
 ```
 
 ### Embeddings
@@ -198,7 +198,7 @@ end)
 {:ok, embeddings} = Candil.embed(:llama3, ["Hello world", "How are you?"])
 
 # Remote embeddings
-{:ok, embeddings} = Candil.embed(model, provider, ["Hello world", "How are you?"])
+{:ok, embeddings} = Candil.embed(model, provider, ["Hello world", "How are you?"], [])
 ```
 
 ### Conversation Management
@@ -222,12 +222,16 @@ IO.puts(response.content)
 - **Candil.Llm** - Main entry point for all LLM operations
 - **Candil.Engine** - Manages local llama-server processes
 - **Candil.Engine.Server** - GenServer wrapping the llama-server OS process
+- **Candil.EnginePool** - LRU tracking for active engines
 - **Candil.Inference** - Handles chat completions and embeddings
+- **Candil.HTTP** - Shared HTTP client with retries, circuit breaking, and rate limiting
 - **Candil.Stream** - SSE streaming support
 - **Candil.Provider** - Remote API provider abstraction (OpenAI, Anthropic, Ollama)
 - **Candil.Model** - Model definitions (local or remote)
 - **Candil.Config** - ETS-based registry for engines, models, and providers
 - **Candil.ConfigManager** - Config validation and normalization for ad-hoc provider connections
+- **Candil.Error** - Unified inference and transport errors
+- **Candil.Cost** - Token cost estimation for known models
 - **Candil.Health** - Health probes (ping, latency, model availability) for LLM providers
 - **Candil.Embeddings** - Embedding generation across ollama, local, and OpenAI-compatible APIs
 - **Candil.Detector** - OS/GPU detection for binary selection
@@ -240,10 +244,8 @@ IO.puts(response.content)
 ## Project history
 
 This library was developed as part of a larger internal toolkit and extracted
-to open source in mid-2026. The single commit visible on `main` represents the
-OSS cut-over point — all the features shipped in `0.2.0` were built and tested
-before being made public. Subsequent releases (`0.2.1`, `0.3.0`, ...) will be
-tagged normally, providing a clean public history going forward.
+to open source in mid-2026. The canonical releases are `1.0.0` and `2.0.0`;
+the codebase is currently in the `2.1.0` development cycle.
 
 ## License
 

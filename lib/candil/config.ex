@@ -248,19 +248,15 @@ defmodule Candil.Config do
 
   defp atomise_keys(map) when is_map(map) do
     Enum.reduce(map, %{}, fn {k, v}, acc ->
-      case safe_to_atom(k) do
-        {:ok, atom} -> Map.put(acc, atom, v)
-        :error -> acc
-      end
+      {:ok, atom} = safe_to_atom(k)
+      Map.put(acc, atom, v)
     end)
   end
 
   defp atomise_keys(list) when is_list(list) do
     Enum.reduce(list, [], fn {k, v}, acc ->
-      case safe_to_atom(k) do
-        {:ok, atom} -> [{atom, v} | acc]
-        :error -> acc
-      end
+      {:ok, atom} = safe_to_atom(k)
+      [{atom, v} | acc]
     end)
     |> Enum.reverse()
   end
@@ -270,6 +266,6 @@ defmodule Candil.Config do
   defp safe_to_atom(k) when is_binary(k) do
     {:ok, String.to_existing_atom(k)}
   rescue
-    ArgumentError -> :error
+    ArgumentError -> {:error, {:unknown_config_key, k}}
   end
 end
