@@ -45,18 +45,27 @@ defmodule Candil.Embeddings do
   end
 
   @doc """
-  Generates embeddings for multiple texts in a single batch request.
+  Generates embeddings for multiple texts in batched requests.
 
-  Falls back to individual requests if batching is not supported by the provider.
+  Texts are grouped into chunks of `:batch_size` (default 32) and each
+  chunk is sent as one request to providers that support batch input
+  (ollama, openai-compat).
+
+  ## Options
+
+    - `:provider` — provider type (default: "local")
+    - `:batch_size` — max texts per request (default: 32)
+    - `:url`, `:model`, `:api_key`, `:timeout` — forwarded to the provider
   """
   @spec embed_batch([String.t()], keyword()) ::
           {:ok, [embedding()]} | {:error, String.t() | Exception.t()}
   def embed_batch(texts, opts \\ []) when is_list(texts) do
     provider = Keyword.get(opts, :provider, "local")
+    batch_size = Keyword.get(opts, :batch_size, 32)
 
     case provider do
       "ollama" -> embed_batch_ollama(texts, opts)
-      _ -> embed_batch_openai_compat(texts, opts)
+      _ -> embed_batch_openai_compat(texts, opts, batch_size)
     end
   end
 
@@ -125,17 +134,50 @@ defmodule Candil.Embeddings do
     end
   end
 
-  defp embed_batch_openai_compat(texts, opts) do
-    results =
-      Enum.reduce_while(texts, {:ok, []}, fn text, {:ok, acc} ->
-        case embed(text, opts) do
-          {:ok, vec} -> {:cont, {:ok, [vec | acc]}}
-          {:error, _} = err -> {:halt, err}
-        end
-      end)
+  defp embed_batch_openai_compat(texts, opts, batch_size) do
+    url = Keyword.get(opts, :url, "http://127.0.0.1:8080")
+    model = Keyword.get(opts, :model, "bge-m3")
+    api_key = Keyword.get(opts, :api_key)
+    timeout = Keyword.get(opts, :timeout, 60_000)
 
-    case results do
-      {:ok, vecs} -> {:ok, Enum.reverse(vecs)}
+    headers =
+      if api_key && api_key != "" do
+        [{"authorization", "Bearer #{api_key}"}, {"content-type", "application/json"}]
+      else
+        [{"content-type", "application/json"}]
+      end
+
+    texts
+    |> Enum.chunk_every(batch_size)
+    |> Enum.reduce_while({:ok, []}, fn chunk, {:ok, acc} ->
+      req_body = %{model: model, input: chunk, encoding_format: "float"}
+
+      case HTTP.post_json("#{url}/v1/embeddings", req_body, headers,
+             timeout_ms: timeout,
+             retry: false
+           ) do
+        {:ok, %{body: %{"data" => data}}} when is_list(data) ->
+          vectors =
+            Enum.map(data, fn
+              %{"embedding" => vec} when is_list(vec) -> vec
+              _ -> nil
+            end)
+
+          if Enum.any?(vectors, &is_nil/1) do
+            {:halt, {:error, "unexpected OpenAI-compat batch response format"}}
+          else
+            {:cont, {:ok, acc ++ vectors}}
+          end
+
+        {:ok, _} ->
+          {:halt, {:error, "unexpected OpenAI-compat batch response format"}}
+
+        {:error, reason} ->
+          {:halt, {:error, inspect(reason)}}
+      end
+    end)
+    |> case do
+      {:ok, vectors} -> {:ok, vectors}
       error -> error
     end
   end
