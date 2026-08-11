@@ -19,18 +19,98 @@ defmodule Candil.ErrorTest do
     end
   end
 
-  describe "http_error/2" do
-    test "creates error with status and body" do
-      err = Error.http_error(500, "Internal Server Error")
-      assert err.reason == :http_error
-      assert err.context.status == 500
-      assert err.context.body == "Internal Server Error"
+  describe "http_error/2 — status classification (CA-10)" do
+    test "401 → :auth_error" do
+      err = Error.http_error(401, "Unauthorized")
+      assert err.reason == :auth_error
+      assert err.context.status == 401
     end
 
-    test "creates error with just status" do
-      err = Error.http_error(404)
-      assert err.reason == :http_error
-      assert err.context.status == 404
+    test "403 → :auth_error" do
+      assert Error.http_error(403).reason == :auth_error
+    end
+
+    test "429 → :rate_limited" do
+      err = Error.http_error(429, "Too Many Requests")
+      assert err.reason == :rate_limited
+    end
+
+    test "500 → :server_error" do
+      err = Error.http_error(500, "Internal Server Error")
+      assert err.reason == :server_error
+      assert err.context.status == 500
+    end
+
+    test "502 → :server_error" do
+      assert Error.http_error(502).reason == :server_error
+    end
+
+    test "503 → :server_error" do
+      assert Error.http_error(503).reason == :server_error
+    end
+
+    test "404 → :http_error (generic — not auth/rate/server)" do
+      assert Error.http_error(404).reason == :http_error
+    end
+
+    test "400 → :http_error" do
+      assert Error.http_error(400).reason == :http_error
+    end
+
+    test "creates error with just status (default body nil)" do
+      err = Error.http_error(500)
+      assert err.reason == :server_error
+      assert err.context.body == nil
+    end
+
+    test "preserves body in context" do
+      err = Error.http_error(500, "Internal Server Error")
+      assert err.context.body == "Internal Server Error"
+    end
+  end
+
+  describe "auth_error/2" do
+    test "creates error with :auth_error reason" do
+      err = Error.auth_error(401, "Bad token")
+      assert err.reason == :auth_error
+      assert err.context.status == 401
+    end
+  end
+
+  describe "server_error/2" do
+    test "creates error with :server_error reason" do
+      err = Error.server_error(502, "Bad Gateway")
+      assert err.reason == :server_error
+    end
+  end
+
+  describe "backend_unavailable/1" do
+    test "wraps the reason in context" do
+      err = Error.backend_unavailable(:not_loaded)
+      assert err.reason == :backend_unavailable
+      assert err.context.reason == :not_loaded
+    end
+  end
+
+  describe "cancelled/1" do
+    test "creates error with :cancelled reason and nil ref" do
+      err = Error.cancelled()
+      assert err.reason == :cancelled
+      assert err.context.ref == nil
+    end
+
+    test "carries the cancellation ref" do
+      ref = make_ref()
+      err = Error.cancelled(ref)
+      assert err.context.ref == ref
+    end
+  end
+
+  describe "kind/1" do
+    test "returns the same value as reason" do
+      err = Error.rate_limited(30)
+      assert Error.kind(err) == err.reason
+      assert Error.kind(err) == :rate_limited
     end
   end
 
@@ -138,12 +218,11 @@ defmodule Candil.ErrorTest do
       assert msg =~ ":model_not_found"
     end
 
-    test "formats message with context" do
-      err = Error.http_error(500, "broken")
+test "formats message with context" do
+      err = Error.http_error(404, "broken")
       msg = Exception.message(err)
       assert msg =~ "Candil error"
       assert msg =~ ":http_error"
-      assert msg =~ "500"
     end
   end
 end

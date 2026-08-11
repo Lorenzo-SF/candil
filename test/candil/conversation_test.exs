@@ -118,9 +118,10 @@ defmodule Candil.ConversationTest do
       }
 
       tokens = Conversation.token_estimate(conv)
-      # Formula: 4 (overhead per message) + ceil(content_bytes / 4)
-      # For "Hello" (5 bytes): 4 + ceil(5/4) = 4 + 2 = 6
-      assert tokens == 6
+      # Formula (CA-12): 4 (overhead per message) + estimate_content("Hello")
+      # estimate_content counts 1 token per word + 1 extra per 6 chars.
+      # "Hello" (1 word, 5 chars) = 1 + 0 = 1. Total = 4 + 1 = 5.
+      assert tokens == 5
     end
 
     test "handles atom keys" do
@@ -131,8 +132,8 @@ defmodule Candil.ConversationTest do
       }
 
       tokens = Conversation.token_estimate(conv)
-      # Same as string keys - formula accounts for content length
-      assert tokens == 6
+      # Atom-keyed role is normalised to string before counting.
+      assert tokens == 5
     end
 
     test "sums tokens for multiple messages with overhead" do
@@ -146,11 +147,13 @@ defmodule Candil.ConversationTest do
       }
 
       tokens = Conversation.token_estimate(conv)
-      # System "System prompt here" (17 bytes): ceil(17/4) = 5
-      # User "Hello" (5 bytes): ceil(5/4) + 4 = 6
-      # Assistant "Hi there!" (9 bytes): ceil(9/4) + 4 = 7
-      # Total: 5 + 6 + 7 = 18
-      assert tokens == 18
+      # Formula (CA-12): per-word heuristic + 4 overhead per message.
+      # System "System prompt here":
+      #   System (6 chars) = 1 + 1 = 2, prompt (6) = 2, here (4) = 1 → 5.
+      # User "Hello": 1 word → 1. + 4 = 5.
+      # Assistant "Hi there!": Hi (2) = 1, there! (6) = 2 → 3. + 4 = 7.
+      # Total: 5 + 5 + 7 = 17.
+      assert tokens == 17
     end
 
     test "handles missing content gracefully" do

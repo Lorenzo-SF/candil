@@ -110,6 +110,17 @@ defmodule Candil.Conversation do
   end
 
   @doc """
+  Appends a message to the history without calling the model.
+
+  Useful for agent loops that manage their own backend calls. Returns the
+  updated conversation.
+  """
+  @spec add_message(t(), binary(), binary()) :: t()
+  def add_message(%__MODULE__{} = conv, role, content) when role in ["user", "assistant", "system"] do
+    %{conv | messages: conv.messages ++ [%{role: role, content: content}]}
+  end
+
+  @doc """
   Resets the conversation history, keeping the system prompt and config.
   """
   @spec reset(t()) :: t()

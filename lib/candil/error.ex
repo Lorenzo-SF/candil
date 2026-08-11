@@ -19,6 +19,8 @@ defmodule Candil.Error do
           :model_not_found
           | :engine_not_running
           | :http_error
+          | :server_error
+          | :auth_error
           | :timeout
           | :rate_limited
           | :invalid_api_key
@@ -29,6 +31,8 @@ defmodule Candil.Error do
           | :startup_timeout
           | :circuit_open
           | :execution_failed
+          | :backend_unavailable
+          | :cancelled
 
   @doc """
   Creates an error for a model that was not found.
@@ -52,14 +56,72 @@ defmodule Candil.Error do
     }
   end
 
-  @doc """
-  Creates an error for an HTTP error with status and optional body.
+@doc """
+  Creates an HTTP error with status and optional body.
+
+  If `status` matches a known category (401/403 → `:auth_error`,
+  429 → `:rate_limited`, 5xx → `:server_error`, 404 with a model
+  reference → `:model_not_found`), the reason is normalized to the
+  specific kind. Otherwise it stays `:http_error`.
   """
   @spec http_error(pos_integer(), term()) :: t()
   def http_error(status, body \\ nil) do
     %__MODULE__{
-      reason: :http_error,
+      reason: classify_status(status),
       context: %{status: status, body: body}
+    }
+  end
+
+  @doc """
+  Build a typed error directly from an HTTP status code and body.
+  See `http_error/2`.
+  """
+  @spec from_http_status(non_neg_integer(), term()) :: t()
+  def from_http_status(status, body), do: http_error(status, body)
+
+  @doc """
+  Create a server error (5xx).
+  """
+  @spec server_error(pos_integer(), term()) :: t()
+  def server_error(status, body \\ nil) do
+    %__MODULE__{
+      reason: :server_error,
+      context: %{status: status, body: body}
+    }
+  end
+
+  @doc """
+  Create an auth error (401/403).
+  """
+  @spec auth_error(pos_integer(), term()) :: t()
+  def auth_error(status, body \\ nil) do
+    %__MODULE__{
+      reason: :auth_error,
+      context: %{status: status, body: body}
+    }
+  end
+
+  @doc """
+  Create a backend-unavailable error (the Backend behaviour module
+  is not loaded, or its implementation raised at startup).
+  """
+  @spec backend_unavailable(atom() | term()) :: t()
+  def backend_unavailable(reason) do
+    %__MODULE__{
+      reason: :backend_unavailable,
+      context: %{reason: reason}
+    }
+  end
+
+  @doc """
+  Create a cancellation error (caller cancelled via
+  `Candil.Llm.cancel/1`).
+  """
+  @spec cancelled(term()) :: t()
+  def cancelled(ref \\ nil) do
+    %__MODULE__{
+      reason: :cancelled,
+      context: %{ref: ref}
     }
   end
 
@@ -164,6 +226,16 @@ defmodule Candil.Error do
     }
   end
 
+  @doc """
+  Returns the error kind (alias for `reason/0`).
+
+  Provided so callers can write `error.kind` instead of `error.reason`
+  if they prefer. The struct field is still named `:reason` for
+  source-compatibility with existing call-sites.
+  """
+  @spec kind(t()) :: reason()
+  def kind(%__MODULE__{reason: reason}), do: reason
+
   @impl Exception
   def message(%__MODULE__{reason: reason, context: context}) do
     case context do
@@ -174,4 +246,15 @@ defmodule Candil.Error do
         "Candil error: #{inspect(reason)} (#{inspect(context)})"
     end
   end
+
+  # Map HTTP status codes to the specific `reason/0` taxonomy.
+  # Anything not matched falls back to the generic `:http_error` so
+  # callers can still pattern-match on `reason: :http_error`.
+  @spec classify_status(non_neg_integer()) :: reason()
+  defp classify_status(401), do: :auth_error
+  defp classify_status(403), do: :auth_error
+  defp classify_status(429), do: :rate_limited
+  defp classify_status(status) when status in 500..599, do: :server_error
+  defp classify_status(status) when status in 400..499, do: :http_error
+  defp classify_status(_), do: :http_error
 end

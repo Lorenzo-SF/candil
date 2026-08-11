@@ -23,6 +23,8 @@ defmodule Candil.Application do
     children = [
       {Registry, keys: :unique, name: Candil.Registry},
       Candil.Config,
+      Candil.Cancellation,
+      Candil.Tool,
       Candil.EnginePool,
       {DynamicSupervisor, name: Candil.EngineSupervisor, strategy: :one_for_one}
     ]
