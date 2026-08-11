@@ -58,6 +58,7 @@ defmodule Candil.AgentTest do
   setup do
     # Candil.Tool and Candil.Cancellation are already started by the app.
     start_supervised({StubBackend, responses: []})
+    Tool.reset()
     :ok
   end
 

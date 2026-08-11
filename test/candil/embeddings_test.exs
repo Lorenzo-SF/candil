@@ -1,29 +1,36 @@
+defmodule Candil.EmbeddingsTest.FakeServer do
+  use GenServer
+
+  def start_link(_), do: GenServer.start_link(__MODULE__, %{chunks: []}, name: __MODULE__)
+
+  @impl true
+  def init(state), do: {:ok, state}
+
+  @impl true
+  def handle_call(:chunks, _from, state), do: {:reply, state.chunks, state}
+
+  @impl true
+  def handle_call({:record, size}, _from, state) do
+    {:reply, :ok, %{state | chunks: state.chunks ++ [size]}}
+  end
+end
+
 defmodule Candil.EmbeddingsTest do
   use ExUnit.Case, async: false
+  import Mox
 
-  alias Candil.Embeddings
+  alias Candil.{Embeddings, HTTPAdapterMock}
+  alias Candil.EmbeddingsTest.FakeServer
 
-  defmodule FakeServer do
-    use GenServer
-
-    def start_link(_), do: GenServer.start_link(__MODULE__, %{chunks: []}, name: __MODULE__)
-
-    @impl true
-    def init(state), do: {:ok, state}
-
-    @impl true
-    def handle_call(:chunks, _from, state), do: {:reply, state.chunks, state}
-
-    @impl true
-    def handle_call({:record, size}, _from, state) do
-      {:reply, :ok, %{state | chunks: state.chunks ++ [size]}}
-    end
-  end
+  setup :verify_on_exit!
 
   setup do
     start_supervised!(FakeServer)
-    # HTTP requests go to a dead port — but we test pure chunking logic
-    # through the batch size computation, not actual requests.
+
+    stub(HTTPAdapterMock, :request, fn %Apero.Http.Request{} ->
+      {:error, %Apero.Http.Error{reason: :econnrefused}}
+    end)
+
     :ok
   end
 

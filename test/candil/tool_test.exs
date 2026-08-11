@@ -5,6 +5,7 @@ defmodule Candil.ToolTest do
 
   setup do
     start_supervised(Tool)
+    Tool.reset()
     :ok
   end
 

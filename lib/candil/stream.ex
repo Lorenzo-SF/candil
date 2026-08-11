@@ -151,7 +151,7 @@ defmodule Candil.Stream do
   defp do_stream(url, body, headers, parse_fn, callback, opts) do
     timeout = Keyword.get(opts, :timeout_ms, 120_000)
     receive_timeout = Keyword.get(opts, :receive_timeout_ms, 30_000)
-    initial_state = %{buffer: "", done: false}
+    initial_state = %{buffer: "", done: false, error: nil}
 
     {:ok, task} =
       Task.start_link(fn ->

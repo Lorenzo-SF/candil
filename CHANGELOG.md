@@ -5,6 +5,43 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [3.0.0] - 2026-08-11
+
+### Added — FASE-3 (candil 3.0)
+- `Candil.Backend` behaviour (`chat/3`, `chat_stream/3`, `embed/3`,
+  `models/0`) with auto-registration for local (LlamaCpp) and remote
+  (OpenAI-compat: openai, anthropic, ollama, azure) providers.
+- `Candil.Tool` registry + `Candil.Tools` parser: define/list/call tools,
+  `<|tool_call|>` local parsing, OpenAI `tool_calls` wire format,
+  JSON-schema validation of args.
+- `Candil.Structured.complete/4`: structured outputs with JSON-schema
+  validation and retry with validation feedback.
+- `Candil.Agent`: minimal ReAct loop over tools (`use Candil.Agent`,
+  stop word, max_steps, cancellation support, trace).
+- `Candil.Cancellation` GenServer: register/done/cancel refs for
+  in-flight streams.
+- `Candil.Telemetry`: `[:candil, :inference, :start|:stop|:token|:error]`,
+  `[:candil, :cost, :estimate]`, `[:candil, :cancellation]`.
+- `Candil.Cost.estimate/4` with per-model pricing + telemetry.
+- Robust stateful SSE parser in `Candil.Stream` (arbitrary chunk
+  splits, CRLF/LF/mixed terminators, comment lines, mailbox backpressure).
+- `Candil.Embeddings.embed_batch/2` with real batching (`batch_size`,
+  default 32).
+- Normalized error semantics: `Candil.Error` reason kinds
+  (`:auth_error`, `:server_error`, `:rate_limited`, `:cancelled`,
+  `:backend_unavailable`) via `http_error/2` status classification.
+- Per-word token estimation in `Candil.Conversation.TokenEstimator`
+  (replaces 4-chars-per-token; legacy kept as `estimate_content_legacy/1`).
+- `Candil.Conversation.add_message/3` without a backend call (agent loops).
+
+### Fixed
+- `Candil.Backend.OpenAICompat` request body built correctly when opts
+  arrive as keyword lists (`Map.put` → `Keyword.put`).
+- `Candil.Stream.do_stream` initial state includes `:error` field.
+- `TokenEstimator.estimate_conversation/1` accumulator argument order.
+- Test isolation: `Candil.Tool.reset/0`, cancellation count assertions
+  relative to pre-test state, deterministic Mox adapter for all tests.
+
 ## [Unreleased]
 
 ### Fixed

@@ -30,10 +30,13 @@ defmodule Candil.Backend.OpenAICompat do
     case config_for(provider_of(model), opts) do
       {:ok, base_url, token} ->
         url = "#{base_url}/v1/chat/completions"
-        body = build_body(model, messages, Map.put(opts, :stream, false))
+        body = build_body(model, messages, Keyword.put(opts, :stream, false))
         headers = auth_headers(token)
 
-        case HTTP.post_json(url, body, headers, timeout_ms: opts[:timeout_ms] || 60_000) do
+        case HTTP.post_json(url, body, headers,
+               timeout_ms: opts[:timeout_ms] || 60_000,
+               retry: Keyword.get(opts, :retry, true)
+             ) do
           {:ok, %{status: status, body: body}} when status in 200..299 ->
             parse_chat_response(body)
 
@@ -54,7 +57,7 @@ defmodule Candil.Backend.OpenAICompat do
     case config_for(provider_of(model), opts) do
       {:ok, base_url, token} ->
         url = "#{base_url}/v1/chat/completions"
-        body = build_body(model, messages, Map.put(opts, :stream, true))
+        body = build_body(model, messages, Keyword.put(opts, :stream, true))
         headers = auth_headers(token)
         request_id = Keyword.get(opts, :request_id, "stream-#{System.unique_integer()}")
 
@@ -97,7 +100,10 @@ defmodule Candil.Backend.OpenAICompat do
             body = %{model: model_id(model), input: text}
             headers = auth_headers(token)
 
-            case HTTP.post_json(url, body, headers, timeout_ms: opts[:timeout_ms] || 60_000) do
+        case HTTP.post_json(url, body, headers,
+               timeout_ms: opts[:timeout_ms] || 60_000,
+               retry: Keyword.get(opts, :retry, true)
+             ) do
               {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vec}]}}} when is_list(vec) ->
                 {:ok, vec}
 
@@ -187,8 +193,10 @@ defmodule Candil.Backend.OpenAICompat do
   defp model_id(%Model{name: name}), do: name
   defp model_id(id) when is_binary(id), do: id
 
-  @spec build_body(String.t() | Model.t(), [map()], map()) :: map()
+  @spec build_body(String.t() | Model.t(), [map()], keyword() | map()) :: map()
   defp build_body(model, messages, opts) do
+    opts = Map.new(opts)
+
     %{
       model: model_id(model),
       messages: Enum.map(messages, &normalize_message/1),

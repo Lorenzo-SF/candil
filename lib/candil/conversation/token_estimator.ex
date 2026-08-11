@@ -20,7 +20,7 @@ defmodule Candil.Conversation.TokenEstimator do
   """
   @spec estimate_conversation(map()) :: non_neg_integer()
   def estimate_conversation(%{messages: messages, system: system}) do
-    message_total = Enum.reduce(messages, 0, &(&1 + estimate_message(&2)))
+    message_total = Enum.reduce(messages, 0, fn msg, acc -> acc + estimate_message(msg) end)
     message_total + estimate_system(system)
   end
 

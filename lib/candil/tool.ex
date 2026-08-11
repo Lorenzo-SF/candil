@@ -91,6 +91,12 @@ defmodule Candil.Tool do
   def list, do: GenServer.call(@name, :list)
 
   @doc """
+  Remove all registered tools. Useful for tests and hot-reload scenarios.
+  """
+  @spec reset() :: :ok
+  def reset, do: GenServer.call(@name, :reset)
+
+  @doc """
   Invoke a tool by name with the given args.
 
   Returns the tool's return value (`{:ok, term()} | {:error, term()}`)
@@ -136,6 +142,11 @@ defmodule Candil.Tool do
   @impl true
   def handle_call(:list, _from, state) do
     {:reply, Map.values(state.tools), state}
+  end
+
+  @impl true
+  def handle_call(:reset, _from, state) do
+    {:reply, :ok, %{state | tools: %{}}}
   end
 
   @impl true

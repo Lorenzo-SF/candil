@@ -17,12 +17,12 @@ defmodule Candil.CancellationTest do
   end
 
   test "register/done cycle keeps count consistent" do
-    assert Cancellation.count() == 0
+    before = Cancellation.count()
     ref = Cancellation.new_ref()
     assert Cancellation.register(ref) == :ok
-    assert Cancellation.count() == 1
+    assert Cancellation.count() == before + 1
     assert Cancellation.done(ref) == :ok
-    assert Cancellation.count() == 0
+    assert Cancellation.count() == before
   end
 
   test "done/1 is idempotent" do
