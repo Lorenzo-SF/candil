@@ -33,9 +33,9 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      {:apero, path: "../apero", override: true},
-      {:arrea, path: "../arrea", override: true},
-      {:trebejo, path: "../trebejo", override: true},
+      {:apero, git: "https://github.com/Lorenzo-SF/apero.git", override: true},
+      {:arrea, git: "https://github.com/Lorenzo-SF/arrea.git", override: true},
+      {:trebejo, git: "https://github.com/Lorenzo-SF/trebejo.git", override: true},                       
       {:jason, "~> 1.4"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
