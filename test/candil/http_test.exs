@@ -1,7 +1,24 @@
 defmodule Candil.HTTPTest do
   use ExUnit.Case, async: false
+  import Mox
 
-  alias Candil.{Error, HTTP, RateLimiter}
+  alias Candil.{Error, HTTP, HTTPAdapterMock, RateLimiter}
+
+  setup :verify_on_exit!
+
+  setup do
+    # Simulate an unreachable host: every request/stream fails with a
+    # connection error, matching what the "invalid URL" tests expect.
+    stub(HTTPAdapterMock, :request, fn %Apero.Http.Request{} ->
+      {:error, %Apero.Http.Error{reason: :econnrefused}}
+    end)
+
+    stub(HTTPAdapterMock, :stream, fn %Apero.Http.Request{}, _acc, _fun, _opts ->
+      {:error, %Apero.Http.Error{reason: :econnrefused}}
+    end)
+
+    :ok
+  end
 
   describe "RateLimiter" do
     test "check/2 returns :ok when no limit set" do

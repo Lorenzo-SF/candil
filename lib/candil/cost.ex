@@ -62,6 +62,39 @@ defmodule Candil.Cost do
     end
   end
 
+  @doc """
+  Estimate cost for a `(provider, model, input_tokens, output_tokens)`
+  tuple. Returns `{:ok, cost_usd}` on success, `:unknown` if the
+  model is not in the pricing table, or `{:error, reason}` if the
+  inputs are invalid.
+
+  Emits `[:candil, :cost, :estimate]` telemetry on every call (even
+  for unknown models, with `cost_usd: 0.0`).
+  """
+  @spec estimate(atom() | String.t(), String.t(), non_neg_integer(), non_neg_integer()) ::
+          {:ok, float()} | :unknown | {:error, term()}
+  def estimate(provider, model, input_tokens, output_tokens)
+      when is_atom(provider) or is_binary(provider) do
+    cond do
+      not is_integer(input_tokens) or input_tokens < 0 ->
+        {:error, :invalid_input_tokens}
+
+      not is_integer(output_tokens) or output_tokens < 0 ->
+        {:error, :invalid_output_tokens}
+
+      true ->
+        case estimate(model, input_tokens, output_tokens) do
+          {:ok, cost} ->
+            Candil.Telemetry.emit_cost(provider, model, input_tokens, output_tokens, cost)
+            {:ok, cost}
+
+          :unknown ->
+            Candil.Telemetry.emit_cost(provider, model, input_tokens, output_tokens, 0.0)
+            :unknown
+        end
+    end
+  end
+
   @doc "Returns the model names with known pricing."
   @spec known_models() :: [String.t()]
   def known_models, do: Map.keys(@pricing)

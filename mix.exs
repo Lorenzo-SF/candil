@@ -4,7 +4,7 @@ defmodule Candil.MixProject do
   def project do
     [
       app: :candil,
-      version: "2.1.0",
+      version: "3.0.0",
       elixir: "~> 1.19",
       start_permanent: Mix.env() == :prod,
       deps: deps(),
@@ -33,9 +33,9 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      {:apero, path: "../apero", override: true},
-      {:arrea, path: "../arrea", override: true},
-      {:trebejo, path: "../trebejo", override: true},
+      {:apero, git: "https://github.com/Lorenzo-SF/apero.git", override: true},
+      {:arrea, git: "https://github.com/Lorenzo-SF/arrea.git", override: true},
+      {:trebejo, git: "https://github.com/Lorenzo-SF/trebejo.git", override: true},                       
       {:jason, "~> 1.4"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

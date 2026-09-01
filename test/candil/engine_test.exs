@@ -16,8 +16,19 @@ end
 
 defmodule Candil.EngineTest do
   use ExUnit.Case, async: false
+  import Mox
 
-  alias Candil.Engine
+  alias Candil.{Engine, HTTPAdapterMock}
+
+  setup :verify_on_exit!
+
+  setup do
+    stub(HTTPAdapterMock, :request, fn %Apero.Http.Request{} ->
+      {:error, %Apero.Http.Error{reason: :econnrefused}}
+    end)
+
+    :ok
+  end
 
   describe "binary_dir/1" do
     test "returns configured binary_dir" do
