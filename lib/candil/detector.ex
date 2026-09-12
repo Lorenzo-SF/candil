@@ -60,14 +60,14 @@ defmodule Candil.Detector do
   end
 
   # Falls back to :unknown if Trebejo (optional dep) is not loaded.
+  # Trebejo is intentionally not a compile-time dep (see mix.exs);
+  # we look it up via apply/3 at runtime to keep the compiler happy.
   defp safe_arch do
-    if Code.ensure_loaded?(Trebejo.OS) do
-      Trebejo.OS.arch()
+    if Code.ensure_loaded?(Trebejo.OS) and function_exported?(Trebejo.OS, :arch, 0) do
+      apply(Trebejo.OS, :arch, [])
     else
       :unknown
     end
-  rescue
-    _ -> :unknown
   end
 
   @doc """
