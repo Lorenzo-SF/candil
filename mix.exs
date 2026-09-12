@@ -35,9 +35,10 @@ defmodule Candil.MixProject do
     [
       {:apero, git: "https://github.com/Lorenzo-SF/apero.git", override: true},
       {:arrea, git: "https://github.com/Lorenzo-SF/arrea.git", override: true},
-      # Trebejo is optional — only used in Candil.Detector for arch detection.
-      # Marked optional so it can be absent in downstream builds (hex releases).
-      {:trebejo, git: "https://github.com/Lorenzo-SF/trebejo.git", optional: true, runtime: false},
+      # Trebejo is private; CI for the public repos cannot access it.
+      # Code uses Code.ensure_loaded?(Trebejo.…) guards to gracefully
+      # degrade when absent. Skipped entirely from deps.
+      # {:trebejo, git: "https://github.com/Lorenzo-SF/trebejo.git"},
       {:jason, "~> 1.4"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},

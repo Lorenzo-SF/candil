@@ -32,7 +32,7 @@ defmodule Candil.Detector do
   @type gpu_backend :: :cuda | :rocm | :metal | :vulkan | :sycl | :cpu
   @type detection :: %{
           os: Apero.OS.os_type(),
-          arch: Trebejo.OS.arch(),
+          arch: any(),
           gpu: gpu_backend(),
           cuda_version: binary() | nil,
           asset_pattern: binary()
@@ -47,7 +47,7 @@ defmodule Candil.Detector do
   @spec detect() :: detection()
   def detect do
     os = Apero.OS.type()
-    arch = Trebejo.OS.arch()
+    arch = safe_arch()
     {gpu, cuda_version} = GPU.detect_gpu(os)
 
     %{
@@ -57,6 +57,17 @@ defmodule Candil.Detector do
       cuda_version: cuda_version,
       asset_pattern: Models.build_asset_pattern(os, arch, gpu, cuda_version)
     }
+  end
+
+  # Falls back to :unknown if Trebejo (optional dep) is not loaded.
+  defp safe_arch do
+    if Code.ensure_loaded?(Trebejo.OS) do
+      Trebejo.OS.arch()
+    else
+      :unknown
+    end
+  rescue
+    _ -> :unknown
   end
 
   @doc """
