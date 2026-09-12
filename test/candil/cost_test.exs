@@ -50,4 +50,26 @@ defmodule Candil.CostTest do
       assert "gpt-4o" in models
     end
   end
+
+  describe "format_price/1" do
+    test "formats small prices with 4-6 decimals" do
+      assert Cost.format_price(0.0075) == "$0.0075"
+      assert Cost.format_price(0.001) == "$0.001"
+    end
+
+    test "formats medium prices with 2 decimals" do
+      assert Cost.format_price(1.5) == "$1.5"
+      assert Cost.format_price(10.0) == "$10.0"
+    end
+
+    test "formats thousands with K suffix" do
+      assert Cost.format_price(1500.0) == "$1.5K"
+      assert Cost.format_price(2000.0) == "$2.0K"
+    end
+
+    test "formats millions with M suffix" do
+      assert Cost.format_price(1_500_000) == "$1.5M"
+      assert Cost.format_price(3_000_000) == "$3.0M"
+    end
+  end
 end
