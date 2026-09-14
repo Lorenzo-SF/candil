@@ -99,6 +99,40 @@ defmodule Candil.Cost do
   @spec known_models() :: [String.t()]
   def known_models, do: Map.keys(@pricing)
 
+  @doc """
+  Formats a USD price as a human-readable string.
+
+  Examples:
+    * 0.00775 → "$0.0078"
+    * 1.50    → "$1.50"
+    * 1500.0  → "$1.5K"
+    * 1_500_000 → "$1.5M"
+
+  Negative prices are formatted with a leading minus sign.
+
+  ## Examples
+
+      iex> Candil.Cost.format_price(0.0075)
+      "$0.0075"
+
+      iex> Candil.Cost.format_price(1500.0)
+      "$1.5K"
+  """
+  @spec format_price(float()) :: String.t()
+  def format_price(price) when is_number(price) do
+    cond do
+      price >= 1_000_000 -> "$#{Float.round(price / 1_000_000, 2)}M"
+      price >= 1_000 -> "$#{Float.round(price / 1_000, 2)}K"
+      price >= 1 -> "$#{Float.round(price, 2)}"
+      price >= 0.01 -> "$#{Float.round(price, 4)}"
+      true -> "$#{Float.round(price, 6)}"
+    end
+  end
+
+  def format_price(price) when is_integer(price) do
+    format_price(price / 1.0)
+  end
+
   @spec normalize(String.t()) :: String.t()
   defp normalize(model) do
     # Strip any provider prefix (e.g. "openai/gpt-4o" → "gpt-4o")

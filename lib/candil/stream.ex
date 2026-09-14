@@ -153,8 +153,12 @@ defmodule Candil.Stream do
     receive_timeout = Keyword.get(opts, :receive_timeout_ms, 30_000)
     initial_state = %{buffer: "", done: false, error: nil}
 
+    # P0-1: use Task.start (unlinked) instead of Task.start_link.
+    # If the caller dies the stream task doesn't propagate the EXIT
+    # signal to the streaming HTTP task, allowing the resource
+    # teardown below to shut it down cleanly via Port.close.
     {:ok, task} =
-      Task.start_link(fn ->
+      Task.start(fn ->
         HTTP.post_streaming(
           url,
           body,
