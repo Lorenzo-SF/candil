@@ -1,5 +1,10 @@
 # Candil
 
+[![Hex Version](https://img.shields.io/hexpm/v/candil.svg)](https://hex.pm/packages/candil)
+[![Hex Docs](https://img.shields.io/badge/hex-docs-ffaff3.svg)](https://hexdocs.pm/candil)
+[![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE.md)
+[![Version](https://img.shields.io/badge/version-3.0.0-blue.svg)](https://github.com/Lorenzo-SF/candil)
+
 LLM inference and model management for Elixir. Run local models via llama.cpp or remote models via OpenAI-compatible APIs.
 
 ## Installation
@@ -7,7 +12,7 @@ LLM inference and model management for Elixir. Run local models via llama.cpp or
 ```elixir
 def deps do
   [
-    {:candil, "~> 2.1"}
+    {:candil, "~> 3.0"}
   ]
 end
 ```
@@ -17,7 +22,6 @@ end
 Candil requires:
 - `:apero` - HTTP transport, retry, and system utilities
 - `:arrea` - Circuit breakers and long-running process supervision
-- `:trebejo` - OS and architecture detection
 - `:jason` - JSON encoding/decoding
 
 ## Configuration

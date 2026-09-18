@@ -5,7 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [3.0.0] - 2026-08-11
+## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)
 - `Candil.Backend` behaviour (`chat/3`, `chat_stream/3`, `embed/3`,
@@ -41,10 +41,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - `TokenEstimator.estimate_conversation/1` accumulator argument order.
 - Test isolation: `Candil.Tool.reset/0`, cancellation count assertions
   relative to pre-test state, deterministic Mox adapter for all tests.
-
-## [Unreleased]
-
-### Fixed
 - Preserved successful HTTP response maps and corrected their Dialyzer typing.
 - Sent health-check embedding payloads as maps accepted by the shared HTTP client.
 - Rejected unknown string config keys without creating atoms at runtime.
@@ -52,8 +48,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 - Updated English and Spanish README dependency, API arity, and architecture examples.
+- `mix.exs`: sibling deps are now Hex requirements
+  (`{:apero, "~> 4.0"}`, `{:arrea, "~> 3.0"}`); `source_ref` points
+  at `3.0.0`.
 
-## [2.1.0] - 2026-XX-XX
+## [2.1.0] - 2026-07-11
 
 ### Added
 - `Candil.Engine.Launcher` behaviour for custom engine launchers (external
@@ -150,20 +149,23 @@ canonical `2.0.0` entry.
   OpenAI/Anthropic/Ollama remote providers, conversation, streaming,
   embeddings.
 
+[3.0.0]: https://hex.pm/packages/candil/3.0.0
+[2.1.0]: https://hex.pm/packages/candil/2.1.0
 [2.0.0]: https://hex.pm/packages/candil/2.0.0
 [1.0.0]: https://hex.pm/packages/candil/1.0.0
+[Unreleased]: https://github.com/Lorenzo-SF/candil/compare/3.0.0...HEAD
 
 
 > ## A note on versioning
 >
-> The only canonical tags are `1.0.0` (initial open-source cut-over)
-> and `2.0.0` (current HEAD). The `[0.2.0]` and `[0.3.0]` headers
-> in earlier drafts were **planning milestones**, not releases: they
-> have no corresponding git tags. Earlier `0.x` versions are no longer
-> maintained and have been collapsed into this single canonical
-> `2.0.0` entry. `mix.exs` `version` reflects the current development
-> state and may be ahead of the public surface. Pin to `1.0.0` or
-> `2.0.0` for stable dependencies.
+> The only canonical tags are `1.0.0` (initial open-source cut-over),
+> `2.0.0`, `2.1.0` and `3.0.0` (current HEAD). The `[0.2.0]` and
+> `[0.3.0]` headers in earlier drafts were **planning milestones**,
+> not releases: they have no corresponding git tags. Earlier `0.x`
+> versions are no longer maintained and have been collapsed into the
+> single canonical `2.0.0` entry. `mix.exs` `version` reflects the
+> current development state and may be ahead of the public surface.
+> Pin to a released tag for stable dependencies.
 
 > ## A note on history
 >
@@ -177,7 +179,7 @@ canonical `2.0.0` entry.
 > not preserved is, by the maintainer's choice, no longer part of
 > the canonical development line.
 >
-> Tag `1.0.0` points to the initial open-source cut-over; tag
-> `2.0.0` points to the current HEAD and the canonical consolidated
-> release. All versioned artifacts on Hex.pm and GitHub Releases
+> Tag `1.0.0` points to the initial open-source cut-over; tags
+> `2.0.0`, `2.1.0` and `3.0.0` point to their respective releases.
+> All versioned artifacts on Hex.pm and GitHub Releases
 > follow this convention.

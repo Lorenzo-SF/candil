@@ -33,8 +33,8 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      {:apero, git: "https://github.com/Lorenzo-SF/apero.git", override: true},
-      {:arrea, git: "https://github.com/Lorenzo-SF/arrea.git", override: true},
+      {:apero, "~> 4.0", override: true},
+      {:arrea, "~> 3.0", override: true},
       # Trebejo is private; CI for the public repos cannot access it.
       # Code uses Code.ensure_loaded?(Trebejo.…) guards to gracefully
       # degrade when absent. Skipped entirely from deps.
@@ -53,15 +53,43 @@ defmodule Candil.MixProject do
       main: "readme",
       source_url: "https://github.com/Lorenzo-SF/candil",
       homepage_url: "https://github.com/Lorenzo-SF/candil",
-      source_ref: "2.0.0",
+      source_ref: "3.0.0",
       extras: ["README.md", "LICENSE.md"],
       groups_for_modules: [
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],
         Config: [Candil.Config, Candil.ConfigManager, Candil.Model, Candil.Provider],
         Diagnostics: [Candil.Health, Candil.Embeddings],
-        Conversation: [Candil.Conversation],
-        Inference: [Candil.Inference, Candil.RequestBuilder, Candil.Stream, Candil.HTTP],
-        Engine: [Candil.Engine, Candil.Engine.Server, Candil.Detector, Candil.Installer]
+        Conversation: [
+          Candil.Conversation,
+          Candil.Conversation.Context,
+          Candil.Conversation.TokenEstimator
+        ],
+        Inference: [
+          Candil.Inference,
+          Candil.Inference.Chat,
+          Candil.Inference.Embeddings,
+          Candil.RequestBuilder,
+          Candil.Stream,
+          Candil.HTTP,
+          Candil.HTTP.Client,
+          Candil.HTTP.Retry
+        ],
+        Backends: [Candil.Backend, Candil.Backend.LlamaCpp, Candil.Backend.OpenAICompat],
+        "Tools & Agents": [Candil.Tool, Candil.Tools, Candil.Structured, Candil.Agent],
+        Engine: [
+          Candil.Engine,
+          Candil.Engine.Launcher,
+          Candil.Engine.Server,
+          Candil.Engine.Server.External,
+          Candil.Engine.HealthPoller,
+          Candil.EnginePool,
+          Candil.Detector,
+          Candil.Detector.GPU,
+          Candil.Detector.Models,
+          Candil.Detector.Release,
+          Candil.Installer
+        ],
+        Runtime: [Candil.Telemetry, Candil.Cancellation, Candil.RateLimiter]
       ]
     ]
   end
