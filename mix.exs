@@ -33,12 +33,8 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      {:apero, "~> 4.0", override: true},
-      {:arrea, "~> 3.0", override: true},
-      # Trebejo is private; CI for the public repos cannot access it.
-      # Code uses Code.ensure_loaded?(Trebejo.…) guards to gracefully
-      # degrade when absent. Skipped entirely from deps.
-      # {:trebejo, git: "https://github.com/Lorenzo-SF/trebejo.git"},
+      {:apero, "~> 4.0"},
+      {:arrea, "~> 3.0"},
       {:jason, "~> 1.4"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
