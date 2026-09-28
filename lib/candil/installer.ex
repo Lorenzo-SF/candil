@@ -76,7 +76,7 @@ defmodule Candil.Installer do
   end
 
   defp download_and_extract_engine(url, engine) do
-    tmp_zip = Path.join(System.tmp_dir!(), "apero_llama_#{:rand.uniform(999_999)}.zip")
+    tmp_zip = Path.join(System.tmp_dir!(), "candil_llama_#{:rand.uniform(999_999)}.zip")
     bin_dir = Engine.binary_dir(engine)
 
     with :ok <- File.mkdir_p(bin_dir),
@@ -121,7 +121,7 @@ defmodule Candil.Installer do
              :get,
              url,
              nil,
-             [{"user-agent", "apero-llm/0.1"}],
+             [{"user-agent", "candil-llm/0.1"}],
              {:file, file, dest_path},
              &stream_to_file/2,
              receive_timeout: timeout

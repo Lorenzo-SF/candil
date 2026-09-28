@@ -63,13 +63,13 @@ defmodule Candil.Engine do
   @doc """
   Returns the effective binary directory for an engine.
 
-  Falls back to `~/.apero/llm/bin` when `binary_dir` is `nil`.
+  Falls back to `~/.candil/llm/bin` when `binary_dir` is `nil`.
 
   Raises `ArgumentError` if the configured path contains `..` (path traversal).
   """
   @spec binary_dir(t()) :: binary()
   def binary_dir(%__MODULE__{binary_dir: nil}) do
-    Path.join([System.user_home!(), ".apero", "llm", "bin"])
+    Path.join([System.user_home!(), ".candil", "llm", "bin"])
   end
 
   def binary_dir(%__MODULE__{binary_dir: dir}) do

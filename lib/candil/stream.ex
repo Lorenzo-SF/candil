@@ -290,9 +290,17 @@ defmodule Candil.Stream do
   @spec receive_inbox(pid(), pos_integer()) :: (... -> any())
   defp receive_inbox(consumer_pid, _idle_timeout) do
     fn
-      {:data, data}, _acc -> send(consumer_pid, {:sse_data, data}); ""
-      :done, _acc -> send(consumer_pid, {:sse_done, self()}); ""
-      {:error, reason}, _acc -> send(consumer_pid, {:sse_error, reason, self()}); ""
+      {:data, data}, _acc ->
+        send(consumer_pid, {:sse_data, data})
+        ""
+
+      :done, _acc ->
+        send(consumer_pid, {:sse_done, self()})
+        ""
+
+      {:error, reason}, _acc ->
+        send(consumer_pid, {:sse_error, reason, self()})
+        ""
     end
   end
 

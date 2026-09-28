@@ -8,7 +8,7 @@ defmodule Candil.Config do
 
   ## Application config
 
-      config :apero, Candil.Config,
+      config :candil, Candil.Config,
         engines: [
           %{
             alias: :llama_server,
@@ -64,9 +64,9 @@ defmodule Candil.Config do
 
   alias Candil.{Engine, Model, Provider}
 
-  @table_engines :apero_llm_engines
-  @table_models :apero_llm_models
-  @table_providers :apero_llm_providers
+  @table_engines :candil_llm_engines
+  @table_models :candil_llm_models
+  @table_providers :candil_llm_providers
 
   @doc false
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -225,7 +225,7 @@ defmodule Candil.Config do
   end
 
   defp load_from_app_config do
-    cfg = Application.get_env(:apero, __MODULE__, [])
+    cfg = Application.get_env(:candil, __MODULE__, [])
 
     cfg
     |> Keyword.get(:engines, [])
