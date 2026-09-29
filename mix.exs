@@ -33,8 +33,11 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      {:apero, "~> 4.0"},
-      {:arrea, "~> 3.0"},
+      # Sibling deps point straight at GitHub: no version bumps to track, no
+      # publish ordering between packages. `MIX_ENV=prod mix hex.publish`
+      # still works if a Hex release is ever needed again.
+      {:apero, github: "Lorenzo-SF/apero"},
+      {:arrea, github: "Lorenzo-SF/arrea"},
       {:jason, "~> 1.4"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
