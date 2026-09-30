@@ -2,29 +2,33 @@ name: CI
 
 on:
   push:
-    branches: [main, cleanup/audit-and-i18n]
+    branches: [main, 4.0, "4.0/**"]
   pull_request:
-    branches: [main, cleanup/audit-and-i18n]
+    branches: [main, 4.0, "4.0/**"]
   workflow_dispatch:
+  schedule:
+    # Monday 06:00 UTC. Catches upstream breakage in the GitHub-sourced deps
+    # (apero / arrea / trebejo / alaja / botica all track main @ HEAD, so a
+    # push to any of them can break us without touching this repo).
+    - cron: "0 6 * * 1"
 
 env:
-  OTP_VERSION: "28.1"
-  ELIXIR_VERSION: "1.19.5"
+  OTP_VERSION: "28.5.0.7"
+  ELIXIR_VERSION: "1.19.5-otp-28"
   MIX_ENV: "test"
 
 jobs:
   # ---------------------------------------------------------------------------
-  # 1. Format + lint + security — fast feedback
+  # 1. Format + lint + audit — fast feedback, no compile of test env
   # ---------------------------------------------------------------------------
   lint:
-    name: Lint & Security
+    name: Format, Lint & Audit
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      # Candil depends on apero and arrea via GitHub.
-      - name: Fix git SSH → HTTPS for dependencies
-        run: git config --global url."https://github.com/".insteadOf "git@github.com:"
+        with:
+          # Dialyzer and Credo both want history for accurate diffs.
+          fetch-depth: 0
 
       - name: Install OTP & Elixir
         uses: erlef/setup-beam@v1
@@ -36,28 +40,51 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-deps-
+
+      - name: Cache build
+        uses: actions/cache@v4
+        with:
+          path: _build
+          key: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-
 
       - name: Install dependencies
         run: mix deps.get
 
-      # Credo is run locally; the strict gate currently rejects style
-      # choices in lib/candil that we don't want to touch in a cleanup PR.
-      # Re-enable once the legacy modules are modernised.
-      # - name: Run Credo (strict)
-      #   run: mix credo --format=github
+      # `mix format --check-formatted` is a separate gate from compile: a
+      # mis-indented file compiles fine and only shows up in review.
+      - name: Check formatting
+        run: mix format --check-formatted
 
+      # Credo was previously commented out because strict mode rejected style
+      # choices in legacy modules. That debt is now paid (see phase 0), so the
+      # gate is back on.
+      #
+      # oneline, not the `github` format: on 1.7.12 `--format=github` silently
+      # falls back to the default output and emits no ::warning annotations, so
+      # the diff is not annotated. oneline is compact in the log and is what
+      # the developers run locally anyway.
+      - name: Credo (strict)
+        run: mix credo --strict --format=oneline
+
+      - name: Security audit
+        run: mix hex.audit
+
+      - name: Unused dependencies
+        run: mix deps.unlock --check-unused
 
   # ---------------------------------------------------------------------------
-  # 2. Compile + test with coverage — main quality gate
+  # 2. Compile + test with coverage — the main quality gate
   # ---------------------------------------------------------------------------
   test:
     name: Compile & Test
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install OTP & Elixir
         uses: erlef/setup-beam@v1
@@ -69,18 +96,15 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-deps-
 
       - name: Cache build
         uses: actions/cache@v4
         with:
           path: _build
-          key: ${{ runner.os }}-build-${{ env.MIX_ENV }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.MIX_ENV }}-
-            ${{ runner.os }}-build-
+          key: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-
 
       - name: Install dependencies
         run: mix deps.get
@@ -88,23 +112,98 @@ jobs:
       - name: Compile (warnings as errors)
         run: mix compile --warnings-as-errors --force
 
-      - name: Run tests with coverage
-        run: mix test --cover
+      - name: Check formatting
+        run: mix format --check-formatted
 
-      - name: Generate coverage report
-        if: success()
+      - name: Run tests with coverage
+        run: |
+          set -o pipefail
+          mix test --cover 2>&1 | tee coverage.txt
+
+      # Guards against coverage quietly dropping as code is added.
+      #
+      # The floor is 50 because the real number on the 4.0-work-start tag is
+      # 52.7%. The 70% target in the design document is the END state for 4.0,
+      # not today's. This gate may only go up, never down, to make a build
+      # green.
+      #
+      # Note: excoveralls' `minimum_coverage` option looks like the obvious
+      # tool here but is a trap. It is only checked by `mix coveralls.html`
+      # and `mix coveralls.cobertura` (ExCoveralls.Stats.ensure_minimum_coverage
+      # is called from html.ex and cobertura.ex), so it does nothing on a plain
+      # `mix test --cover`. Parsing the [TOTAL] line actually gates.
+      - name: Enforce coverage threshold
+        run: |
+          pct=$(grep -oP '\[TOTAL\]\s+\K[0-9.]+' coverage.txt || true)
+          if [ -z "$pct" ]; then
+            echo "::error::could not find the [TOTAL] coverage line in coverage.txt"
+            exit 1
+          fi
+          awk -v p="$pct" -v f=50 'BEGIN {
+            if (p + 0 < f + 0) { print "::error::coverage " p "% is below the " f "% floor"; exit 1 }
+            print "coverage " p "% is at or above the " f "% floor"
+          }'
+
+      - name: Upload coverage to Coveralls
+        if: always()
         run: |
           if [ -f cover/excoveralls.json ]; then
             mix coveralls.github -t "J-${{ github.run_id }};L-${{ github.run_attempt }};S-${{ github.sha }}"
           fi
 
   # ---------------------------------------------------------------------------
-  # 3. Dialyzer — slow, runs only on the main branch and main cleanup branch
+  # 3. Dialyzer — the slowest gate. Its own job with its own PLT cache so a
+  #    type change does not serialise behind the test suite.
   # ---------------------------------------------------------------------------
-  typespecs:
+  dialyzer:
     name: Dialyzer
     runs-on: ubuntu-latest
-    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/cleanup/audit-and-i18n'
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install OTP & Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
+
+      - name: Cache deps
+        uses: actions/cache@v4
+        with:
+          path: deps
+          key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-deps-
+
+      - name: Cache PLT
+        uses: actions/cache@v4
+        with:
+          path: priv/plts
+          key: ${{ runner.os }}-plt-${{ env.OTP_VERSION }}-${{ hashFiles('mix.lock') }}
+          restore-keys: ${{ runner.os }}-plt-${{ env.OTP_VERSION }}-
+
+      - name: Install dependencies
+        run: mix deps.get
+
+      - name: Compile
+        run: mix compile --force
+
+      - name: Build PLT
+        run: mix dialyzer --plt
+
+      - name: Run Dialyzer
+        run: mix dialyzer --no-check
+
+  # ---------------------------------------------------------------------------
+  # 4. Docs — `mix docs` must build without warnings. Catches broken @moduledoc
+  #    references and stale module lists in `docs/groups_for_modules`, which
+  #    ExDoc turns into silent dead links once a module is renamed.
+  # ---------------------------------------------------------------------------
+  docs:
+    name: Docs
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
 
@@ -118,26 +217,47 @@ jobs:
         uses: actions/cache@v4
         with:
           path: deps
-          key: ${{ runner.os }}-mix-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-mix-
+          key: ${{ runner.os }}-mix-deps-${{ hashFiles('**/mix.lock') }}
+          restore-keys: ${{ runner.os }}-mix-deps-
 
-      - name: Cache build
-        uses: actions/cache@v4
+      - name: Install dependencies
+        run: mix deps.get
+
+      # `mix docs` exits 0 even with warnings, so the flag is the whole point
+      # of this step. It catches broken @moduledoc references and stale module
+      # lists in groups_for_modules, which ExDoc otherwise turns into silent
+      # dead links.
+      - name: Build docs (warnings are errors)
+        run: mix docs --warnings-as-errors
+
+      - uses: actions/upload-artifact@v4
         with:
-          path: _build
-          key: ${{ runner.os }}-build-${{ env.MIX_ENV }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-build-${{ env.MIX_ENV }}-
+          name: exdoc
+          path: doc
+          retention-days: 7
+
+  # ---------------------------------------------------------------------------
+  # 5. Deps-in-sync — the GitHub deps track main @ HEAD, so a breaking change
+  #    lands here first. This job answers "is main still installable?".
+  # ---------------------------------------------------------------------------
+  deps-sync:
+    name: Deps In Sync
+    runs-on: ubuntu-latest
+    if: github.event_name == 'schedule' || github.event_name == 'workflow_dispatch'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install OTP & Elixir
+        uses: erlef/setup-beam@v1
+        with:
+          otp-version: ${{ env.OTP_VERSION }}
+          elixir-version: ${{ env.ELIXIR_VERSION }}
 
       - name: Install dependencies
         run: mix deps.get
 
       - name: Compile
-        run: mix compile --force
+        run: mix compile --warnings-as-errors
 
-      - name: Build PLT (cacheable)
-        run: mix dialyzer --plt
-
-      - name: Run Dialyzer
-        run: mix dialyzer --no-check
+      - name: Run tests
+        run: mix test

@@ -1,0 +1,7 @@
+# Candil 4.0 — toolchain pin.
+#
+# Keep in sync with OTP_VERSION / ELIXIR_VERSION in .github/workflows/ci.yml.
+# A local/CI mismatch shows up as a dialyzer PLT rebuild or a warning that only
+# appears on one side, which is a slow way to find out.
+erlang 28.5.0.7
+elixir 1.19.5-otp-28
