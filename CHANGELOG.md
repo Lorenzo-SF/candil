@@ -282,6 +282,28 @@ family: a plausible line that cannot fail in the test that exercises it.
   window travels with the model, not with the conversation. It is an option
   now.
 
+### Added — phase -1: contracts (part 8): MCP and RAG
+- `Candil.MCP` and `Candil.MCP.Protocol`. The protocol revision is
+  `2025-11-25`, with the handshake, the `MCP-Protocol-Version` header on HTTP,
+  and no JSON-RPC batching, which the specification removed in `2025-06-18`.
+  The three previous design documents in this repository all said
+  `2024-11-05`, two generations behind.
+  `check_http_header/1` and `batch?/1` exist so each rule is checkable without
+  a transport.
+- `Candil.RAG` and `Candil.RAG.Chunk`, with `rrf/2` and `cosine/2`
+  implemented rather than stubbed. RRF uses the **rank** of a document, not
+  its score, because BM25 and cosine produce numbers on scales that were
+  never comparable and a miscalibrated sum silently favours one system.
+
+### Fixed
+- `Candil.RAG.embedder/1` returned the string straight out of the config
+  file, and `Candil.Store` is keyed by atoms. Every configured embedder would
+  have missed every lookup, and the failure would have looked like a missing
+  model rather than a type mismatch.
+- `String.to_existing_atom("")` succeeds and returns `:""`, so an empty
+  `embedder` resolved to a model alias that matches nothing, through the one
+  lookup that should have rejected it.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)

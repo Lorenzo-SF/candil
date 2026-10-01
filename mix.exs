@@ -103,6 +103,8 @@ defmodule Candil.MixProject do
         ],
         Diagnostics: [Candil.Health, Candil.Embeddings],
         Context: [Candil.Context, Candil.Context.Session],
+        MCP: [Candil.MCP, Candil.MCP.Protocol],
+        RAG: [Candil.RAG, Candil.RAG.Chunk],
         Gateway: [
           Candil.Gateway,
           Candil.Gateway.Auth,
