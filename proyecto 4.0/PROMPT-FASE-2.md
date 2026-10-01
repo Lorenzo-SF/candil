@@ -56,7 +56,7 @@ te da el estado real, el segundo el diseño, el tercero cómo trabajar.
         · Seccion 13  (linea ~1152)  Candil.Build, las dos estrategias
         · Seccion 14.3 (linea ~1253) Candil.Engine 4.0
         · Seccion 14.4 (linea ~1279) Candil.EnginePool 4.0  <- API exacta
-        · Seccion 11  (linea 977)   Puertos, instancias y supervivencia  Puertos, instancias y supervivencia
+        · Seccion 11  (linea 977)  Puertos, instancias y supervivencia
         · Apendice A  (linea ~2779)  el candil.toml de ropero
         · Fase 2      (linea ~2334)  el bloque de la fase, con el criterio
                                       de aceptacion ejecutable
