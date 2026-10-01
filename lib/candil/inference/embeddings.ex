@@ -11,7 +11,12 @@ defmodule Candil.Inference.Embeddings do
       base_url ->
         body = %{input: texts}
 
-        HTTP.post_json("#{base_url}/v1/embeddings", body, [], [])
+        HTTP.post_json(
+          "#{base_url}/v1/embeddings",
+          body,
+          Engine.auth_headers_for(model_alias),
+          []
+        )
         |> parse_embeddings_response()
     end
   end

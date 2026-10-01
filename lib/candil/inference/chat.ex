@@ -17,7 +17,12 @@ defmodule Candil.Inference.Chat do
             body =
               RequestBuilder.build_openai_body(to_string(model_alias), messages, opts)
 
-            HTTP.post_json("#{base_url}/v1/chat/completions", body, [], opts)
+            HTTP.post_json(
+              "#{base_url}/v1/chat/completions",
+              body,
+              Engine.auth_headers_for(model_alias),
+              opts
+            )
             |> parse_openai_response()
           end
       end
