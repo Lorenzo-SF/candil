@@ -18,7 +18,7 @@
 | Rama de trabajo | `4.0` |
 | `main` | Intacta, con su CI viejo. No se ha tocado. |
 | Tag de partida | `4.0-work-start` |
-| Tests | **519**, 0 fallos |
+| Tests | **515 tests + 24 doctests**, 0 fallos |
 | Cobertura | **63.1 %** (era 52.7 % en el tag) |
 | Gates | **8 de 8 en verde** |
 | Commits en `4.0` | 12 |
