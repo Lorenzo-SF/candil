@@ -44,6 +44,8 @@ defmodule Candil.Source do
   # this is the gap between chunks, not the total.
   @default_receive_timeout 1_800_000
 
+  @complete_suffix ".complete"
+
   @enforce_keys [:kind]
   defstruct kind: nil,
             # huggingface
@@ -170,6 +172,30 @@ defmodule Candil.Source do
     case filename(source) do
       nil -> nil
       file -> Path.join(Path.expand(dest), dest_name || file)
+    end
+  end
+
+  @doc """
+  Whether the file at `source`'s destination was downloaded and verified here.
+
+  Distinct from `present?/1`, which only asks whether a non-empty file is
+  there. A `.gguf` somebody copied in by hand is present and was never checked
+  by anyone; this says whether the digest was ours to confirm.
+
+  ## Examples
+
+      iex> path = Path.join(System.tmp_dir!(), "candil-complete-#{System.unique_integer([:positive])}.gguf")
+      iex> File.write!(path, "x")
+      iex> {:ok, source} = Candil.Source.new(kind: :url, url: "http://x/y.gguf", dest: Path.dirname(path))
+      iex> source = %{source | dest_name: Path.basename(path)}
+      iex> {Candil.Source.present?(source), Candil.Source.complete?(source)}
+      {true, false}
+  """
+  @spec complete?(t()) :: boolean()
+  def complete?(source) do
+    case dest_path(source) do
+      nil -> false
+      path -> File.regular?(path <> @complete_suffix)
     end
   end
 
@@ -382,10 +408,23 @@ defmodule Candil.Source do
   defp commit(source, dest, part, digest, opts) do
     if checksum_ok?(source, digest, opts) do
       :ok = File.rename(part, dest)
+      :ok = mark_complete(dest)
       clear_progress(dest)
       {:ok, dest}
     else
       abort(part, dest, Error.invalid_request("checksum mismatch for #{dest}"))
+    end
+  end
+
+  # The rename already means "this file is whole and its digest matched", so
+  # the marker is redundant for idempotency. What it is not redundant for is
+  # telling those two apart: a `.gguf` somebody copied in by hand is present,
+  # and was never verified by anybody. This records the difference, and the
+  # doctor can ask.
+  defp mark_complete(dest) do
+    case File.write(dest <> @complete_suffix, "") do
+      :ok -> :ok
+      {:error, reason} -> {:error, reason}
     end
   end
 

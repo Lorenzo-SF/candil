@@ -22,11 +22,10 @@
 | Rama de trabajo | `4.0-f2-build` (base `4.0`, con `main` mergeado dentro) |
 | `main` | Intacta. No se ha tocado desde el merge. |
 | Tag de partida | `4.0-contracts-frozen` |
-| Tests | **610 tests + 24 doctests**, 0 fallos |
-| Cobertura | **66.4 %** (64.6 % en `main` sin la fase 2) |
+| Tests | **620 tests + 25 doctests**, 0 fallos |
+| Cobertura | **66.5 %** (64.6 % en `main` sin la fase 2) |
 | Gates | **8 de 8 en verde** |
-| Fases cerradas | −1 contratos · −0 gates · 0 los ocho bugs **menos B6** · 1 Source y TOML · **2 Build y EnginePool** |
-| B6 sin hacer | `Detector.safe_arch/0` sigue devolviendo `:unknown` en silencio (ver §3-quater) |
+| Fases cerradas | −1 contratos · −0 gates · **0 los ocho bugs** · 1 Source y TOML · **2 Build y EnginePool** |
 
 ### Ramas y PRs
 
@@ -205,9 +204,10 @@ barra; y H1 está hecho — los tres call sites de la ruta local usan
 hablar con un `llama-server` protegido ya no falta código: falta un binario y
 un GGUF.
 
-## 3-quater. B6 sigue sin hacerse, aunque el resumen diga que sí
+## 3-quater. B6, cerrado (2026-10-02)
 
-El §1 lista "0 los ocho bugs" como cerrada. **Son siete de ocho.** Medido:
+El §1 decía "0 los ocho bugs" y eran siete de ocho. B6 era el que faltaba.
+Medido ahora, con los ocho:
 
 ```
 B1  LlamaCpp.chat/3           ✅ cuerpo
@@ -217,16 +217,19 @@ B4  OpenAICompat.embed        ✅ una request por texto, no un batch
      borrar build_chunk_stream/1  ✅ borrado
 H1  auth en la ruta local      ✅ los tres call sites
 B5  api_key string plano      ✅
-B6  Detector.safe_arch/0      ❌ SIGUE DEGRADANDO EN SILENCIO
+B6  Detector.safe_arch/0      ✅ avisa; :arch conserva su forma, el motivo viaja en :arch_error
 B7  EnginePool sin LRU        ✅
 B8  checksum en streaming     ✅ Installer ya hashea por bloques
 ```
 
 Lo que el diseño pide para B6 es
-`Trebejo.OS.arch/0 → {:ok, arch} | {:error, :trebejo_not_available}`. Lo que
-hace el código es devolver `:unknown` cuando Trebejo no está, sin decir nada.
+`Trebejo.OS.arch/0 → {:ok, arch} | {:error, :trebejo_not_available}`, y eso es
+justo lo que hace ahora `Detector.safe_arch/0`, que es público para que quien
+vaya a descargar pueda preguntar antes. `detect/0` no cambia de forma —sus
+llamadas dependen de ella— pero lleva el motivo en `:arch_error` y avisa por
+log.
 
-Y el comentario de al lado delata que se sabía:
+El comentario que había al lado ya lo sabía:
 
 > apply/3 here was only there to silence the compiler and hid the fact that a
 > missing Trebejo silently degraded to `:unknown` instead of saying so.
