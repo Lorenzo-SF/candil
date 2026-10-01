@@ -50,6 +50,13 @@ else in the 4.0 contract freeze is tooling and documentation.
 - `proyecto 4.0/candil.toml` — ropero's configuration, translated by hand
   (C15). It loads and validates: 1 engine, 1 provider, 3 consumers, 7 models,
   and all seven register in `Candil.Store`.
+- `proyecto 4.0/PROMPT-FASE-3.md` — the handoff prompt for phase 3, in the
+  same shape as the phase 2 one. It opens by saying what phase 3 cannot be
+  verified against, because the dependency graph runs F0 → F1 → F2 → F3 and
+  the first two have not been done.
+- `HANDOFF.md` §3-bis — what phase 2 wrote but could not execute here, and the
+  commands to run on a machine that has a GPU. Green is not the same as
+  verified, and this section is the difference.
 - `.tool-versions` pinning Erlang/OTP 28.5.0.7 and Elixir 1.19.5-otp-28, kept
   in sync with the CI env.
 - `proyecto 4.0/PLAN-PARALELO.md` — execution plan for the 12 phases: a contract

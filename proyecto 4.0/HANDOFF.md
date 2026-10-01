@@ -200,6 +200,83 @@ problema no era H1.
 
 ---
 
+## 3-bis. Lo que NO está probado, y por qué
+
+Todo lo de aquí está **escrito y en verde**, y no se ha podido ejecutar. No es
+un bug: es trabajo que necesita tu máquina. La distinction importa, porque
+"en verde" sin esto dice menos de lo que parece.
+
+| # | Qué falta probar | Por qué no se ha probado aquí | Dónde |
+|---|---|---|---|
+| 1 | **Compilar `llama.cpp` de verdad con CUDA** | No hay GPU, ni `nvcc`, ni 20-40 min que permitamos | §2.2 del diseño, bloque `CANDIL_CONFIG=/tmp/build-test.toml` |
+| 2 | **Los flags de tu RTX 5080** | `-DCMAKE_CUDA_ARCHITECTURES=120a` + MXFP4/NVFP4 solo tienen sentido en tu hardware | §2.2 |
+| 3 | **`:precompiled` contra la API real de GitHub** | El TLS de OTP está roto en el sandbox (`asn1 bad_range` con el proxy), así que no hay HTTPS desde Erlang | `Candil.Detector.asset_url/1` |
+| 4 | **Reanudación por `Range` contra un servidor real** | Probado por el mock de Mox, que es donde vive la lógica, pero no contra un servidor de verdad | `Build.download/2` |
+| 5 | **Arrancar un `llama-server` real y hablar con él** | Necesita 1, y las Fases 0 y 1 no están hechas | §3 |
+| 6 | **Cualquier cosa end-to-end contra ropero** | Depende de 5 | §3 |
+
+**Lo que sí está verificado con herramientas de verdad**, para que no suene a
+menos de lo que es: `git clone` real, **cmake 3.25.1 real**, **ninja 1.11.1
+real**, `Unix Makefiles` real, los binarios compilados **y ejecutados**, y el
+error de un compilador real llegando por su stderr sin resumir. Está en
+`test/candil/build/source_real_test.exs`.
+
+### El guion que falta
+
+Esto es lo que hay que ejecutar en tu máquina, en este orden. El primero es el
+que bloquea todo lo demás.
+
+```bash
+# 1. ¿Compila llama.cpp con TUS flags?   20-40 min
+cat > /tmp/build-test.toml <<'EOF'
+[engine.llama_cpp.install]
+strategy  = "source"
+repo      = "https://github.com/ggml-org/llama.cpp"
+ref       = "b4561"
+src_dir   = "/tmp/llama.cpp"
+build_dir = "/tmp/llama.cpp/build"
+generator = "ninja"
+dir       = "/tmp/llama-bin"
+binaries  = ["llama-server", "llama-cli"]
+cmake_args = [
+  "-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CUDA_ARCHITECTURES=120a",
+  "-DGGML_CUDA=ON", "-DGGML_CUDA_FA=ON", "-DGGML_CUDA_MMQ_MXFP4=ON",
+  "-DGGML_CUDA_MMQ_NVFP4=ON", "-DGGML_CUDA_NO_VMM=ON",
+  "-DGGML_CUDA_COMPRESSION_MODE=speed", "-DGGML_NATIVE=ON",
+  "-DGGML_AVX512=ON", "-DBUILD_SHARED_LIBS=OFF",
+  "-DLLAMA_BUILD_SERVER=ON", "-DLLAMA_BUILD_TOOLS=ON"
+]
+EOF
+
+CANDIL_CONFIG=/tmp/build-test.toml mix run -e 'Candil.Build.install(:llama_cpp)'
+/tmp/llama-bin/llama-server --version      # tiene que funcionar
+```
+
+⚠ **`build_dir` cachea.** Si repites con otros `cmake_args`, cmake reutiliza la
+configuración del build anterior y los flags nuevos no se aplican. Borra
+`/tmp/llama.cpp/build` antes de cambiar flags. Está documentado en el moduledoc
+de `Build` porque no es culpa nuestra y sí es una sorpresa.
+
+```bash
+# 2. El camino precompiled, sin GPU:     1-2 min
+#    Apunta a un asset real de llama.cpp
+mix run -e '
+{:ok, url} = Candil.Detector.asset_url(:latest)
+IO.puts(url)
+{:ok, b} = Candil.Build.new(strategy: :precompiled, dir: "/tmp/pre", binaries: ["llama-server"])
+Candil.Build.install(b, asset_url: url)
+|> IO.inspect(label: "install")
+|> then(fn _ -> Candil.Build.check(b) |> IO.inspect(label: "check") end)
+'
+
+# 3. La reanudación por Range contra algo real:   2 min
+#    corta la descarga a mitad, relanza, y mira que el fichero final
+#    tiene el tamaño correcto y el checksum pasa
+```
+
+Si algo falla, el mensaje es texto del programa que falló. Pégalo tal cual en
+el PR: un resumen sería justo lo que estamos intentando evitar.
+
 ## 4. Lo que se rompió por el camino, y conviene no repetirlo
 
 Todo esto está en el CHANGELOG con su porqué, pero aquí la lista corta porque
