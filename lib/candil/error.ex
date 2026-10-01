@@ -33,6 +33,25 @@ defmodule Candil.Error do
           | :execution_failed
           | :backend_unavailable
           | :cancelled
+          | :not_implemented
+
+  @doc """
+  Builds an error for a function that is part of the published contract but
+  whose body has not been written yet.
+
+  A stub returns this instead of raising, so that the function honours its own
+  `@spec` from the day it is declared. A stub that raises is `none()` to
+  dialyzer and immediately reports `invalid_contract`, which means every
+  contract-first stub needs a warning filter to get past the build. Returning
+  the error keeps the spec truthful and the build clean.
+  """
+  @spec not_implemented(String.t(), keyword()) :: t()
+  def not_implemented(function, opts \\ []) do
+    %__MODULE__{
+      reason: :not_implemented,
+      context: Map.new(opts) |> Map.put(:function, function)
+    }
+  end
 
   @doc """
   Creates an error for a model that was not found.

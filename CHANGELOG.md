@@ -82,6 +82,36 @@ stops being decoration.
 
 Result: 279 tests, 0 failures, coverage 52.7% to 54.2%, all eight gates green.
 
+### Added — phase -1: contracts (part 1 of N)
+- `Candil.Source`. A model file's origin as a value, with three kinds:
+  `huggingface` (resolved over HTTPS, so no `hf` CLI is needed — that CLI is
+  not installed everywhere and depending on it made the download a separate
+  failure mode from the download), `url`, and `local`. Replaces
+  `Candil.Model.download_url`.
+- `Candil.Build`. Two installation strategies, both declared by the user:
+  `:precompiled` downloads a release asset, `:source` clones and compiles with
+  **your** `cmake_args`, passed through verbatim. Candil supplies no
+  architecture or GPU flag, because it cannot know what `120a` is and a wrong
+  guess produces a binary that compiles and runs and is quietly slow.
+- `Candil.Error.not_implemented/2` and a new `:not_implemented` reason.
+
+### Changed
+- `mix docs` now has four doctests, because the repository ran none at all.
+  Every `iex>` example in a moduledoc was previously unverified.
+- `Candil.Engine` and `Candil.Model` are unchanged in this commit. They are
+  next: they are the structs every other v4 contract refers to, so changing
+  them is what the rest of the freeze hangs from.
+
+### Fixed
+- Two bugs introduced while writing the new modules and caught by their own
+  tests, both worth recording because the shape recurs:
+  - `require_field/3` had its guards inverted, so it reported a field as
+    missing when it was present. `validate/1` would have rejected every
+    correctly-configured source.
+  - `cmake_command/1` mixed two helpers with different arities and appended a
+    boolean to a string list. A build plan would have crashed before invoking
+    cmake.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)
