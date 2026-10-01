@@ -184,14 +184,22 @@ defmodule Candil.Config.FileTest do
     end
 
     test "expands the draft source too, which is where the absolute path matters" do
+      # With a `source` alongside. A draft on its own was never the case that
+      # mattered: `analyst` is the only model with one, and it has both, and
+      # the two-clause version stopped at the first match.
       config = %{
         "model" => %{
-          "analyst" => %{"draft" => %{"kind" => "huggingface", "dest" => "~/.candil/models"}}
+          "analyst" => %{
+            "source" => %{"kind" => "huggingface", "dest" => "~/.candil/models"},
+            "draft" => %{"kind" => "huggingface", "dest" => "~/.candil/models"}
+          }
         }
       }
 
-      dest = ConfigFile.expand(config)["model"]["analyst"]["draft"]["dest"]
-      refute String.contains?(dest, "~")
+      expanded = ConfigFile.expand(config)
+
+      refute String.contains?(expanded["model"]["analyst"]["source"]["dest"], "~")
+      refute String.contains?(expanded["model"]["analyst"]["draft"]["dest"], "~")
     end
 
     test "does not modify the input" do

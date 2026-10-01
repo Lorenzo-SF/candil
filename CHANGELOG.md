@@ -29,17 +29,20 @@ else in the 4.0 contract freeze is tooling and documentation.
   it.
 - `Candil.Build.check/1` — `:ok`, or the names of the declared binaries that are
   absent or not executable.
+- `Candil.Build.configure_command/1` and `build_command/1` — the exact
+  `{executable, argv}` pairs, public so a test can assert the user's
+  `cmake_args` are passed verbatim without running a compiler.
+- `Candil.Build.jobs/1` — `jobs: 0` resolved to one job per online scheduler,
+  which is the `nproc` the user would have typed.
 - `Candil.EnginePool.claim_port/2` — a port in `base..max` that is free both as
   far as the registry knows and as far as the operating system is concerned.
   The second half is decided by actually connecting, which is the only way to
   tell a free port from one with a dead `ropero` still holding the socket.
 - `Candil.EnginePool.delete/2`, `get/2`, `by_model/1`, `list/0`, `count/0` and
   `ports/0`.
-- `Candil.Build.configure_command/1` and `build_command/1` — the exact
-  `{executable, argv}` pairs, public so a test can assert the user's
-  `cmake_args` are passed verbatim without running a compiler.
-- `Candil.Build.jobs/1` — `jobs: 0` resolved to one job per online scheduler,
-  which is the `nproc` the user would have typed.
+- `proyecto 4.0/candil.toml` — ropero's configuration, translated by hand
+  (C15). It loads and validates: 1 engine, 1 provider, 3 consumers, 7 models,
+  and all seven register in `Candil.Store`.
 - `.tool-versions` pinning Erlang/OTP 28.5.0.7 and Elixir 1.19.5-otp-28, kept
   in sync with the CI env.
 - `proyecto 4.0/PLAN-PARALELO.md` — execution plan for the 12 phases: a contract
@@ -82,6 +85,14 @@ else in the 4.0 contract freeze is tooling and documentation.
   build directory is no longer committable.
 
 ### Fixed
+- `Candil.Config.File.expand/1` never expanded a `draft` path for a model that
+  also had a `source`. The two source tables were handled by two function
+  clauses with one pattern each, and a model with a `source` never reached the
+  `draft` one. The only model in the ropero configuration that has a draft is
+  exactly the one that also has a source, so its `--model-draft` path kept a
+  literal `~` — which reaches `llama-server` between quotes and becomes a
+  directory named `~` (C22). The test that claimed to cover this used a model
+  with a draft and no source, which is the one shape that already worked.
 - Two CI gates that did not gate anything: `mix deps.audit` does not exist (it
   is `mix hex.audit`), and excoveralls' `minimum_coverage` is only enforced by
   `mix coveralls.html` and `mix coveralls.cobertura`, never by a plain
