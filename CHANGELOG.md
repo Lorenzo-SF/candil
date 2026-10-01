@@ -7,8 +7,9 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-`Candil.Build.install/2` and `check/1` stop being stubs. They were frozen
-contracts; this is the body behind them, and no public API breaks.
+The `Candil.EnginePool` API breaks here, on purpose (C13): it was an LRU of
+engines with no capacity to enforce, and the 4.0 line is a major. Everything
+else in the 4.0 contract freeze is tooling and documentation.
 
 ### Added
 - `Candil.Build.install/2` with both strategies. `:precompiled` resolves the
@@ -28,6 +29,12 @@ contracts; this is the body behind them, and no public API breaks.
   it.
 - `Candil.Build.check/1` — `:ok`, or the names of the declared binaries that are
   absent or not executable.
+- `Candil.EnginePool.claim_port/2` — a port in `base..max` that is free both as
+  far as the registry knows and as far as the operating system is concerned.
+  The second half is decided by actually connecting, which is the only way to
+  tell a free port from one with a dead `ropero` still holding the socket.
+- `Candil.EnginePool.delete/2`, `get/2`, `by_model/1`, `list/0`, `count/0` and
+  `ports/0`.
 - `Candil.Build.configure_command/1` and `build_command/1` — the exact
   `{executable, argv}` pairs, public so a test can assert the user's
   `cmake_args` are passed verbatim without running a compiler.
@@ -51,6 +58,19 @@ contracts; this is the body behind them, and no public API breaks.
   and a coverage floor that can only go up.
 
 ### Changed
+- **`Candil.EnginePool` is a registry, not a pool.** It was an LRU of engines
+  with a `get/0` that returned the least-recently-used one and an `evict/0`
+  that nothing called — so it was the record of the last write, wearing a name
+  that promised capacity management. Four 20 GB models do not fit, and an LRU
+  of four entries does not change that; the LRU was pretending to solve a
+  memory-pressure problem nobody has. It is now `%{{alias, port} => instance}`
+  with no eviction. `put/1` became `put/5` and is a `call` rather than a
+  `cast`, because a cast answers `:ok` whether or not anything was stored, and
+  the answer decided which port the next request went to. `get/0` stays for one
+  release, deprecated and answering `:empty`; `evict/0` is gone.
+- `Candil.Engine.start/2` registers `{model.alias, port}` together with the
+  model and the engine, so an instance says what it is serving and not only
+  which binary started it.
 - `apero` and `arrea` now declare `branch: "main"` explicitly, and all four
   GitHub deps declare `override: true`. Without the branch, a dep silently
   follows whatever the remote HEAD is. Without the override, Mix reads

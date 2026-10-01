@@ -56,7 +56,7 @@ cost estimation, health checks, and circuit-broken HTTP transport.
 │  │  Engine.Server — GenServer over llama-server OS proc │    │
 │  │  Engine.Server.External — externally-managed engines │    │
 │  │  Engine.HealthPoller — periodic /health probe        │    │
-│  │  EnginePool — LRU pool of running engines            │    │
+│  │  EnginePool — registry of running instances          │    │
 │  │  Engine.Launcher — behaviour for custom launchers    │    │
 │  └──────────────────────────────────────────────────────┘    │
 │                                                              │
@@ -101,8 +101,13 @@ cost estimation, health checks, and circuit-broken HTTP transport.
   polls health, sends shutdown on terminate.
 - **Engine.HealthPoller**: Shared health-polling logic. Probes `<base_url>/health`
   every 5s. Used by both Server implementations.
-- **EnginePool** (GenServer): LRU pool of running engines. Ordered by recency.
-  `get/0`, `put/1`, `evict/0`. Used for automatic engine selection.
+- **EnginePool** (GenServer): registry of the engine instances that are
+  actually running, keyed by `{model_alias, port}`. The same model can be alive
+  on several ports, which is what `--cpu` gives you. `put/5`, `delete/2`,
+  `get/2`, `by_model/1`, `list/0`, `count/0`, `ports/0`, and `claim_port/2`,
+  which picks a port in a range that is free *and* has nothing listening on it.
+  There is no eviction: four 20 GB models do not fit, and a cache of four
+  entries does not change that.
 - **Engine struct**: alias, binary_dir, host, port, context_size, etc.
 
 ### 3.3 Inference
@@ -197,7 +202,7 @@ Candil is a leaf library: it does the LLM work for Delfos.
 Candil.Application
   ├── Candil.Registry (Elixir.Registry)
   ├── Candil.Config (GenServer, ETS)
-  ├── Candil.EnginePool (GenServer, LRU)
+  ├── Candil.EnginePool (GenServer, instance registry)
   └── Candil.EngineSupervisor (DynamicSupervisor)
         └── Candil.Engine.Server (GenServer, one per running engine)
 ```
