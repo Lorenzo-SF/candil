@@ -6,9 +6,12 @@
 > **está hecho, medido y verificado**, y lo que toca mañana. Cuando se
 > contradigan, este tiene razón sobre el presente y aquel sobre el futuro.
 >
-> **Fecha**: 2026-10-01 · **Rama**: `4.0/f2-build` (base `4.0`) ·
+> **Fecha**: 2026-10-02 · **Rama**: `4.0-f2-build` (base `4.0`) ·
 > **Toolchain**: Erlang/OTP 28.5.0.7, Elixir 1.19.5-otp-28 ·
-> **Punto de partida de esta fase**: `4.0-work-start`
+> **Punto de partida**: tag `4.0-contracts-frozen`
+>
+> **Las fases 0 y 1 están cerradas** (PR #21 y #22, ambos con el CI en
+> verde). Este documento se actualizó con lo medido, no con lo previsto.
 
 ---
 
@@ -16,13 +19,35 @@
 
 | | |
 |---|---|
-| Rama de trabajo | `4.0` |
-| `main` | Intacta, con su CI viejo. No se ha tocado. |
-| Tag de partida | `4.0-work-start` |
-| Tests | **571 tests + 24 doctests**, 0 fallos |
-| Cobertura | **65.2 %** (63.1 % al entrar; oscila una décima con la semilla async) |
+| Rama de trabajo | `4.0-f2-build` (base `4.0`, con `main` mergeado dentro) |
+| `main` | Intacta. No se ha tocado desde el merge. |
+| Tag de partida | `4.0-contracts-frozen` |
+| Tests | **610 tests + 24 doctests**, 0 fallos |
+| Cobertura | **66.4 %** (64.6 % en `main` sin la fase 2) |
 | Gates | **8 de 8 en verde** |
-| Rama de trabajo | `4.0/f2-build` — tres commits, `4.0` sin tocar |
+| Fases cerradas | −1 contratos · −0 gates · 0 los ocho bugs · 1 Source y TOML · **2 Build y EnginePool** |
+
+### Ramas y PRs
+
+```
+main        28f09ec   fases −1, −0, 0 y 1, mergeados
+ 4.0-f2-build          PR #18, fase 2, con main mergeado dentro
+```
+
+La fase 2 se hizo por delante de la 0 y la 1 en el calendario, no en la
+dependencia: `Build.install/2` y el rewrite de `EnginePool` no tocan la
+ruta local de inferencia. Al integrar, `EnginePool` aparece en los dos
+lados y se queda la versión de la fase 2, que además trae `claim_port/2`.
+
+Lo que sí hubo que reconstruir a mano, porque Git no lo detecta:
+
+- `engine.ex`: hacen falta **las dos** cosas. La fase 2 registró
+  `{model.alias, port}` en el `EnginePool`; las fases 0 y 1 añadieron los
+  cinco métodos de H1. Auto-mergeó bien, y está comprobado que están los
+  diez.
+- `config/file.ex`: la fase 1 reescribió el escritor de TOML sobre una
+  versión vieja de la función que la fase 2 había tocado. Auto-mergeó, y
+  están las dos mitades: el arreglo de `expand/1` y el `save/2` nuevo.
 
 ### Los ocho gates, y los comandos exactos
 
@@ -132,73 +157,52 @@ que su `--model-draft` conservaba un `~` literal — el C22 de manual. El test
 que decía cubrirlo usaba un modelo con draft y sin source, que es justo la
 forma que ya funcionaba.
 
-### Lo que aún es stub, y es intencionado
+### Lo que aún es stub, y en qué fase
 
-Once funciones, todas con un contrato escrito y un test que lo ejerce.
-`Candil.Build.install/2` sale de la lista: la Fase 2 le ha puesto cuerpo.
-
-```
-Candil.Source.fetch/2            fase 1     Candil.RAG.index/3            fase 10
-Candil.Source.progress/1         fase 1     Candil.RAG.search/3           fase 10
-Candil.Config.File.save/2        fase 1     Candil.RAG.create_index/2     fase 10
-Candil.MCP.serve/1               fase 9     Candil.RAG.drop_index/1       fase 10
-Candil.MCP.serve/1               fase 9     Candil.RAG.list_indexes/0     fase 10
-Candil.MCP.connect/1             fase 9
-Candil.Gateway.Endpoint.listen/4 fase 8
-```
-
-Ninguna lanza una excepción: devuelven
+Nueve. Todos con contrato escrito, spec y tests. Ninguno lanza: devuelven
 `{:error, %Candil.Error{reason: :not_implemented}}`, que cumple su propio
-`@spec`. Un stub que hace `raise` es `none()` para dialyzer, así que un
-freeze de contratos basado en raise necesita un fichero de ignore — y un
-fichero de ignore es justo lo que luego oculta un `no_return` real.
+`@spec`. Un stub que hace `raise` es `none()` para dialyzer.
 
----
-
-## 3. Lo siguiente: Fase 0, los bugs y H1
-
-**Es la fase que desbloquea todo lo demás.** Sin H1 implemented no se puede
-arrancar nada contra ropero.
-
-Orden recomendado, tal cual está en el documento de diseño:
-
-1. **Los 4 stubs de backend** (2 h) — `LlamaCpp.chat/3`, `chat_stream/3`,
-   `OpenAICompat.chat_stream/3` (borrar `build_chunk_stream/1`: un stream de
-   un chunk con `Process.sleep(50)` no es una feature a arreglar, es
-   eliminación), `OpenAICompat.embed/3` (batch en una request).
-2. **H1, la cabecera** (3 h) — el diseño ya está escrito y probado en
-   `test/candil/engine_auth_test.exs`; falta **usarlo** en
-   `Inference.Chat.do_chat_local/3`, `Inference.Embeddings.do_embed_local/3`
-   y `Stream.chat/4`. La prueba de aceptación es un `llama-server` real con
-   `--api-key`, y el mismo test con la key quitada esperando 401.
-3. **B5** (15 min) — `api_key` acepta un string plano. Ya está hecho en
-   `Store.register_provider/1`; queda propagarlo a `Provider` y su doc.
-4. **B6** (30 min) — `trebejo` ya está declarada; queda comprobar que
-   `Detector.safe_arch/0` ya no degrada en silencio.
-5. ~~**B7**~~ — **hecho en la Fase 2**: `EnginePool` es un registro de
-   instancias. Sigue vivo el detalle: `Candil.Engine.Server` sigue enlazando a
-   `engine.port`, así que `Model.port == :auto` todavía no significa nada.
-   Eso lo resuelve el CLI de la Fase 3.
-6. **B8** (1 h) — checksum en streaming, no `File.read/1` de 17 GB. Ahora
-   también es lo que queda en `Candil.Installer.verify_checksum/2`; la Fase 2
-   lo hizo bien en su propio camino en vez de heredarlo.
-
-### La prueba que decide si la absorción es viable
-
-```bash
-llama-server --model ~/.candil/models/jina-code-embeddings-1.5b-Q8_0.gguf \
-  --port 39999 --api-key sk-test-key -fa on --embedding &
-
-iex> engine = %Candil.Engine{alias: :t, binary: "llama-server",
-           host: "127.0.0.1", port: 39999, api_key: "sk-test-key"}
-iex> Candil.Engine.start(engine, model)
-iex> Candil.embed(:embed_test, ["hola", "adios"])
+```
+Candil.Build.install/2            fase 2
+Candil.Gateway.Endpoint.listen/4  fase 8
+Candil.MCP.serve/1                fase 9
+Candil.MCP.connect/1              fase 9
+Candil.RAG.create_index/2         fase 10
+Candil.RAG.index/3                fase 10
+Candil.RAG.search/3               fase 10
+Candil.RAG.drop_index/1           fase 10
+Candil.RAG.list_indexes/0         fase 10
 ```
 
-Si eso devuelve vectores, todo lo demás es mecánico. Si devuelve 401, el
-problema no era H1.
-
 ---
+
+## 3. Lo siguiente
+
+La **fase 0** (los ocho bugs) y la **fase 1** (Source y el TOML) están
+hechas, y la **fase 2** está mergeada en esta rama. El grafo del §4 del
+PLAN-PARALELO queda así: **−1, −0, 0, 1 y 2 cerradas.** La siguiente es la 3,
+la CLI con Alaja, y `PROMPT-FASE-3.md` la trae ya escrita.
+
+Quedan **ocho stubs**, todos de fases posteriores:
+
+```
+Candil.Gateway.Endpoint.listen/4  fase 8    Candil.RAG.index/3         fase 10
+Candil.MCP.serve/1                fase 9    Candil.RAG.search/3        fase 10
+Candil.MCP.connect/1              fase 9    Candil.RAG.create_index/2  fase 10
+Candil.RAG.drop_index/1           fase 10   Candil.RAG.list_indexes/0  fase 10
+```
+
+Y sigue en pie el aviso de la §5-bis: **no hay carga de TOML a
+`Candil.Store`**, y eso es lo que bloquea `candil models list`. La fase 1
+escribió el lector y el escritor del TOML, pero no el puente al registro.
+
+Lo que ya no falta: `Source.fetch/2` baja solo con `.part`, reanudación por
+`Range` y checksum en streaming; `Source.progress/1` da los bytes para una
+barra; y H1 está hecho — los tres call sites de la ruta local usan
+`Engine.auth_headers_for/1` y el servidor recibe `--api-key` y `--alias`. Para
+hablar con un `llama-server` protegido ya no falta código: falta un binario y
+un GGUF.
 
 ## 3-bis. Lo que NO está probado, y por qué
 
@@ -277,59 +281,6 @@ Candil.Build.install(b, asset_url: url)
 Si algo falla, el mensaje es texto del programa que falló. Pégalo tal cual en
 el PR: un resumen sería justo lo que estamos intentando evitar.
 
-## 3-ter. La Fase 0, medida punto por punto (2026-10-01)
-
-Alguien merged main y creyó que eso era "la Fase 1". No lo es: lo que hay en
-main es el **congelado de contratos** (Fase -1 del plan) más el **gate
-fiable**, y nada de eso implementa Source. Los stubs siguen vivos:
-
-```
-lib/candil/source.ex:211   Source.fetch/2     {:error, ...not_implemented}, phase: 1
-lib/candil/source.ex:219   Source.progress/1  {:error, ...not_implemented}, phase: 1
-lib/candil/config/file.ex  File.save/2        {:error, ...not_implemented}, phase: 1
-```
-
-Y no existe carga de TOML a `Candil.Store`: `Store.init/1` solo lee
-`Application.get_env`. Verificado.
-
-**La Fase 0 NO está hecha, pero está más que a medias.** Medido sobre el árbol
-integrado:
-
-| # | Ítem | Estado |
-|---|---|---|
-| 1a | `LlamaCpp.chat/3` | **stub**, `{:error, %Error{reason: :backend_unavailable}}` |
-| 1b | `LlamaCpp.chat_stream/3` | **stub**, idem |
-| 1c | `OpenAICompat.chat_stream/3` | **hecho**, cuerpo real con telemetria |
-| 1d | `OpenAICompat.embed/3` | hecho, pero **una request por texto**, no un batch |
-| 1e | borrar `build_chunk_stream/1` | **sigue vivo** (openai_compat.ex:246) |
-| 2 | **H1** | **NO hecho.** Los tres sitios que nombra el diseño mandan `[]` como cabeceras |
-| 3 | B5 `api_key` string plano | **hecho** (store.ex:142) |
-| 4 | B6 `Detector.safe_arch/0` | **mitad**: `trebejo` sí está declarado, pero sigue devolviendo `:unknown` en silencio |
-| 5 | B7 `EnginePool` sin LRU | **hecho**, en la Fase 2 de este mismo PR |
-| 6 | B8 checksum en streaming | **NO hecho** en `Installer.verify_checksum/2`, que sigue con `File.read/1` |
-
-### H1 en detalle, porque es la que bloquea todo lo demás
-
-La pieza que resuelve la clave existe, tiene sus tests, y **no está conectada
-a nada**:
-
-```
-lib/candil/engine.ex:166  base_url_and_headers/2   ← escrita y probada
-lib/candil/inference/chat.ex:20         HTTP.post_json(url, body, [], opts)          ← []
-lib/candil/inference/embeddings.ex:14   HTTP.post_json(url, body, [], [])            ← []
-lib/candil/stream.ex:58                 do_stream(url, body, [], ...)                 ← []
-```
-
-`test/candil/engine_auth_test.exs` tiene 0 referencias a `do_chat_local`,
-`do_embed_local` ni `Stream.chat`: prueba el **resolutor**, no el sitio donde
-el resolutor debería usarse. Es exactamente el patrón de la §4 de este
-documento — una línea plausible que no puede fallar en el test que la ejerce,
-porque el camino que falla no está en el test.
-
-Hasta que H1 no esté, **no se puede arrancar nada contra un `llama-server`
-protegido**, y por tanto la Fase 3 no tiene criterio de aceptación ejecutable.
-Es el primer trabajo que toca.
-
 ## 4. Lo que se rompió por el camino, y conviene no repetirlo
 
 Todo esto está en el CHANGELOG con su porqué, pero aquí la lista corta porque
@@ -345,6 +296,10 @@ cada uno costó tiempo:
 | `RAG.embedder/1` devolvía el string del TOML | `Store` está indexado por átomos. Todo fallo, siempre |
 | `expand/1` casaba claves como átomos con un mapa de TOML | Compilaba, pasaba el test vacío, no hacía nada en real |
 | El rename de `Config` arrastró a `ConfigManager` | Un reemplazo de cadena no es un rename |
+| El callback del stream devolvía `{:cont, acc}` | `Finch.stream/5` **envuelve** el callback: su retorno *es* el acumulador. La tupla se anidaba en cada chunk |
+| Reanudar abría con `[:read, :write]` | El `read_write` de Erlang **trunca** sin `:no_truncate`. Media descarga se pisaba y quedaba un fichero de la mitad del tamaño |
+| El writer TOML emitía `## header` | `##` es un comentario. El documento entero hacía round-trip a una tabla plana |
+| `Enum.split_with/2` leído al revés | Devuelve `{coincidentes, no_coincidentes}`. Todos los escalares acababan como sub-tablas |
 
 El patrón común: **una línea plausible que no puede fallar en el test que la
 ejerce**. O porque el test construye el dato con el mismo error, o porque el
@@ -387,11 +342,17 @@ del carril A y del store, así que pueden arrancar en cuanto F2 cierre.
 
 ## 5-bis. Un hueco que la Fase 2 no ha tapado
 
-**No hay carga de TOML a `Candil.Store`.** `Store.init/1` solo lee
-`Application.get_env(:candil, Candil.Store)`; nada más. `Config.File.load/1`
-devuelve el mapa, y ahí se acaba. Los 7 modelos de §4.3 se contaron a mano
-para poder decir que construyen y validan — no hay código de librería detrás
-de esa frase.
+**No hay carga de TOML a `Candil.Store`, y la fase 1 no lo arregló.**
+Revalidado sobre el árbol ya integrado: `Store.init/1` sigue llamando solo a
+`load_from_app_config/0`, que lee `Application.get_env(:candil, Candil.Store)`;
+`Store.reload/0` no existe; y **nada en `lib/` llama a `Config.File.load/0`**,
+ni siquiera `Candil.Application`. La fase 1 escribió el lector y el escritor
+del TOML — `Config.File.load/1` y `save/2` ya no son stubs — pero no el puente
+entre el documento y el registro.
+
+Los 7 modelos de `candil.toml` se construyen y validan; eso se comprobó a
+mano, construyendo los structs y registrándolos uno a uno. El Store, al
+arrancar, sigue vacío.
 
 El cargador no está asignado a ninguna fase del plan, y trae una pregunta que
 no es de este carril: `String.to_existing_atom/1` (regla dura 7) rechaza un

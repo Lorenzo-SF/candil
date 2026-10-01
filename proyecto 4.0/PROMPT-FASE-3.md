@@ -19,36 +19,42 @@ El grafo de dependencias del PLAN-PARALELO.md §4 dice:
 
     F0 (bugs + H1) → F1 (Source + TOML) → F2 (Build) → F3 (CLI)
 
-La Fase 2 está hecha. **La Fase 0 y la Fase 1 NO están hechas.** Eso no es un
-detalle: significa que la FASE 3 se puede CONSTRUIR casi entera, pero su
-criterio de aceptación NO se puede ejecutar todavía.
+**Las cuatro anteriores están hechas.** La fase 2 se hizo por delante de la
+0 y la 1 en el calendario, no en la dependencia, y ya está mergeada. La 3 es,
+por fin, la primera cuyo criterio de aceptación se puede ejecutar entero.
 
-Lo que falta y por qué importa:
+Lo que eso cambia para ti, en concreto:
 
-  · `Candil.Source.fetch/2` y `Candil.Source.progress/1` siguen siendo stubs
-    que devuelven `{:error, %Candil.Error{reason: :not_implemented}}`. Son
-    Fase 1. Sin ellos, `candil models pull` no descarga nada, y la barra de
-    progreso no tiene de dónde leer los bytes. **Construye el comando y sus
-    tests con el doble que uses; no esperes a que funcione de verdad.**
+  · `Candil.Source.fetch/2` **existe** y funciona: `.part`, reanudación por
+    `Range` y checksum en streaming. `Source.progress/1` da los bytes leídos
+    para la barra. `candil models pull` se puede construir de verdad y
+    probarse contra un servidor HTTP de mentira. **No lo dobles por costumbre.**
 
-  · H1 (Fase 0) — el camino local todavía no manda cabeceras de
-    autenticación. `Engine.auth_headers/1` está escrito y probado, pero
-    `Inference.Chat.do_chat_local/3` no lo usa. Por eso el criterio de
-    aceptación de la Fase 3, que habla con un `llama-server` real, no puede
-    pasar todavía.
+  · **H1 está hecho.** `Engine.auth_headers_for/1` existe y los tres call
+    sites de la ruta local de inferencia lo usan: `Inference.Chat`,
+    `Inference.Embeddings` y `Stream.chat`. `Engine.Server` emite `--api-key`
+    y `--alias`. La ruta local puede hablar con un `llama-server` protegido.
+
+  · `Candil.Config.File.save/2` existe y escribe atómico.
+
+Y lo que **sigue** en pie, y es lo único que te puede parar:
 
   · **No existe carga de TOML a `Candil.Store`.** `Store.init/1` solo lee
-    `Application.get_env(:candil, Candil.Store)`. Con un `candil.toml` en su
-    sitio, `Store.list_models()` devuelve `[]`. Sin el cargador,
-    `candil models list` no tiene nada que enseñar. Es el hueco que dejó la
-    Fase 2 y está en HANDOFF.md §5-bis. **Esta es la primera decisión que
-    tienes que tomar, y probablemente la primera pregunta que haya que
-    hacerte.** Está escrita abajo, en §4.0.
+    `Application.get_env(:candil, Candil.Store)`; `Store.reload/0` no existe;
+    y nada en `lib/` llama a `Config.File.load/0`, ni siquiera
+    `Candil.Application`. Con un `candil.toml` en su sitio,
+    `Store.list_models()` devuelve `[]`. Sin el cargador, `candil models list`
+    no tiene nada que enseñar. La fase 1 escribió el lector y el escritor del
+    TOML, pero no el puente al registro. Está en HANDOFF.md §5-bis y es la
+    primera decisión que tienes que tomar: §4.0 abajo.
 
-Si vienes con la intención de "acabar la CLI y que todo funcione", eso no es
-posible todavía y no es culpa de nadie: es el orden del plan. Lo que sí es
-posible es dejar la CLI completa, probada con dobles, y con los puntos de
-conexión al backend marcados y documentados.
+  · No hay binario de `llama-server` ni GGUF en una máquina de desarrollo
+    normal. El criterio de aceptación de la fase 3 pide arrancar uno de verdad.
+    Construye todo y pruébalo con dobles, y deja la prueba real como un
+    bloque que se pueda copiar y pegar tal cual.
+
+Quedan **ocho stubs** en todo el repo, y ninguno es tuyo: `Gateway.Endpoint.listen/4`
+(fase 8), `MCP.serve/1` y `MCP.connect/1` (fase 9), y cinco de `RAG` (fase 10).
 
 ════════════════════════════════════════════════════════════════════════
 1. ENTORNO
@@ -56,7 +62,7 @@ conexión al backend marcados y documentados.
 
 Repositorio: https://github.com/Lorenzo-SF/candil
 Rama:        4.0          (NO cambies de rama; main está intacta a propósito)
-Base exacta: 6512df1
+Base exacta: 4.0 con las fases 0, 1 y 2 mergeadas
 Token:       te lo paso yo en el mensaje, úsalo solo para push y PR
 
 Toolchain:   Erlang/OTP 28.5.0.7  ·  Elixir 1.19.5-otp-28
@@ -84,7 +90,7 @@ memoria del agente Mavis, `candil-sandbox-toolchain`.
 ════════════════════════════════════════════════════════════════════════
 
   (a) `proyecto 4.0/HANDOFF.md`                    <- LEELO PRIMERO, ENTERO
-      Estado medido, los once stubs que quedan y en qué fase está cada uno,
+      Estado medido, los ocho stubs que quedan y en qué fase está cada uno,
       la §3-bis con lo que NO está probado, la §4 con la lista de errores ya
      arquitectos con su porqué, y la §5-bis con el hueco de TOML→Store.
 
@@ -205,10 +211,10 @@ cuesta una hora de desconcierto.** Lo dice el diseño, ponlo en un comentario.
 `list` con tabla de Alaja, `info`, `remove` con confirmación, y `pull` con barra
 de progreso leyendo el `:atomics` del `Source`.
 
-  · `pull` depende de `Source.fetch/2` y `Source.progress/1`, que son stubs
-    de la Fase 1. Constrúyelo y pruébalo con un doble. Deja el punto de
-    conexión marked con un TODO que nombre la fase, no con un stub que
-    "funcione".
+  · `pull` usa `Source.fetch/2` y `Source.progress/1`, que ya funcionan. La
+    barra se alimenta de `progress/1`. Pruébalo contra un servidor HTTP de
+    mentira que responda a `Range`, no con un doble del Source entero: la
+    reanudación es justo lo que se quiere vermoviendo.
 
   · La tabla del criterio de aceptación es esta:
 
@@ -290,9 +296,9 @@ error que el criterio de aceptación dice explícitamente que no puede pasar.
     mix hex.audit
     mix deps.unlock --check-unused
 
-Estado de partida medido en 6512df1: los ocho pasan. **576 tests + 24
-doctests, 0 fallos, 65.2 % de cobertura.** No bajes ninguno de los dos
-números.
+Estado de partida medido con las fases 0, 1 y 2 mergeadas: los ocho
+pasan. **610 tests + 24 doctests, 0 fallos, 66.4 % de cobertura.** No bajes
+ninguno de los dos números.
 
 Advertencia sobre dialyzer: su PLT tiene que incluir apero/arrea/trebejo, o las
 llamadas a las libs hermanas salen como `unknown_function` y nunca se comprueba
@@ -343,8 +349,9 @@ Documentos que hay que mantener al dia, en el mismo commit que el cambio:
   engine_pool.ex, source.ex, config/**, engine/**, inference/**). Si necesitas
   algo de ahí, es un PR separado contra el carril dueño, y se mergea antes.
 · No escribas el cargador de TOML a Store sin que quede acordada §4.0.
-· No implementes `Source.fetch/2` ni `Source.progress/1`. Son Fase 1.
-· No implementes H1. Es Fase 0.
+· No reimplementes `Source.fetch/2`, ni H1, ni ninguna de las ocho cosas que
+  las fases 0 y 1 trajeron. Están hechas y probadas; tu trabajo empieza en
+  la CLI.
 · No conviertas la ruta de modelos en fija. Es configurable (C17).
 · No uses String.to_atom/1 con nada que venga de fuera. Ya ha costado dos
   veces: la tabla de atomos no crece.

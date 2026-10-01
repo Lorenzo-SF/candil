@@ -210,14 +210,119 @@ defmodule Candil.Config.FileTest do
   end
 
   describe "save/2" do
+    @config %{
+      "general" => %{"data_dir" => "~/.candil"},
+      "engine" => %{
+        "llama" => %{
+          "binary" => "llama-server",
+          "install" => %{
+            "strategy" => "source",
+            "repo" => "u/r",
+            "dir" => "/d",
+            "binaries" => ["llama-server", "llama-cli"],
+            "cmake_args" => ["-DCMAKE_BUILD_TYPE=Release", "-DCMAKE_CUDA_ARCHITECTURES=120a"]
+          }
+        }
+      },
+      "model" => %{
+        "coder" => %{
+          "type" => "local",
+          "port" => 9999,
+          "tags" => ["gpu", "moe"],
+          "model_args" => ["--n-gpu-layers", "-1", "--jinja", "--temp", "0.7"],
+          "source" => %{
+            "kind" => "huggingface",
+            "repo" => "u/r",
+            "file" => "m.gguf",
+            "dest" => "/models"
+          }
+        }
+      }
+    }
+
+    @tag :tmp_dir
+    test "round-trips a realistic config unchanged", %{tmp_dir: dir} do
+      path = Path.join(dir, "candil.toml")
+      expected = @config
+      assert :ok = ConfigFile.save(expected, path)
+      assert {:ok, ^expected} = ConfigFile.load(path)
+    end
+
+    @tag :tmp_dir
+    test "model_args comes back as an ordered list", %{tmp_dir: dir} do
+      # Order is behaviour: llama-server takes the last occurrence of a
+      # repeated flag. A table would lose it silently and nothing would say so.
+      path = Path.join(dir, "candil.toml")
+      :ok = ConfigFile.save(@config, path)
+      {:ok, back} = ConfigFile.load(path)
+
+      assert back["model"]["coder"]["model_args"] == [
+               "--n-gpu-layers",
+               "-1",
+               "--jinja",
+               "--temp",
+               "0.7"
+             ]
+    end
+
+    @tag :tmp_dir
+    test "a nested table does not swallow the keys after it", %{tmp_dir: dir} do
+      # A TOML table is positional: every bare key belongs to the most recent
+      # [header]. Emitting a sub-table before the scalars files them all under
+      # the sub-table, and the file still parses.
+      path = Path.join(dir, "candil.toml")
+      :ok = ConfigFile.save(@config, path)
+
+      raw = File.read!(path)
+      refute raw =~ ~r/^## /m, "## is a TOML comment, not a table header"
+      assert raw =~ "[model.coder.source]"
+    end
+
+    @tag :tmp_dir
+    test "creates the directory if it is missing", %{tmp_dir: dir} do
+      path = Path.join([dir, "nested", "candil.toml"])
+      assert :ok = ConfigFile.save(%{"general" => %{"data_dir" => "/tmp"}}, path)
+      assert File.exists?(path)
+    end
+
+    @tag :tmp_dir
+    test "leaves no temporary file behind", %{tmp_dir: dir} do
+      path = Path.join(dir, "candil.toml")
+      :ok = ConfigFile.save(@config, path)
+
+      leftovers = Path.wildcard(Path.join(dir, ".*.tmp"))
+      assert leftovers == []
+    end
+
+    @tag :tmp_dir
+    test "a failed write does not destroy the previous file", %{tmp_dir: dir} do
+      # The write is temp + rename, so the old file survives a crash mid-write.
+      # candil.toml is the source of truth for the whole catalogue.
+      path = Path.join(dir, "candil.toml")
+      :ok = ConfigFile.save(%{"general" => %{"data_dir" => "/primero"}}, path)
+      assert File.read!(path) =~ "/primero"
+
+      # A directory where the file should be makes the rename fail.
+      other = Path.join(dir, "bloqueado.toml")
+      File.mkdir!(other)
+      assert {:error, _} = ConfigFile.save(%{"general" => %{"data_dir" => "/x"}}, other)
+
+      assert File.read!(path) =~ "/primero"
+    end
+
     test "refuses to write an invalid document" do
-      assert {:error, problems} = ConfigFile.save(%{"model" => %{"m" => %{}}}, "/tmp/x.toml")
+      assert {:error, problems} =
+               ConfigFile.save(%{"model" => %{"m" => %{}}}, "/tmp/x.toml")
+
       assert Enum.any?(problems, &String.contains?(&1, "type is required"))
     end
 
-    test "reports that writing is not implemented yet" do
-      assert {:error, %Candil.Error{reason: :not_implemented}} =
-               ConfigFile.save(%{"general" => %{"data_dir" => "/tmp"}}, "/tmp/x.toml")
+    test "does not create a file when the document is invalid" do
+      path =
+        Path.join(System.tmp_dir!(), "candil-invalid-#{System.unique_integer([:positive])}.toml")
+
+      assert {:error, _} = ConfigFile.save(%{"model" => %{"m" => %{}}}, path)
+      refute File.exists?(path)
     end
   end
 end

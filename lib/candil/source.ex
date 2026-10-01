@@ -32,7 +32,17 @@ defmodule Candil.Source do
   hash it is not an option.
   """
 
+  alias Apero.Http
   alias Candil.Error
+  alias Plug.Crypto
+
+  # 1 MB. Big enough that syscalls do not dominate, small enough that
+  # verifying a 17 GB model never holds more than this.
+  @checksum_block_bytes 1_048_576
+
+  # 30 minutes. A 17 GB model over a slow link is a legitimate download, and
+  # this is the gap between chunks, not the total.
+  @default_receive_timeout 1_800_000
 
   @enforce_keys [:kind]
   defstruct kind: nil,
@@ -207,15 +217,245 @@ defmodule Candil.Source do
   Bodies are filled in by the fetch phase; this is the contract.
   """
   @spec fetch(t(), keyword()) :: {:ok, binary()} | {:error, Error.t()}
-  def fetch(%__MODULE__{} = _source, _opts \\ []) do
-    {:error, Error.not_implemented("Candil.Source.fetch/2", phase: 1)}
+  def fetch(source, opts \\ [])
+
+  def fetch(%__MODULE__{kind: :local} = source, _opts) do
+    case dest_path_or_local(source) do
+      nil -> {:error, Error.invalid_request("a local source needs a path")}
+      path -> {:ok, path}
+    end
+  end
+
+  def fetch(%__MODULE__{} = source, opts) do
+    case dest_path(source) do
+      nil ->
+        {:error, Error.invalid_request("this source has no destination")}
+
+      dest ->
+        if present?(source) do
+          {:ok, dest}
+        else
+          transfer_to(source, dest, opts)
+        end
+    end
+  end
+
+  # .part until it is whole, then renamed. A model directory holding a 4 GB
+  # GGUF that is 90% there is worse than a missing one: every existence check
+  # says it is there, and the failure surfaces much later, at load time.
+  defp transfer_to(source, dest, opts) do
+    :ok = File.mkdir_p(Path.dirname(dest))
+    part = dest <> ".part"
+    resume = partial_size(part)
+    track_progress(dest, resume)
+
+    case receive_stream(source, part, resume, opts) do
+      {:ok, hash} -> commit(source, dest, part, hash, opts)
+      {:error, reason} -> abort(part, dest, reason)
+    end
+  end
+
+  defp partial_size(part) do
+    case File.stat(part) do
+      {:ok, %File.Stat{size: size}} when size > 0 -> size
+      _ -> 0
+    end
+  end
+
+  defp receive_stream(source, part, resume, opts) do
+    timeout = Keyword.get(opts, :receive_timeout, @default_receive_timeout)
+
+    case File.open(part, mode(resume)) do
+      {:ok, file} ->
+        hash = :crypto.hash_init(:sha256)
+        # A resumed transfer starts mid-file, so the digest has to be seeded
+        # with the bytes already on disk. Hashing only the new part and calling
+        # it the whole file's digest would pass the wrong checksum roughly never.
+        hash = seed_hash(hash, part, resume)
+        state = %{file: file, hash: hash, dest: dest_of(part), written: resume}
+
+        result =
+          Http.stream(
+            :get,
+            url(source),
+            nil,
+            request_headers(source, resume),
+            state,
+            &consume/2,
+            receive_timeout: timeout
+          )
+
+        _ = File.close(file)
+        finish(result, state)
+
+      {:error, reason} ->
+        {:error, Error.invalid_request("cannot open #{part}: #{inspect(reason)}")}
+    end
+  end
+
+  defp dest_of(part), do: String.replace_suffix(part, ".part", "")
+
+  defp mode(0), do: [:write, :binary]
+
+  # :append, and not [:read, :write]. Erlang's `read_write` TRUNCATES unless
+  # `:no_truncate` is given, so a resumed download would overwrite the part it
+  # already had and leave a file exactly half the right size — which passes
+  # every existence check and fails at model load, hours later.
+  defp mode(_offset), do: [:append, :binary]
+
+  defp seed_hash(hash, _part, 0), do: hash
+
+  defp seed_hash(hash, part, offset) do
+    part |> hash_prefix(offset) |> then(&:crypto.hash_update(hash, &1))
+  end
+
+  defp hash_prefix(_part, offset) when offset <= 0, do: ""
+
+  defp hash_prefix(part, offset) do
+    case File.open(part, [:read, :binary]) do
+      {:ok, file} ->
+        data = read_n(file, offset, [])
+        _ = File.close(file)
+        IO.iodata_to_binary(data)
+
+      {:error, _} ->
+        ""
+    end
+  end
+
+  defp read_n(_file, 0, acc), do: Enum.reverse(acc)
+  defp read_n(_file, left, acc) when left <= 0, do: Enum.reverse(acc)
+
+  defp read_n(file, left, acc) do
+    case IO.binread(file, min(left, @checksum_block_bytes)) do
+      data when is_binary(data) -> read_n(file, left - byte_size(data), [data | acc])
+      _ -> Enum.reverse(acc)
+    end
+  end
+
+  # Finch.stream/5 wraps this callback:
+  #
+  #     fun = fn entry, acc -> {:cont, fun.(entry, acc)} end
+  #
+  # so whatever this returns BECOMES the accumulator for the next chunk.
+  # Returning `{:cont, state}` — which is what the Apero docs show and what
+  # Candil.Installer does — nests the tuple on every chunk and the pattern
+  # match fails on the second one. Return the bare state.
+  #
+  # The stream also opens with {:status, code} and {:headers, _} before any
+  # data, so a callback that only knows :data raises on the first event of
+  # every download.
+  defp consume({:status, _code}, state), do: state
+  defp consume({:headers, _headers}, state), do: state
+
+  defp consume({:data, data}, state) do
+    # data arrives as iodata, not necessarily a binary. File.write/3 calls
+    # chardata_to_string/1 on it and raises on the list form.
+    :ok = IO.binwrite(state.file, data)
+    binary = IO.iodata_to_binary(data)
+
+    state = %{
+      state
+      | written: state.written + byte_size(binary),
+        hash: :crypto.hash_update(state.hash, binary)
+    }
+
+    track_progress(state.dest, state.written)
+    state
+  end
+
+  defp consume(:done, state), do: state
+  defp consume({:error, _reason}, state), do: %{state | aborted: true}
+
+  defp finish({:ok, %{aborted: true}}, _fallback),
+    do: {:error, Error.invalid_request("the transfer was aborted")}
+
+  defp finish({:ok, %{hash: hash}}, _fallback) do
+    {:ok, :crypto.hash_final(hash) |> Base.encode16(case: :lower)}
+  end
+
+  defp finish({:ok, _other}, _fallback),
+    do: {:error, Error.invalid_request("the transfer ended with no data")}
+
+  defp finish({:error, reason}, _fallback), do: {:error, Error.wrap(reason)}
+
+  defp commit(source, dest, part, digest, opts) do
+    if checksum_ok?(source, digest, opts) do
+      :ok = File.rename(part, dest)
+      clear_progress(dest)
+      {:ok, dest}
+    else
+      abort(part, dest, Error.invalid_request("checksum mismatch for #{dest}"))
+    end
+  end
+
+  defp checksum_ok?(%__MODULE__{sha256: nil}, _digest, _opts), do: true
+
+  defp checksum_ok?(%__MODULE__{sha256: expected}, digest, _opts) do
+    secure_equal?(digest, String.downcase(expected))
+  end
+
+  defp abort(part, dest, reason) do
+    _ = File.rm(part)
+    clear_progress(dest)
+    {:error, reason}
   end
 
   @doc """
-  Bytes written so far, for progress reporting from another process.
+  Bytes written so far for a download, readable from another process.
+
+  Returns `{:ok, 0}` when nothing is in flight, which is what a caller wants
+  before a download starts as well as after one ends.
   """
   @spec progress(t()) :: {:ok, non_neg_integer()} | {:error, Error.t()}
-  def progress(%__MODULE__{}) do
-    {:error, Error.not_implemented("Candil.Source.progress/1", phase: 1)}
+  def progress(%__MODULE__{} = source) do
+    case dest_path_or_local(source) do
+      nil -> {:ok, 0}
+      dest -> {:ok, :persistent_term.get(progress_key(dest), 0)}
+    end
   end
+
+  @doc """
+  Clears the recorded progress for a source. Mostly for tests.
+  """
+  @spec reset_progress(t()) :: :ok
+  def reset_progress(%__MODULE__{} = source) do
+    case dest_path_or_local(source) do
+      nil -> :ok
+      dest -> clear_progress(dest)
+    end
+  end
+
+  defp track_progress(dest, bytes) do
+    :persistent_term.put(progress_key(dest), bytes)
+    :ok
+  end
+
+  defp clear_progress(dest) do
+    :persistent_term.erase(progress_key(dest))
+    :ok
+  end
+
+  defp progress_key(dest), do: {__MODULE__, :progress, dest}
+
+  # The Range header is the whole point of keeping a .part around. Without it
+  # a resumed download asks for the whole file again and writes it on top of
+  # what is already there.
+  defp request_headers(source, 0), do: auth_headers(source)
+
+  defp request_headers(source, offset),
+    do: auth_headers(source) ++ [{"range", "bytes=#{offset}-"}]
+
+  defp auth_headers(%__MODULE__{hf_token_env: nil}), do: []
+
+  defp auth_headers(%__MODULE__{hf_token_env: var}) do
+    case System.get_env(var) do
+      nil -> []
+      "" -> []
+      token -> [{"authorization", "Bearer " <> token}]
+    end
+  end
+
+  defp secure_equal?(a, b) when byte_size(a) == byte_size(b), do: Crypto.secure_compare(a, b)
+  defp secure_equal?(_a, _b), do: false
 end

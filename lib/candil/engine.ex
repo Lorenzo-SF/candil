@@ -32,7 +32,7 @@ defmodule Candil.Engine do
 
   @type alias :: atom()
 
-  alias Candil.Build
+  alias Candil.{Build, Store}
   alias Candil.Engine.Server
   alias Candil.{EnginePool, Installer}
 
@@ -98,6 +98,84 @@ defmodule Candil.Engine do
     case Build.validate(install) do
       [] -> errors
       problems -> Enum.reverse(problems) ++ errors
+    end
+  end
+
+  @doc """
+  The authentication headers for the engine that serves `model_alias`.
+
+  This is the lookup the local inference path uses. It answers "which engine
+  is this model on, and what does that engine need to authenticate" in one
+  hop, so the three call sites that used to send a literal `[]` cannot forget
+  it and cannot get it wrong for one model and right for another.
+
+  Returns `[]` when the model is unknown or has no engine, which is the
+  pre-existing behaviour for a server started without `--api-key`.
+  """
+  @spec auth_headers_for(atom() | String.t()) :: [{binary(), binary()}]
+  def auth_headers_for(model_alias) when is_atom(model_alias) or is_binary(model_alias) do
+    with {:ok, model} <- fetch_model(model_alias),
+         {:ok, engine} <- fetch_engine(model) do
+      auth_headers(engine)
+    else
+      _ -> []
+    end
+  end
+
+  def auth_headers_for(_model_alias), do: []
+
+  defp fetch_model(model_alias) when is_binary(model_alias) do
+    case String.to_existing_atom(model_alias) do
+      alias_ -> fetch_model(alias_)
+    end
+  rescue
+    ArgumentError -> {:error, :not_found}
+  end
+
+  defp fetch_model(model_alias) when is_atom(model_alias) do
+    case Store.get_model(model_alias) do
+      {:ok, model} -> {:ok, model}
+      {:error, :not_found} -> {:error, :not_found}
+    end
+  end
+
+  defp fetch_model(_model_alias), do: {:error, :not_found}
+
+  defp fetch_engine(%{type: :remote, provider: provider}) do
+    # A remote model has no engine. Its credentials live on the provider, and
+    # the provider path already sends them.
+    _ = provider
+    {:error, :not_found}
+  end
+
+  defp fetch_engine(%{type: :external}), do: {:error, :not_found}
+
+  defp fetch_engine(%{engine: nil}), do: {:error, :not_found}
+
+  defp fetch_engine(%{engine: engine_alias}) do
+    case Store.get_engine(engine_alias) do
+      {:ok, engine} -> {:ok, engine}
+      {:error, :not_found} -> {:error, :not_found}
+    end
+  end
+
+  @doc """
+  The base URL and auth headers for the engine serving `model_alias`.
+
+  Prefer this over `base_url/1` on its own, which knows nothing about
+  authentication and returns a URL that answers 401.
+  """
+  @spec connection_for(atom() | String.t()) ::
+          {:ok, binary(), [{binary(), binary()}]} | {:error, term()}
+  def connection_for(model_alias) do
+    with {:ok, model} <- fetch_model(model_alias),
+         {:ok, engine} <- fetch_engine(model) do
+      case base_url(model_alias) do
+        nil -> {:error, :engine_not_running}
+        base_url -> {:ok, base_url, auth_headers(engine)}
+      end
+    else
+      _ -> {:error, :engine_not_running}
     end
   end
 

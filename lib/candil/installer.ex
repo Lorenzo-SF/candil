@@ -79,7 +79,7 @@ defmodule Candil.Installer do
         {:error, "model source does not resolve to a destination path"}
 
       dest ->
-        if File.exists?(dest), do: {:ok, dest}, else: Source.fetch(model.source)
+        if File.exists?(dest), do: {:ok, dest}, else: Source.fetch(model.source, [])
     end
   end
 
@@ -119,6 +119,10 @@ defmodule Candil.Installer do
   end
 
   # Default download timeout: 30 minutes (models can be many GB).
+  # 1 MB. Big enough that the syscalls do not dominate, small enough
+  # that verifying a 17 GB model never holds more than this.
+  @checksum_block_bytes 1_048_576
+
   @download_timeout_ms 1_800_000
 
   defp stream_download(url, dest_path, checksum, opts \\ []) do
@@ -176,19 +180,61 @@ defmodule Candil.Installer do
     end
   end
 
-  defp verify_checksum(path, expected) do
-    case File.read(path) do
-      {:ok, data} ->
-        actual = :crypto.hash(:sha256, data) |> Base.encode16(case: :lower)
+  @doc """
+  Verifies a file against a SHA-256 digest, streaming it in 1 MB blocks.
 
-        if actual == String.downcase(expected) do
-          :ok
-        else
-          {:error, "SHA-256 checksum mismatch: expected #{expected}, got #{actual}"}
-        end
+  Returns `:ok`, or `{:error, message}` naming both the expected and the
+  actual digest.
 
+  It used to be `File.read(path)` followed by hashing the resulting binary.
+  For a GGUF that is 17 GB read into memory in one allocation — an
+  out-of-memory on a 32 GB machine before the download is even verified. The
+  streaming version costs one 1 MB buffer.
+
+  ## Examples
+
+      iex> path = Path.join(System.tmp_dir!(), "candil-doctest.bin")
+      iex> File.write!(path, "hola")
+      iex> digest = Base.encode16(:crypto.hash(:sha256, "hola"), case: :lower)
+      iex> Candil.Installer.verify_checksum(path, digest)
+      :ok
+  """
+  @spec verify_checksum(Path.t(), binary()) :: :ok | {:error, binary()}
+  def verify_checksum(path, expected) do
+    with {:ok, file} <- File.open(path, [:read, :binary]),
+         {:ok, digest} <- hash_file(file) do
+      File.close(file)
+
+      if digest == String.downcase(expected) do
+        :ok
+      else
+        {:error, "SHA-256 checksum mismatch: expected #{expected}, got #{digest}"}
+      end
+    else
       {:error, reason} ->
         {:error, "Failed to read #{path} for checksum verification: #{inspect(reason)}"}
     end
   end
+
+  defp hash_file(file) do
+    file |> hash_file(:crypto.hash_init(:sha256)) |> hash_final()
+  end
+
+  defp hash_file(file, hash) do
+    case IO.binread(file, @checksum_block_bytes) do
+      :eof ->
+        {:ok, hash}
+
+      data when is_binary(data) ->
+        # :crypto.hash_update/2 is (hash, data). The reverse order compiles,
+        # runs, and fails at runtime with "not an iodata term".
+        :crypto.hash_update(hash, data) |> then(&hash_file(file, &1))
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  defp hash_final({:ok, hash}), do: {:ok, :crypto.hash_final(hash) |> Base.encode16(case: :lower)}
+  defp hash_final({:error, _} = error), do: error
 end
