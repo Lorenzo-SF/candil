@@ -22,8 +22,8 @@
 | Rama de trabajo | `4.0-f2-build` (base `4.0`, con `main` mergeado dentro) |
 | `main` | Intacta. No se ha tocado desde el merge. |
 | Tag de partida | `4.0-contracts-frozen` |
-| Tests | **620 tests + 25 doctests**, 0 fallos |
-| Cobertura | **66.5 %** (64.6 % en `main` sin la fase 2) |
+| Tests | **623 tests + 25 doctests**, 0 fallos |
+| Cobertura | **66.8 %** (64.6 % en `main` sin la fase 2) |
 | Gates | **8 de 8 en verde** |
 | Fases cerradas | −1 contratos · −0 gates · **0 los ocho bugs** · 1 Source y TOML · **2 Build y EnginePool** |
 
@@ -237,6 +237,62 @@ El comentario que había al lado ya lo sabía:
 Se quitó el `apply/3`, que era la ofuscación, y se dejó el `:unknown`, que
 era el defecto. El síntoma sigue siendo el mismo: la descarga del binario
 falla más tarde y sin decir por qué. Es media hora de código.
+
+## 3-quinquies. La estrategia `:precompiled` no puede funcionar en Linux
+
+Esto salió al verificar **contra la API real de GitHub**, no leyendo el código.
+El TLS roto del sandbox lo tenía escondido; con un proxy propio que termina
+TLS, Candil habla con GitHub de verdad y la respuesta es que la estrategia
+`:precompiled` está construida sobre una suposición que no se cumple.
+
+**llama.cpp no publica binarios de Linux en sus releases.** Medido sobre 20
+releases, 271 assets `.zip`:
+
+```
+linux / ubuntu / debian     0
+win                        252
+macos / xcframework         19
+```
+
+Y `Detector.Models.build_asset_pattern/4` genera para Linux exactamente
+`bin-ubuntu-x64`, `bin-linux-cuda-...`, `bin-linux-rocm-...`, `bin-linux-vulkan-...`
+— patrones que no casan con nada que exista. Los `.zip` de Linux no se publican
+ahí; se reparten por Homebrew y por otros canales.
+
+Encima, `releases/latest` de llama.cpp apunta a `v0.5.0`, que **no trae
+binarios**: solo un `nightly-tag.txt`. Los binarios van en tags rodantes
+`b11327`, `b11326`, … Así que `version: :latest`, el valor por defecto de
+`Build`, nunca resolvió a nada.
+
+### Lo que tapaba todo: el fallback
+
+`find_matching_asset/2` tenía un fallback: si nada casaba, cogía el primer
+`.zip` que no fuera sources ni sha256 y lo ofrecía igual. Puesto contra la API
+real, en esta máquina (linux x64) devolvía
+
+```
+cudart-llama-bin-win-cuda-12.4-x64.zip
+```
+
+Un bundle de Windows con CUDA, que **se descarga bien, se descomprime bien y
+falla al ejecutarlo**. Y como el fallbackrespondía, el error de `:latest`
+quedaba escondido detrás de un binario equivocado.
+
+**Arreglado**: si no hay asset para esta plataforma, se dice. Ahora
+`:latest` da `:no_matching_asset` y una plataforma sin publicar da
+`{:no_such_platform, "bin-ubuntu-x64"}`. Un binario equivocado es peor que
+ninguno.
+
+### Lo que sigue sin resolver, y no es código
+
+Que la estrategia `:precompiled` tenga un sentido en Linux es una **decisión
+de diseño**, no un bug. Y la respuesta parece ser que no: para Linux, la ruta
+es `:source`, que es exactamente lo que hace ropero con sus flags. El camino
+rápido existe para Windows y macOS.
+
+Esto **no bloquea** el merge. Lo que hace es cambiar lo que el §4.1 del prompt
+promete: ":precompiled es el camino rápido" solo es cierto donde hay binario
+publicado.
 
 ## 3-bis. Lo que NO está probado, y por qué
 
