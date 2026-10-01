@@ -202,13 +202,120 @@ defmodule Candil.Config.File do
   Not implemented yet — that is the write half of phase 1.
   """
   @spec save(map(), binary()) :: :ok | {:error, term()}
-  def save(%{} = config, _path) do
+  def save(%{} = config, path) do
     case Schema.validate(config) do
-      {:ok, _} ->
-        {:error, Error.not_implemented("Candil.Config.File.save/2", phase: 1)}
-
-      {:error, problems} ->
-        {:error, problems}
+      # Validate first. A config file that cannot be read back is worse than
+      # one that was never written, because it looks authoritative.
+      {:ok, _} -> write_atomic(encode(config), path)
+      {:error, problems} -> {:error, problems}
     end
   end
+
+  # tmp + rename, same directory so the rename is atomic rather than a copy.
+  # A crash mid-write leaves the previous file intact instead of a truncated
+  # one, and candil.toml is the source of truth for the whole catalogue.
+  defp write_atomic(contents, path) do
+    dir = Path.dirname(path)
+    tmp = Path.join(dir, ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp")
+
+    with :ok <- File.mkdir_p(dir),
+         :ok <- File.write(tmp, contents),
+         :ok <- File.rename(tmp, path) do
+      :ok
+    else
+      {:error, reason} ->
+        _ = File.rm(tmp)
+        {:error, Error.invalid_request("could not write #{path}: #{inspect(reason)}")}
+    end
+  end
+
+  # A hand-rolled encoder, not Toml.encode/2.
+  #
+  # `model_args` is an ordered list and it has to come back as one, in order:
+  # llama-server takes the last occurrence of a repeated flag, so a table would
+  # silently lose the ordering that --cpu depends on. The TOML library would
+  # emit an array for a list, which is right, but it also round-trips through
+  # its own types, and the contract here is that what we write we can read back
+  # unchanged.
+  defp encode(config) do
+    config
+    |> Enum.sort_by(fn {name, _} -> name end)
+    |> Enum.map_join("\n\n", fn {name, value} -> section(name, value) end)
+    |> Kernel.<>("\n")
+  end
+
+  defp section(name, value) when is_map(value) do
+    "[#{name}]\n" <> entries(value, name)
+  end
+
+  defp section(name, value), do: "[#{name}]\n#{scalar(value)}\n"
+
+  # Scalars first, sub-tables after. A TOML table is positional: every bare
+  # key belongs to the most recent `[header]`, so a sub-table emitted first
+  # silently swallows everything that follows., so emitting a nested table and
+  # then a bare key silently files that key under the NESTED table. Round-trip
+  # a config with a `source` in it and every key after it lands in the wrong
+  # place.
+  defp entries(table, prefix) do
+    table = Enum.sort_by(table, fn {name, _} -> name end)
+
+    # split_with/2 returns {matching, non_matching}, in that order. Reading it
+    # the other way round files every scalar as a sub-table.
+    {nested, scalars} =
+      Enum.split_with(table, fn {_name, value} -> is_map(value) or list_of_maps?(value) end)
+
+    scalars =
+      Enum.map_join(scalars, "\n", fn {name, value} ->
+        if is_list(value),
+          do: "#{name} = #{array(value)}",
+          else: "#{name} = #{scalar(value)}"
+      end)
+
+    subs =
+      Enum.map_join(nested, "\n", fn {name, value} ->
+        case value do
+          %{} = sub ->
+            "\n[#{prefix}.#{name}]\n" <> entries(sub, "#{prefix}.#{name}")
+
+          list ->
+            Enum.map_join(list, "\n", fn sub ->
+              "\n[#{prefix}.#{name}]\n" <> entries(sub, "#{prefix}.#{name}")
+            end)
+        end
+      end)
+
+    case {scalars, subs} do
+      {"", ""} -> ""
+      {sc, ""} -> sc
+      {"", ss} -> String.trim_leading(ss, "\n")
+      {sc, ss} -> sc <> ss
+    end
+  end
+
+  defp list_of_maps?([]), do: false
+  defp list_of_maps?(value) when is_list(value), do: Enum.all?(value, &is_map/1)
+  defp list_of_maps?(_), do: false
+
+  defp array(values) do
+    "[" <>
+      Enum.map_join(values, ", ", fn
+        v when is_map(v) -> inline_table(v)
+        v -> scalar(v)
+      end) <> "]"
+  end
+
+  defp inline_table(value) do
+    inner =
+      value
+      |> Enum.sort_by(fn {k, _} -> k end)
+      |> Enum.map_join(", ", fn {k, v} -> "#{k} = #{scalar(v)}" end)
+
+    "{ " <> inner <> " }"
+  end
+
+  defp scalar(value) when is_binary(value), do: inspect(value)
+  defp scalar(value) when is_atom(value), do: inspect(value)
+  defp scalar(value) when is_integer(value), do: to_string(value)
+  defp scalar(value) when is_float(value), do: to_string(value)
+  defp scalar(value), do: inspect(value)
 end

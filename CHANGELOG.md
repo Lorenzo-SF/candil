@@ -304,6 +304,85 @@ family: a plausible line that cannot fail in the test that exercises it.
   `embedder` resolved to a model alias that matches nothing, through the one
   lookup that should have rejected it.
 
+### Fixed — phase 0: the eight bugs
+
+- **H1, the one that blocked absorbing ropero.** The local inference path sent
+  a fixed empty header list, so any `llama-server` started with `--api-key`
+  answered 401 and there was no way to inject one. `Engine.auth_headers_for/1`
+  resolves the engine that serves a model and returns its headers;
+  `Inference.Chat`, `Inference.Embeddings` and `Stream` now use it. `Engine.Server`
+  emits `--api-key` and `--alias` on the command line as well, because a server
+  started with the flag rejects anything without a matching bearer and Candil
+  is not the only thing that may need to talk to it.
+- **B1, B2**: `Candil.Backend.LlamaCpp.chat/3` and `chat_stream/3` were stubs
+  returning `backend_unavailable`, which meant `Candil.Agent.run/3` and
+  `Candil.Structured.complete/4` could never work.
+- **B3**: `OpenAICompat.chat_stream/3` made a real streaming request, threw the
+  data away, and returned a one-chunk `Stream.repeatedly(fn -> Process.sleep(50);
+  %{content: "", done: true} end)`. A caller could not tell a working stream
+  from a broken one. It now collects and parses the deltas.
+- **B4**: `OpenAICompat.embed/3` issued one request per text. Embedding 100
+  texts was 100 round trips. It now sends the array in `input` and sorts by
+  `index`, because the server is not obliged to answer in order.
+- **B8**: `Installer.verify_checksum/2` was `File.read(path)` followed by
+  hashing the binary — 17 GB in one allocation for a GGUF. It streams in
+  1 MB blocks and is public, with tests.
+- **B5**: `Store.register_provider/1` accepts a plain string `api_key` and
+  returns `{:error, reasons}` instead of raising.
+
+`EnginePool` losing its LRU is **B7**, and it is not in this phase: another
+session already did it as part of phase 2, in PR #18.
+
+### Changed
+- `Stream.resource/3` returns a bare function rather than a `%Stream{}` in
+  Elixir 1.19. A test asserting `is_struct(stream, Stream)` had been passing
+  for the wrong reason; it now asserts `Enumerable`, which is the contract
+  that matters.
+
+### Changed
+- `Stream.resource/3` returns a bare function rather than a `%Stream{}` in
+  Elixir 1.19. A test asserting `is_struct(stream, Stream)` had been passing
+  for the wrong reason; it now asserts `Enumerable`, which is the contract
+  that matters.
+
+### Added — phase 1: Source and the TOML writer
+
+- `Candil.Source.fetch/2` streams a model file to disk: writes a `.part`,
+  resumes with a `Range` header, hashes as the bytes arrive, and renames into
+  place only on success. A truncated model directory is worse than a missing
+  one — every existence check says it is there and the failure surfaces at
+  load time.
+- `Candil.Source.progress/1` and `reset_progress/1`, readable from another
+  process, cleared on completion so a poller never sees a stale total.
+- `Candil.Config.File.save/2` writes atomically (temp + rename in the same
+  directory) and validates first: a config that cannot be read back is worse
+  than one that was never written, because it looks authoritative.
+- The TOML writer is hand-rolled rather than `Toml.encode/2`, and there is a
+  test that a realistic config round-trips byte-for-byte.
+
+### Fixed, found by writing the tests against a real server
+
+- The stream callback returned `{:cont, state}`, but `Finch.stream/5` wraps
+  the callback: `fun = fn entry, acc -> {:cont, fun.(entry, acc)} end`. The
+  tuple nests on every chunk and the next pattern match fails. **`Candil.Installer.stream_download/4` had the same bug** and only ever worked because a mock returned the whole body in one event.
+- The callback only knew `{:data, _}`. Finch opens every stream with
+  `{:status, code}` and `{:headers, _}`, so it raised on the first event of
+  every download.
+- Chunk data arrives as iodata. `File.write/3` calls `chardata_to_string/1`
+  on it and raises on the list form.
+- **A resumed download opened the file `[:read, :write, :binary]`. Erlang's
+  `read_write` TRUNCATES unless `:no_truncate` is given**, so the second half
+  of the file was written over the first and left a file exactly half the
+  right size — which passes every existence check.
+- The TOML writer emitted `## header` where TOML wants `[header]`. `##` is a
+  comment, so the whole document round-tripped to one flat table.
+- A TOML table is positional: every bare key belongs to the most recent
+  header, so emitting a sub-table before the scalars files all of them under
+  the sub-table. The file still parses, and still validates. Now scalars
+  first, sub-tables after.
+- `Enum.split_with/2` returns `{matching, non_matching}`. Reading it the
+  other way round filed every scalar as a sub-table.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)

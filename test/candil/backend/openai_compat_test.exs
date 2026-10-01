@@ -68,7 +68,7 @@ defmodule Candil.Backend.OpenAICompatTest do
   end
 
   describe "chat_stream/3" do
-    test "returns a chunk stream on 200" do
+    test "returns an enumerable on 200" do
       expect(HTTPAdapterMock, :stream, fn %Request{method: :post, body: %{stream: true}},
                                           _acc,
                                           _fun,
@@ -79,7 +79,30 @@ defmodule Candil.Backend.OpenAICompatTest do
       assert {:ok, stream} =
                OpenAICompat.chat_stream(model(), [%{role: "user", content: "hi"}], [])
 
-      assert is_struct(stream, Stream)
+      # `is_struct(stream, Stream)` was the old assertion and it stopped being
+      # true in Elixir 1.19, where Stream.resource/3 returns a bare function
+      # instead of a %Stream{} struct. Enumerable is the contract that matters.
+      assert Enumerable.impl_for(stream) != nil
+      assert Enum.to_list(stream) == []
+    end
+
+    test "the deltas the server sent actually reach the caller" do
+      # The previous implementation made a real streaming request, discarded
+      # the data, and returned a one-chunk stream of %{content: "", done: true}
+      # after a Process.sleep. A caller could not tell a working stream from a
+      # broken one. This asserts the content is not lost.
+      payload = ~s({"choices":[{"delta":{"content":"hola"}}]})
+      sse = "data: #{payload}\n\n"
+
+      expect(HTTPAdapterMock, :stream, fn %Request{method: :post}, acc, fun, _opts ->
+        _ = fun.({:data, sse}, acc)
+        {:ok, [sse]}
+      end)
+
+      assert {:ok, stream} =
+               OpenAICompat.chat_stream(model(), [%{role: "user", content: "hola"}], [])
+
+      assert Enum.to_list(stream) == [%{"content" => "hola"}]
     end
   end
 
