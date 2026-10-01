@@ -79,7 +79,7 @@ defmodule Candil.Installer do
         {:error, "model source does not resolve to a destination path"}
 
       dest ->
-        if File.exists?(dest), do: {:ok, dest}, else: Source.fetch(model.source)
+        if File.exists?(dest), do: {:ok, dest}, else: Source.fetch(model.source, [])
     end
   end
 
