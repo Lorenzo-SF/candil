@@ -29,6 +29,8 @@ defmodule Candil.Application do
       # Store first: it owns the catalogue tables that the others read.
       Candil.Store,
       Candil.Context,
+      Candil.Router.Cache,
+      Candil.Router.Consumer,
       Candil.Cancellation,
       Candil.Tool,
       Candil.EnginePool,

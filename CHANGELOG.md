@@ -196,6 +196,38 @@ family: a plausible line that cannot fail in the test that exercises it.
 - `Session.tokens/1` used `&div(String.length(&1.content), 4)`, which is a
   unary capture, inside an `Enum.reduce/3` that calls it with two arguments.
 
+### Added — phase -1: contracts (part 5): Router
+- `Candil.Router`, `Candil.Router.{Decision, Cache, Consumer, DecisionEngine,
+  Scorer}`. Deciding which model answers, in four layers ordered by cost:
+  cache, keyword rules, embeddings, LLM classifier. The classifier is off by
+  default, because a router that spends a completion to save a tenth of one
+  is usually a bad trade.
+- `Candil.Router.pin/2` forces a consumer's model, which is how `posadero` and
+  `opencode` stop arguing over the same engine while it starts. Pins live in
+  this process: per-node, and not surviving a restart, because a pin written
+  to disk outlives the reason for it.
+- The embedding and LLM layers return `:miss`, not a score. A layer that
+  returns a plausible number for something it did not compute routes on noise
+  and reports confidence.
+
+### Fixed
+- The routing cache key was the prompt hash alone. Two consumers with
+  different pins and the same prompt therefore got the same decision, and
+  whichever routed first decided for both. That is the exact leak the
+  `{consumer, session_id}` partitioning exists to prevent, reappearing one
+  layer over. The consumer is now part of the key, with a regression test.
+- The rule layer used the same 0.70 confidence threshold as the semantic
+  layers. It is a keyword ratio: a real code prompt hits three of eight rule
+  words and scores 0.375, so the rule layer could never fire and every prompt
+  fell through to the default. Each layer now has its own threshold; a keyword
+  ratio and a cosine similarity are not the same kind of number.
+
+### Notes
+- The built-in rules are English. A Spanish prompt does not match them. The
+  real vocabulary belongs in `[router.rules]` in the config file, and a
+  cross-language near miss is not made to match, because that would make the
+  score a lie.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)

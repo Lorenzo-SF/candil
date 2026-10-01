@@ -101,6 +101,14 @@ defmodule Candil.MixProject do
         ],
         Diagnostics: [Candil.Health, Candil.Embeddings],
         Context: [Candil.Context, Candil.Context.Session],
+        Router: [
+          Candil.Router,
+          Candil.Router.Decision,
+          Candil.Router.Cache,
+          Candil.Router.Consumer,
+          Candil.Router.DecisionEngine,
+          Candil.Router.Scorer
+        ],
         Conversation: [
           Candil.Conversation,
           Candil.Conversation.Context,
