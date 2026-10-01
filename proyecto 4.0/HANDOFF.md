@@ -25,7 +25,8 @@
 | Tests | **610 tests + 24 doctests**, 0 fallos |
 | Cobertura | **66.4 %** (64.6 % en `main` sin la fase 2) |
 | Gates | **8 de 8 en verde** |
-| Fases cerradas | −1 contratos · −0 gates · 0 los ocho bugs · 1 Source y TOML · **2 Build y EnginePool** |
+| Fases cerradas | −1 contratos · −0 gates · 0 los ocho bugs **menos B6** · 1 Source y TOML · **2 Build y EnginePool** |
+| B6 sin hacer | `Detector.safe_arch/0` sigue devolviendo `:unknown` en silencio (ver §3-quater) |
 
 ### Ramas y PRs
 
@@ -203,6 +204,36 @@ barra; y H1 está hecho — los tres call sites de la ruta local usan
 `Engine.auth_headers_for/1` y el servidor recibe `--api-key` y `--alias`. Para
 hablar con un `llama-server` protegido ya no falta código: falta un binario y
 un GGUF.
+
+## 3-quater. B6 sigue sin hacerse, aunque el resumen diga que sí
+
+El §1 lista "0 los ocho bugs" como cerrada. **Son siete de ocho.** Medido:
+
+```
+B1  LlamaCpp.chat/3           ✅ cuerpo
+B2  LlamaCpp.chat_stream/3    ✅ cuerpo
+B3  OpenAICompat.chat_stream  ✅
+B4  OpenAICompat.embed        ✅ una request por texto, no un batch
+     borrar build_chunk_stream/1  ✅ borrado
+H1  auth en la ruta local      ✅ los tres call sites
+B5  api_key string plano      ✅
+B6  Detector.safe_arch/0      ❌ SIGUE DEGRADANDO EN SILENCIO
+B7  EnginePool sin LRU        ✅
+B8  checksum en streaming     ✅ Installer ya hashea por bloques
+```
+
+Lo que el diseño pide para B6 es
+`Trebejo.OS.arch/0 → {:ok, arch} | {:error, :trebejo_not_available}`. Lo que
+hace el código es devolver `:unknown` cuando Trebejo no está, sin decir nada.
+
+Y el comentario de al lado delata que se sabía:
+
+> apply/3 here was only there to silence the compiler and hid the fact that a
+> missing Trebejo silently degraded to `:unknown` instead of saying so.
+
+Se quitó el `apply/3`, que era la ofuscación, y se dejó el `:unknown`, que
+era el defecto. El síntoma sigue siendo el mismo: la descarga del binario
+falla más tarde y sin decir por qué. Es media hora de código.
 
 ## 3-bis. Lo que NO está probado, y por qué
 
