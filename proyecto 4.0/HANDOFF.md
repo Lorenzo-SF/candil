@@ -6,8 +6,9 @@
 > **está hecho, medido y verificado**, y lo que toca mañana. Cuando se
 > contradigan, este tiene razón sobre el presente y aquel sobre el futuro.
 >
-> **Fecha**: 2026-10-01 · **Rama**: `4.0` · **Toolchain**: Erlang/OTP 28.5.0.7,
-> Elixir 1.19.5-otp-28 · **Punto de partida**: tag `4.0-work-start`
+> **Fecha**: 2026-10-01 · **Rama**: `4.0/f2-build` (base `4.0`) ·
+> **Toolchain**: Erlang/OTP 28.5.0.7, Elixir 1.19.5-otp-28 ·
+> **Punto de partida de esta fase**: `4.0-work-start`
 
 ---
 
@@ -18,10 +19,10 @@
 | Rama de trabajo | `4.0` |
 | `main` | Intacta, con su CI viejo. No se ha tocado. |
 | Tag de partida | `4.0-work-start` |
-| Tests | **515 tests + 24 doctests**, 0 fallos |
-| Cobertura | **63.1 %** (era 52.7 % en el tag) |
+| Tests | **571 tests + 24 doctests**, 0 fallos |
+| Cobertura | **65.2 %** (63.1 % al entrar; oscila una décima con la semilla async) |
 | Gates | **8 de 8 en verde** |
-| Commits en `4.0` | 12 |
+| Rama de trabajo | `4.0/f2-build` — tres commits, `4.0` sin tocar |
 
 ### Los ocho gates, y los comandos exactos
 
@@ -81,15 +82,52 @@ tests.
 `Engine.Server.build_args/2` emite `--api-key` y `--alias` en la línea de
 comandos. El camino local ya puede hablar con un `llama-server` protegido.
 
+### Fase 2 — Build, EnginePool y el TOML de ropero (cerrada en 4.0/f2-build)
+
+Tres commits, uno por sub-paso, con los ocho gates en verde en cada push.
+
+| Sub-paso | Qué |
+|---|---|
+| 4.1 | `Candil.Build.install/2` con las dos estrategias, y `check/1`. Más `configure_command/1`, `build_command/1` y `jobs/1`, públicos para que un test pueda comprobar el argv sin compilar nada |
+| 4.2 | `Candil.EnginePool` como registro de instancias, con `claim_port/2` |
+| 4.3 | `proyecto 4.0/candil.toml`, y un bug de `Config.File.expand/1` que aparecía al usarlo |
+
+**4.1, lo que no era lo que parecía.** Un puerto pertenece a la VM, no al
+proceso que lo abrió: matar al dueño dejaba el `cmake` corriendo, y
+`Port.close/1` también. `run/3` monitoriza al dueño y mata el `os_pid`. El
+límite está escrito en el código: un `kill -9` a la VM entera no deja ningún
+proceso BEAM vivo que pueda matar nada. Y `spawn_executable` **no** busca en el
+`PATH`: `git` salía como `:enoent` en una máquina que tiene git.
+
+`install/2` **no** delega en `Candil.Installer.download_engine/1`, y es una
+decisión: el installer escribe en `engine.binary_dir` y no en el `dir` del
+plan, no lee `sha256`, no tiene reanudación por `Range`, ni `.part`, ni rename,
+y hashea el fichero entero con `File.read/1` — que es B8, y B8 es de la Fase 0.
+Delegar habría sido arreglar un bug de la Fase 0 desde una fase que no puede
+tocarlo.
+
+**4.3, medido, no supuesto.** `Candil.Config.File.load/1` sobre el TOML
+devuelve `{:ok, _}`: 1 engine, 1 provider, 3 consumers, 7 modelos. Los 7
+construyen y se registran en `Candil.Store` con su puerto, contexto, usage y
+fichero correctos.
+
+**El fallo que salió al usarlo**: `Config.File.expand/1` nunca expandía el
+`draft` de un modelo que tuviera también `source`. Dos cláusulas, un patrón
+cada una. El único modelo con draft es el único que también tiene `source`, así
+que su `--model-draft` conservaba un `~` literal — el C22 de manual. El test
+que decía cubrirlo usaba un modelo con draft y sin source, que es justo la
+forma que ya funcionaba.
+
 ### Lo que aún es stub, y es intencionado
 
-Doce funciones, todas con un contrato escrito y un test que lo ejerce:
+Once funciones, todas con un contrato escrito y un test que lo ejerce.
+`Candil.Build.install/2` sale de la lista: la Fase 2 le ha puesto cuerpo.
 
 ```
 Candil.Source.fetch/2            fase 1     Candil.RAG.index/3            fase 10
 Candil.Source.progress/1         fase 1     Candil.RAG.search/3           fase 10
-Candil.Build.install/2           fase 2     Candil.RAG.create_index/2     fase 10
-Candil.Config.File.save/2        fase 1     Candil.RAG.drop_index/1       fase 10
+Candil.Config.File.save/2        fase 1     Candil.RAG.create_index/2     fase 10
+Candil.MCP.serve/1               fase 9     Candil.RAG.drop_index/1       fase 10
 Candil.MCP.serve/1               fase 9     Candil.RAG.list_indexes/0     fase 10
 Candil.MCP.connect/1             fase 9
 Candil.Gateway.Endpoint.listen/4 fase 8
@@ -123,8 +161,13 @@ Orden recomendado, tal cual está en el documento de diseño:
    `Store.register_provider/1`; queda propagarlo a `Provider` y su doc.
 4. **B6** (30 min) — `trebejo` ya está declarada; queda comprobar que
    `Detector.safe_arch/0` ya no degrada en silencio.
-5. **B7** (1 h) — `EnginePool` sin LRU.
-6. **B8** (1 h) — checksum en streaming, no `File.read/1` de 17 GB.
+5. ~~**B7**~~ — **hecho en la Fase 2**: `EnginePool` es un registro de
+   instancias. Sigue vivo el detalle: `Candil.Engine.Server` sigue enlazando a
+   `engine.port`, así que `Model.port == :auto` todavía no significa nada.
+   Eso lo resuelve el CLI de la Fase 3.
+6. **B8** (1 h) — checksum en streaming, no `File.read/1` de 17 GB. Ahora
+   también es lo que queda en `Candil.Installer.verify_checksum/2`; la Fase 2
+   lo hizo bien en su propio camino en vez de heredarlo.
 
 ### La prueba que decide si la absorción es viable
 
@@ -197,6 +240,21 @@ F5 (doctor), F9 (MCP) y F10 (RAG) no están en la ruta crítica: dependen sólo
 del carril A y del store, así que pueden arrancar en cuanto F2 cierre.
 
 ---
+
+## 5-bis. Un hueco que la Fase 2 no ha tapado
+
+**No hay carga de TOML a `Candil.Store`.** `Store.init/1` solo lee
+`Application.get_env(:candil, Candil.Store)`; nada más. `Config.File.load/1`
+devuelve el mapa, y ahí se acaba. Los 7 modelos de §4.3 se contaron a mano
+para poder decir que construyen y validan — no hay código de librería detrás
+de esa frase.
+
+El cargador no está asignado a ninguna fase del plan, y trae una pregunta que
+no es de este carril: `String.to_existing_atom/1` (regla dura 7) rechaza un
+alias que no haya visto antes, y en la primera carga **ninguno** de los 7
+alias existe. Un fichero de configuración no es la red, así que `to_atom`
+sobre sus claves es defendible, pero la regla está escrita sin excepción y eso
+es una decisión de diseño, no una que se tome de paso.
 
 ## 6. Decisiones que siguen abiertas
 
