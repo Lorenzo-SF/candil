@@ -17,6 +17,16 @@ defmodule Candil.Build do
   defaults. Adding a sensible-looking default is how you end up with a binary
   that compiles, runs, and is quietly slow.
 
+  ## `build_dir` remembers
+
+  cmake caches its configuration in the build directory, including every flag
+  it was given. So running `install/2` twice against the same `build_dir` with
+  different `cmake_args` does not apply the new flags: the second run reuses
+  the cache from the first. That is cmake's behaviour and not something this
+  module papers over — silently deleting a build directory is how you lose
+  twenty minutes of compiling. Change `build_dir`, or remove it yourself when
+  you change the flags.
+
   ## Deliberately not here
 
   Nothing in this module links anything into `PATH`, and nothing decides

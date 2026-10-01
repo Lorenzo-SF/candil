@@ -20,6 +20,13 @@ else in the 4.0 contract freeze is tooling and documentation.
   `:source` clones the repository, runs `cmake` twice and copies what it finds.
   Options: `:asset_url` to pin the download, `:cmake` for a toolchain that is
   not the one on the `PATH`, `:on_output` to stream compiler output.
+- `test/candil/build/source_real_test.exs` — the `:source` strategy against a
+  real `cmake`, when one is on the `PATH`. The hermetic suite uses a stand-in
+  for `cmake`, which is what lets it assert the exact argv a process received
+  and nothing more. This one catches the gap a stand-in cannot: a flag that
+  only a real `cmake` validates, a build layout a real generator produces, a
+  real compiler error on a real stderr. Without `cmake` installed it says so
+  rather than passing quietly.
   This does not delegate to `Candil.Installer.download_engine/1`, and that is a
   decision rather than an oversight: the installer writes to
   `engine.binary_dir` instead of the plan's own `dir`, reads no `sha256`, has
