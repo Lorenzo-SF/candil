@@ -7,10 +7,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing changes in the public API. This is tooling and documentation for the
-4.0 line; the API breaks land with `4.0.0-alpha.1` and later.
+`Candil.Build.install/2` and `check/1` stop being stubs. They were frozen
+contracts; this is the body behind them, and no public API breaks.
 
 ### Added
+- `Candil.Build.install/2` with both strategies. `:precompiled` resolves the
+  release asset through `Candil.Detector`, downloads it to a `.part` file,
+  resumes with `Range: bytes=N-` when one is already there, folds the SHA-256
+  in block by block as the bytes go past, renames into place only on success,
+  and unpacks the declared binaries into `dir` with the executable bit set.
+  `:source` clones the repository, runs `cmake` twice and copies what it finds.
+  Options: `:asset_url` to pin the download, `:cmake` for a toolchain that is
+  not the one on the `PATH`, `:on_output` to stream compiler output.
+  This does not delegate to `Candil.Installer.download_engine/1`, and that is a
+  decision rather than an oversight: the installer writes to
+  `engine.binary_dir` instead of the plan's own `dir`, reads no `sha256`, has
+  no `Range` resume, no `.part` and no rename, and hashes the whole download
+  with `File.read/1` — which is B8, and B8 belongs to phase 0. Sharing would
+  have meant fixing a phase-0 bug from a phase that is not allowed to touch
+  it.
+- `Candil.Build.check/1` — `:ok`, or the names of the declared binaries that are
+  absent or not executable.
+- `Candil.Build.configure_command/1` and `build_command/1` — the exact
+  `{executable, argv}` pairs, public so a test can assert the user's
+  `cmake_args` are passed verbatim without running a compiler.
+- `Candil.Build.jobs/1` — `jobs: 0` resolved to one job per online scheduler,
+  which is the `nproc` the user would have typed.
 - `.tool-versions` pinning Erlang/OTP 28.5.0.7 and Elixir 1.19.5-otp-28, kept
   in sync with the CI env.
 - `proyecto 4.0/PLAN-PARALELO.md` — execution plan for the 12 phases: a contract
