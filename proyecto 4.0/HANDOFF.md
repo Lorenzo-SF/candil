@@ -277,6 +277,59 @@ Candil.Build.install(b, asset_url: url)
 Si algo falla, el mensaje es texto del programa que falló. Pégalo tal cual en
 el PR: un resumen sería justo lo que estamos intentando evitar.
 
+## 3-ter. La Fase 0, medida punto por punto (2026-10-01)
+
+Alguien merged main y creyó que eso era "la Fase 1". No lo es: lo que hay en
+main es el **congelado de contratos** (Fase -1 del plan) más el **gate
+fiable**, y nada de eso implementa Source. Los stubs siguen vivos:
+
+```
+lib/candil/source.ex:211   Source.fetch/2     {:error, ...not_implemented}, phase: 1
+lib/candil/source.ex:219   Source.progress/1  {:error, ...not_implemented}, phase: 1
+lib/candil/config/file.ex  File.save/2        {:error, ...not_implemented}, phase: 1
+```
+
+Y no existe carga de TOML a `Candil.Store`: `Store.init/1` solo lee
+`Application.get_env`. Verificado.
+
+**La Fase 0 NO está hecha, pero está más que a medias.** Medido sobre el árbol
+integrado:
+
+| # | Ítem | Estado |
+|---|---|---|
+| 1a | `LlamaCpp.chat/3` | **stub**, `{:error, %Error{reason: :backend_unavailable}}` |
+| 1b | `LlamaCpp.chat_stream/3` | **stub**, idem |
+| 1c | `OpenAICompat.chat_stream/3` | **hecho**, cuerpo real con telemetria |
+| 1d | `OpenAICompat.embed/3` | hecho, pero **una request por texto**, no un batch |
+| 1e | borrar `build_chunk_stream/1` | **sigue vivo** (openai_compat.ex:246) |
+| 2 | **H1** | **NO hecho.** Los tres sitios que nombra el diseño mandan `[]` como cabeceras |
+| 3 | B5 `api_key` string plano | **hecho** (store.ex:142) |
+| 4 | B6 `Detector.safe_arch/0` | **mitad**: `trebejo` sí está declarado, pero sigue devolviendo `:unknown` en silencio |
+| 5 | B7 `EnginePool` sin LRU | **hecho**, en la Fase 2 de este mismo PR |
+| 6 | B8 checksum en streaming | **NO hecho** en `Installer.verify_checksum/2`, que sigue con `File.read/1` |
+
+### H1 en detalle, porque es la que bloquea todo lo demás
+
+La pieza que resuelve la clave existe, tiene sus tests, y **no está conectada
+a nada**:
+
+```
+lib/candil/engine.ex:166  base_url_and_headers/2   ← escrita y probada
+lib/candil/inference/chat.ex:20         HTTP.post_json(url, body, [], opts)          ← []
+lib/candil/inference/embeddings.ex:14   HTTP.post_json(url, body, [], [])            ← []
+lib/candil/stream.ex:58                 do_stream(url, body, [], ...)                 ← []
+```
+
+`test/candil/engine_auth_test.exs` tiene 0 referencias a `do_chat_local`,
+`do_embed_local` ni `Stream.chat`: prueba el **resolutor**, no el sitio donde
+el resolutor debería usarse. Es exactamente el patrón de la §4 de este
+documento — una línea plausible que no puede fallar en el test que la ejerce,
+porque el camino que falla no está en el test.
+
+Hasta que H1 no esté, **no se puede arrancar nada contra un `llama-server`
+protegido**, y por tanto la Fase 3 no tiene criterio de aceptación ejecutable.
+Es el primer trabajo que toca.
+
 ## 4. Lo que se rompió por el camino, y conviene no repetirlo
 
 Todo esto está en el CHANGELOG con su porqué, pero aquí la lista corta porque
