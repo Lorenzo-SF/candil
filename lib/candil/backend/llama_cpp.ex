@@ -2,14 +2,14 @@ defmodule Candil.Backend.LlamaCpp do
   @moduledoc """
   `Candil.Backend` implementation for local llama.cpp / llama-server.
 
-  Wraps `Candil.Llm.chat/3`, `Candil.Llm.stream/4`, and
-  `Candil.Embeddings.embed/3`. This backend is the default for
+  Wraps `Candil.chat/3`, `Candil.stream/4`, and
+  `Candil.Embeddings.embed/2`. This backend is the default for
   `provider: :local` and is auto-registered on first call.
   """
 
   @behaviour Candil.Backend
 
-  alias Candil.Embeddings
+  alias Candil.{Embeddings, Store}
 
   @impl true
   def chat(_model, _messages, _opts) do
@@ -34,6 +34,6 @@ defmodule Candil.Backend.LlamaCpp do
 
   @impl true
   def models do
-    Candil.Config.list_models()
+    Store.list_models()
   end
 end

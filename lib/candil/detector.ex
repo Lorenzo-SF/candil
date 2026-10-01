@@ -27,7 +27,7 @@ defmodule Candil.Detector do
       llama-b4561-bin-win-cuda-cu12.4.1-x64.zip
   """
 
-  alias Candil.Detector.{GPU, Models}
+  alias Candil.Detector.{GPU, Models, Release}
 
   @type gpu_backend :: :cuda | :rocm | :metal | :vulkan | :sycl | :cpu
   @type detection :: %{
@@ -59,12 +59,13 @@ defmodule Candil.Detector do
     }
   end
 
-  # Falls back to :unknown if Trebejo (optional dep) is not loaded.
-  # Trebejo is intentionally not a compile-time dep (see mix.exs);
-  # we look it up via apply/3 at runtime to keep the compiler happy.
+  # Trebejo is an optional dep, so it may be absent at runtime even though the
+  # compiler knows about it. Guard, then call directly — apply/3 here was only
+  # there to silence the compiler and hid the fact that a missing Trebejo
+  # silently degraded to :unknown instead of saying so.
   defp safe_arch do
     if Code.ensure_loaded?(Trebejo.OS) and function_exported?(Trebejo.OS, :arch, 0) do
-      apply(Trebejo.OS, :arch, [])
+      Trebejo.OS.arch()
     else
       :unknown
     end
@@ -75,7 +76,7 @@ defmodule Candil.Detector do
   if the API is unreachable.
   """
   @spec latest_release_tag() :: {:ok, binary()} | {:error, any()}
-  defdelegate latest_release_tag(), to: Candil.Detector.Release
+  defdelegate latest_release_tag(), to: Release
 
   @doc """
   Returns the download URL for the best-matching asset in the given release,
@@ -84,8 +85,8 @@ defmodule Candil.Detector do
   Pass `:latest` as `version` to resolve the latest release automatically.
   """
   @spec asset_url(:latest | binary()) :: {:ok, binary()} | {:error, any()}
-  def asset_url(:latest), do: Candil.Detector.Release.asset_url(:latest)
-  def asset_url(tag), do: Candil.Detector.Release.asset_url(tag)
+  def asset_url(:latest), do: Release.asset_url(:latest)
+  def asset_url(tag), do: Release.asset_url(tag)
 
   @doc """
   Returns the GPU backend detected on the current machine.

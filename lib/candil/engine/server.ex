@@ -106,7 +106,7 @@ defmodule Candil.Engine.Server do
     :ok
   end
 
-  defp build_args(%Engine{start_args: engine_args, host: host, port: port}, model) do
+  defp build_args(%Engine{start_args: engine_args, host: host, port: port} = engine, model) do
     if String.contains?(model.model_dir, "..") or String.contains?(model.filename, "..") do
       raise ArgumentError, "model path must not contain path traversal (..)"
     end
@@ -114,18 +114,33 @@ defmodule Candil.Engine.Server do
     model_path = Path.join(model.model_dir, model.filename)
     context = to_string(model.context_size || 4096)
 
-    base = [
-      "--model",
-      model_path,
-      "--ctx-size",
-      context,
-      "--host",
-      host,
-      "--port",
-      to_string(port)
-    ]
+    base =
+      [
+        "--model",
+        model_path,
+        "--ctx-size",
+        context,
+        "--host",
+        host,
+        "--port",
+        to_string(port),
+        "--alias",
+        to_string(model.alias)
+      ] ++ api_key_args(engine)
 
     base ++ model_args(model) ++ engine_args
+  end
+
+  # `--api-key` is only added when the engine configures one, so a server
+  # started without it behaves exactly as before. The flag has to be on the
+  # command line and not only in the request headers: a server started with
+  # it answers 401 to anything that does not send a matching bearer, and
+  # Candil is not the only thing that may need to talk to it.
+  defp api_key_args(%Engine{} = engine) do
+    case Engine.api_key(engine) do
+      nil -> []
+      key -> ["--api-key", key]
+    end
   end
 
   defp model_args(%{model_args: args}) when is_list(args), do: args

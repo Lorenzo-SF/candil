@@ -76,7 +76,9 @@ defmodule Candil.Agent do
     cancel_ref = Keyword.get(opts, :cancel_ref)
 
     conversation = Conversation.new(model: model, system: config[:goal])
-    conversation = if input, do: Conversation.add_message(conversation, "user", input), else: conversation
+
+    conversation =
+      if input, do: Conversation.add_message(conversation, "user", input), else: conversation
 
     trace = loop(conversation, config, backend, model, max_steps, cancel_ref, [])
     finalize(trace)
@@ -95,9 +97,18 @@ defmodule Candil.Agent do
     Keyword.get(opts, :model) || config[:model] || "default"
   end
 
-  @spec loop(Conversation.t(), map(), module() | nil, String.t() | atom(), non_neg_integer(), reference() | nil, trace()) ::
+  @spec loop(
+          Conversation.t(),
+          map(),
+          module() | nil,
+          String.t() | atom(),
+          non_neg_integer(),
+          reference() | nil,
           trace()
-  defp loop(_conv, _cfg, _backend, _model, 0, _ref, trace), do: trace ++ [%{kind: :final, content: :max_steps_exhausted}]
+        ) ::
+          trace()
+  defp loop(_conv, _cfg, _backend, _model, 0, _ref, trace),
+    do: trace ++ [%{kind: :final, content: :max_steps_exhausted}]
 
   defp loop(conv, cfg, backend, model, steps_left, cancel_ref, trace) do
     if cancel_ref && Cancellation.cancelled?(cancel_ref) do
@@ -109,34 +120,47 @@ defmodule Candil.Agent do
 
       case backend.chat(model, messages, tools: prompt_schemas) do
         {:ok, %{content: content}} ->
-          cond do
-            stop_word_reached?(content, cfg) ->
-              trace ++ [%{kind: :final, content: extract_final(content, cfg)}]
-
-            true ->
-              case Tools.parse_tool_calls(content) do
-                {:ok, calls} ->
-                  trace = trace ++ [%{kind: :thought, content: content}]
-                  {observations, new_conv} = invoke_tools(calls, conv)
-
-                  trace =
-                    trace ++
-                      Enum.map(observations, fn {name, result} ->
-                        %{kind: :action, content: %{name: name, result: result}}
-                      end)
-
-                  loop(new_conv, cfg, backend, model, steps_left - 1, cancel_ref, trace)
-
-                {:error, _} ->
-                  # No tool calls and no stop word — treat the content
-                  # as the final answer.
-                  trace ++ [%{kind: :final, content: content}]
-              end
+          if stop_word_reached?(content, cfg) do
+            trace ++ [%{kind: :final, content: extract_final(content, cfg)}]
+          else
+            continue_or_finish(content, conv, cfg, backend, model, steps_left, cancel_ref, trace)
           end
 
         {:error, _} = err ->
           trace ++ [%{kind: :final, content: {:error, err}}]
       end
+    end
+  end
+
+  # Extracted from `loop/7` so the ReAct branch is one level of nesting instead
+  # of three. The loop itself reads: cancel? stop-word? otherwise continue.
+  @spec continue_or_finish(
+          String.t(),
+          Conversation.t(),
+          map(),
+          module(),
+          String.t() | atom(),
+          integer(),
+          reference() | nil,
+          trace()
+        ) :: trace()
+  defp continue_or_finish(content, conv, cfg, backend, model, steps_left, cancel_ref, trace) do
+    case Tools.parse_tool_calls(content) do
+      {:ok, calls} ->
+        trace = trace ++ [%{kind: :thought, content: content}]
+        {observations, new_conv} = invoke_tools(calls, conv)
+
+        actions =
+          Enum.map(observations, fn {name, result} ->
+            %{kind: :action, content: %{name: name, result: result}}
+          end)
+
+        loop(new_conv, cfg, backend, model, steps_left - 1, cancel_ref, trace ++ actions)
+
+      {:error, _} ->
+        # No tool calls and no stop word — treat the content
+        # as the final answer.
+        trace ++ [%{kind: :final, content: content}]
     end
   end
 

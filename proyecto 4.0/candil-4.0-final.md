@@ -8,8 +8,13 @@
 > No hay nada fuera de aquí que haya que leer para ejecutar el plan. Si algo no
 > está en este documento, no está decidido.
 >
-> **Fecha**: 2026-10-01 · **Estado**: decisiones cerradas · **Decide**: Lorenzo
-> **Ejecuta**: por asignar
+> **Fecha**: 2026-10-01 · **Decide**: Lorenzo · **Estado**: Fases -0 y -1 cerradas
+>
+> **IMPLEMENTACIÓN EN CURSO.** Este documento pasó de ser un plan a ser la
+> fuente de la verdad de un proyecto con código. Lo que ya está construido y
+> verificado, y lo que toca a continuación, está en
+> [`HANDOFF.md`](HANDOFF.md), junto a este archivo. Léelo primero si vas a
+> retomar el trabajo: tiene el estado real, medido, no el previsto.
 >
 > **Base**: `version 1.md`, `version 2.md`, `version 3.md` + lectura íntegra de
 > los snapshots del código real de `candil` 3.0.0, `ropero`, `elpaso`,
@@ -31,6 +36,11 @@
 8. [El modelo provider/engine/model](#8-el-modelo-providerenginemodel) · 9. [Capas y ficheros](#9-capas-y-ficheros) · 10. [Config TOML](#10-config-toml) · 11. [Puertos, instancias y supervivencia](#11-puertos-instancias-y-supervivencia-del-proceso) · 12. [Source](#12-candilsource--descargar-sin-el-cli-hf) · 13. [Build](#13-candilbuild--las-dos-estrategias-de-instalación) · 14. [Módulos: API](#14-módulos-nuevos--especificación-de-api) · 15. [H1: autenticación local](#15-h1--autenticación-en-la-ruta-local) · 16. [CLI](#16-cli) · 17. [Doctor](#17-candildoctor) · 18. [Context compartido](#18-context-compartido) · 19. [Router](#19-router) · 20. [Gateway](#20-gateway-openai-compatible) · 21. [MCP](#21-mcp) · 22. [RAG](#22-rag)
 
 **Parte IV — Plan** (§23) · 12 fases, criterios de aceptación
+
+**Apéndices** — A: el `candil.toml` de ropero · B: el bug de posadero ·
+C: qué corrige este documento · D: reglas duras · E: preguntas abiertas
+
+> **Estado de la ejecución**: las fases -0 y -1 están cerradas y verificadas. La fase 0 (los 8 bugs y H1) es la siguiente, y su detalle está en `HANDOFF.md`.
 
 **Apéndices** — A: el `candil.toml` de ropero · B: el bug de posadero ·
 C: qué corrige este documento · D: reglas duras · E: preguntas abiertas

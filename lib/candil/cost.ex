@@ -15,6 +15,8 @@ defmodule Candil.Cost do
       :unknown
   """
 
+  alias Candil.Telemetry
+
   # Pricing table — USD per 1M tokens, format: {input_per_1m, output_per_1m}
   @pricing %{
     # OpenAI
@@ -85,11 +87,11 @@ defmodule Candil.Cost do
       true ->
         case estimate(model, input_tokens, output_tokens) do
           {:ok, cost} ->
-            Candil.Telemetry.emit_cost(provider, model, input_tokens, output_tokens, cost)
+            Telemetry.emit_cost(provider, model, input_tokens, output_tokens, cost)
             {:ok, cost}
 
           :unknown ->
-            Candil.Telemetry.emit_cost(provider, model, input_tokens, output_tokens, 0.0)
+            Telemetry.emit_cost(provider, model, input_tokens, output_tokens, 0.0)
             :unknown
         end
     end

@@ -4,7 +4,7 @@ defmodule Candil.Embeddings do
 
   Provides a unified `embed/2` that dispatches to the correct provider
   (ollama, local llama.cpp, OpenAI-compatible API). Used as a lower-level
-  embedding backend independent from `Candil.Llm` — this module accepts
+  embedding backend independent from the `Candil` facade — this module accepts
   raw provider parameters (URL, model, api_key) rather than Candil structs.
 
   All HTTP requests are routed through `Candil.HTTP.post_json/4` which

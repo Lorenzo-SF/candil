@@ -1,7 +1,7 @@
 defmodule Candil.Inference.Chat do
   @moduledoc false
 
-  alias Candil.{Config, Engine, Error, HTTP, Model, Provider, RequestBuilder}
+  alias Candil.{Engine, Error, HTTP, Model, Provider, RequestBuilder, Store}
 
   def do_chat_local(model_alias, messages, opts) do
     start = System.monotonic_time()
@@ -183,7 +183,7 @@ defmodule Candil.Inference.Chat do
   end
 
   defp validate_context(model_alias, messages, opts) when is_atom(model_alias) do
-    case Config.get_model(model_alias) do
+    case Store.get_model(model_alias) do
       {:ok, model} -> validate_context(model, messages, opts)
       {:error, _} -> :ok
     end

@@ -6,7 +6,7 @@ defmodule Candil.ConfigManager do
   JSON files, environment variables, or application env. Used by
   diagnostics tools to validate provider settings before probing.
 
-  This is complementary to `Candil.Config` — while `Candil.Config` stores
+  This is complementary to `Candil.Store` — while `Candil.Store` stores
   structured engine/model/provider definitions in ETS, `Candil.ConfigManager`
   handles raw map-based config validation and normalization for ad-hoc
   provider connections.

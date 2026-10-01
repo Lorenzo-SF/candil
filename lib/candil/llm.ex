@@ -5,16 +5,18 @@ defmodule Candil.Llm do
   # implementation. The original moduledoc (concepts, lifecycle examples) is
   # preserved in `docs/candil_llm.md` for reference.
 
-  alias Candil.{Config, Engine, Inference, Installer, Model, Provider, Stream}
+  alias Candil.{Engine, Inference, Installer, Model, Provider, Store, Stream}
 
   @doc """
   Downloads the appropriate precompiled llama.cpp binary for this engine.
 
   Detects the current OS, architecture and GPU automatically. Does nothing
-  if `use_precompiled` is `false`.
+  when the engine declares no `:install` plan, or a plan with
+  `strategy: :none`, because then the binary is expected to already be there.
   """
   @spec download_engine(Engine.t()) :: :ok | {:error, binary()}
-  def download_engine(%Engine{use_precompiled: false}), do: :ok
+  def download_engine(%Engine{install: nil}), do: :ok
+  def download_engine(%Engine{install: %{strategy: :none}}), do: :ok
 
   def download_engine(%Engine{} = engine) do
     Installer.download_engine(engine)
@@ -47,8 +49,8 @@ defmodule Candil.Llm do
   # Convenience: start engine by alias + model alias
   def start_engine(engine_alias, model_alias)
       when is_atom(engine_alias) and is_atom(model_alias) do
-    with {:ok, engine} <- Config.get_engine(engine_alias),
-         {:ok, model} <- Config.get_model(model_alias) do
+    with {:ok, engine} <- Store.get_engine(engine_alias),
+         {:ok, model} <- Store.get_model(model_alias) do
       Engine.start(engine, model)
     end
   end

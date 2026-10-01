@@ -2,9 +2,13 @@ defmodule Candil.Application do
   @moduledoc """
   OTP application for `Candil`.
 
-  Starts the ETS-based configuration registry (`Candil.Config`) and
-  the dynamic supervisor that manages llama-server engines started
-  via `Candil.start_engine/2`.
+  Starts the ETS-based catalogue (`Candil.Store`), the shared conversation
+  store (`Candil.Context`), and the dynamic supervisor that manages
+  llama-server engines started via `Candil.start_engine/2`.
+
+  `Candil.Store` comes before `Candil.Context` because the other children
+  read its tables, and a supervision order that gets this backwards produces
+  a table that is sometimes there.
 
   Note: `Arrea.Application` is NOT listed here because `Arrea` is a direct
   dependency of Candil (`mix.exs` → `{:arrea, "~> 2.1.0"}`) and its
@@ -22,7 +26,12 @@ defmodule Candil.Application do
   def start(_type, _args) do
     children = [
       {Registry, keys: :unique, name: Candil.Registry},
-      Candil.Config,
+      # Store first: it owns the catalogue tables that the others read.
+      Candil.Store,
+      Candil.Context,
+      Candil.Context.PrefixManager,
+      Candil.Router.Cache,
+      Candil.Router.Consumer,
       Candil.Cancellation,
       Candil.Tool,
       Candil.EnginePool,

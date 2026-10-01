@@ -28,7 +28,7 @@ defmodule Candil.Inference do
 
   """
 
-  alias Candil.{Config, Error, Model, Provider}
+  alias Candil.{Error, Model, Provider, Store}
 
   alias Candil.Inference.{Chat, Embeddings}
 
@@ -66,7 +66,7 @@ defmodule Candil.Inference do
   """
   @spec chat_local(atom(), [message()], keyword()) :: {:ok, response()} | {:error, Error.t()}
   def chat_local(model_alias, messages, opts \\ []) do
-    with {:ok, model} <- Config.get_model(model_alias),
+    with {:ok, model} <- Store.get_model(model_alias),
          false <- model.type == :remote,
          true <- :chat in model.usage || :completion in model.usage do
       Chat.do_chat_local(model_alias, messages, opts)
@@ -105,7 +105,7 @@ defmodule Candil.Inference do
   @spec embed_local(atom(), [binary()], keyword()) ::
           {:ok, embed_response()} | {:error, Error.t()}
   def embed_local(model_alias, texts, _opts \\ []) do
-    with {:ok, model} <- Config.get_model(model_alias),
+    with {:ok, model} <- Store.get_model(model_alias),
          false <- model.type == :remote,
          true <- :embeddings in model.usage do
       Embeddings.do_embed_local(model_alias, texts)

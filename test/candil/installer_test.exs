@@ -15,16 +15,39 @@ defmodule Candil.InstallerTest do
       assert Installer.download_model(model) == {:ok, "gpt4o"}
     end
 
-    test "returns error when model has no download_url" do
+    test "returns error when model has no source" do
       model = %Model{
         alias: :test_model,
         type: :local,
         model_dir: "/models",
         filename: "test.gguf",
-        download_url: nil
+        source: nil
       }
 
-      assert Installer.download_model(model) == {:error, "download_url is not set on this model"}
+      assert Installer.download_model(model) == {:error, "source is not set on this model"}
+    end
+
+    test "returns error when the source resolves to no destination" do
+      model = %Model{
+        alias: :test_model,
+        type: :local,
+        engine: :llama_server,
+        source: %Candil.Source{kind: :huggingface, repo: "u/r", file: "m.gguf"}
+      }
+
+      assert Installer.download_model(model) ==
+               {:error, "model source does not resolve to a destination path"}
+    end
+
+    test "a local source is already where it is" do
+      model = %Model{
+        alias: :test_model,
+        type: :local,
+        engine: :llama_server,
+        source: %Candil.Source{kind: :local, path: "/models/test.gguf"}
+      }
+
+      assert Installer.download_model(model) == {:ok, "/models/test.gguf"}
     end
 
     test "returns ok if file already exists" do
@@ -38,7 +61,12 @@ defmodule Candil.InstallerTest do
         type: :local,
         model_dir: tmp_dir,
         filename: Path.basename(model_path),
-        download_url: "https://example.com/test_model.gguf"
+        source: %Candil.Source{
+          kind: :url,
+          url: "https://example.com/test_model.gguf",
+          dest: tmp_dir,
+          dest_name: Path.basename(model_path)
+        }
       }
 
       on_exit(fn ->
@@ -57,7 +85,12 @@ defmodule Candil.InstallerTest do
         type: :local,
         model_dir: tmp_dir,
         filename: "test.gguf",
-        download_url: "https://example.com/test.gguf"
+        source: %Candil.Source{
+          kind: :url,
+          url: "https://example.com/test.gguf",
+          dest: tmp_dir,
+          dest_name: "test.gguf"
+        }
       }
 
       # File.exists?(dest) returns false, so it will try to create dir and download

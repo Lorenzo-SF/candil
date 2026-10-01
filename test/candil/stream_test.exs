@@ -2,8 +2,8 @@ defmodule Candil.StreamTest do
   use ExUnit.Case, async: true
   import Mox
 
-  alias Candil.{Error, HTTPAdapterMock, Model, Provider, Stream}
   alias Apero.Http.Request
+  alias Candil.{Error, HTTPAdapterMock, Model, Provider, Stream}
 
   setup :verify_on_exit!
 
@@ -38,7 +38,12 @@ defmodule Candil.StreamTest do
     end
 
     defp ollama_provider do
-      %Provider{alias: :ollama_test, type: :ollama, base_url: "http://127.0.0.1:11434", headers: []}
+      %Provider{
+        alias: :ollama_test,
+        type: :ollama,
+        base_url: "http://127.0.0.1:11434",
+        headers: []
+      }
     end
 
     defp anthropic_provider do
@@ -62,7 +67,8 @@ defmodule Candil.StreamTest do
                  openai_provider(),
                  [%{role: "user", content: "hi"}],
                  callback,
-                 timeout_ms: 500, receive_timeout_ms: 100
+                 timeout_ms: 500,
+                 receive_timeout_ms: 100
                )
     end
 
@@ -77,7 +83,8 @@ defmodule Candil.StreamTest do
                  ollama_provider(),
                  [%{role: "user", content: "hi"}],
                  callback,
-                 timeout_ms: 500, receive_timeout_ms: 100
+                 timeout_ms: 500,
+                 receive_timeout_ms: 100
                )
     end
 
@@ -92,7 +99,8 @@ defmodule Candil.StreamTest do
                  anthropic_provider(),
                  [%{role: "user", content: "hi"}],
                  callback,
-                 timeout_ms: 500, receive_timeout_ms: 100
+                 timeout_ms: 500,
+                 receive_timeout_ms: 100
                )
     end
   end

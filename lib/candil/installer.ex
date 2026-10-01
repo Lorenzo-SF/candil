@@ -15,7 +15,7 @@ defmodule Candil.Installer do
   """
 
   alias Apero.Http
-  alias Candil.{Detector, Engine, Model}
+  alias Candil.{Detector, Engine, Error, Model, Source}
 
   @doc """
   Downloads and installs the appropriate llama.cpp precompiled binary for the
@@ -49,29 +49,37 @@ defmodule Candil.Installer do
   end
 
   @doc """
-  Downloads a GGUF model file from `model.download_url` to
-  `model.model_dir/model.filename`.
+  Downloads the model file described by `model.source` to its destination.
 
   Returns `{:ok, dest_path}` on success. Returns immediately without
   downloading if the file already exists.
+
+  The actual transfer is `Candil.Source.fetch/2`'s job — this function only
+  decides whether it is needed and reports where the file will land. It
+  deliberately does not inspect the result of `fetch/2`: until the fetch phase
+  lands, that call cannot succeed, and branching on a success that cannot
+  happen is how a stub quietly becomes load-bearing.
   """
-  @spec download_model(Model.t()) :: {:ok, binary()} | {:error, binary()}
+  @spec download_model(Model.t()) :: {:ok, binary()} | {:error, binary()} | {:error, Error.t()}
   def download_model(%Model{type: :remote} = model) do
     {:ok, to_string(model.alias)}
   end
 
-  def download_model(%Model{download_url: nil}) do
-    {:error, "download_url is not set on this model"}
+  def download_model(%Model{source: nil}) do
+    {:error, "source is not set on this model"}
   end
 
-  def download_model(%Model{checksum_sha256: checksum} = model) do
-    dest = Model.file_path(model)
+  def download_model(%Model{source: %Source{kind: :local}} = model) do
+    {:ok, Model.file_path(model) || to_string(model.alias)}
+  end
 
-    if File.exists?(dest) do
-      {:ok, dest}
-    else
-      :ok = File.mkdir_p(model.model_dir)
-      stream_download(model.download_url, dest, checksum)
+  def download_model(%Model{} = model) do
+    case Model.file_path(model) do
+      nil ->
+        {:error, "model source does not resolve to a destination path"}
+
+      dest ->
+        if File.exists?(dest), do: {:ok, dest}, else: Source.fetch(model.source)
     end
   end
 

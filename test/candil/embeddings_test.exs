@@ -60,7 +60,10 @@ defmodule Candil.EmbeddingsTest do
 
   test "embed_batch/2 with batch_size option uses it" do
     texts = Enum.map(1..100, fn i -> "text #{i}" end)
-    result = Embeddings.embed_batch(texts, url: "http://192.0.2.1:1", batch_size: 10, timeout_ms: 100)
+
+    result =
+      Embeddings.embed_batch(texts, url: "http://192.0.2.1:1", batch_size: 10, timeout_ms: 100)
+
     assert match?({:error, _}, result)
   end
 
@@ -69,7 +72,13 @@ defmodule Candil.EmbeddingsTest do
   end
 
   test "embed_batch/2 ollama provider returns error for unreachable host" do
-    result = Embeddings.embed_batch(["a", "b"], provider: "ollama", url: "http://192.0.2.1:1", timeout_ms: 100)
+    result =
+      Embeddings.embed_batch(["a", "b"],
+        provider: "ollama",
+        url: "http://192.0.2.1:1",
+        timeout_ms: 100
+      )
+
     assert match?({:error, _}, result)
   end
 end

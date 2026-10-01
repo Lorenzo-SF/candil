@@ -36,9 +36,9 @@ defmodule Candil.EngineTest do
       assert Engine.binary_dir(engine) == "/custom/path"
     end
 
-    test "falls back to ~/.apero/llm/bin when binary_dir is nil" do
+    test "falls back to ~/.candil/llm/bin when binary_dir is nil" do
       engine = %Engine{alias: :test, binary_dir: nil}
-      expected = Path.join([System.user_home!(), ".apero", "llm", "bin"])
+      expected = Path.join([System.user_home!(), ".candil", "llm", "bin"])
       assert Engine.binary_dir(engine) == expected
     end
   end
@@ -112,10 +112,10 @@ defmodule Candil.EngineTest do
 
       engine = %Engine{
         alias: :launcher_test,
-        # Binary does not exist AND use_precompiled is false — would
+        # Binary does not exist AND there is no install plan — would
         # normally return an error. The launcher branch must short-circuit.
         binary_dir: "/nonexistent",
-        use_precompiled: false,
+        install: nil,
         host: "127.0.0.1",
         port: 65_535,
         launcher: Candil.EngineTest.NoopLauncher
@@ -141,7 +141,7 @@ defmodule Candil.EngineTest do
       engine = %Engine{
         alias: :failing_launcher_test,
         binary_dir: "/nonexistent",
-        use_precompiled: false,
+        install: nil,
         launcher: Candil.EngineTest.FailingLauncher
       }
 

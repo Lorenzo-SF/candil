@@ -1,11 +1,15 @@
 # The directory Mix will write compiled artifacts to.
-/_build/
+# No trailing slash on purpose: a trailing slash only matches directories, so
+# a symlinked _build (a common setup for Docker layers and shared build caches)
+# would slip through and get committed.
+_build
 
 # If you run "mix test --cover", coverage assets end up here.
 /cover/
 
 # The directory Mix downloads your dependencies sources to.
-/deps/
+# Same reason as above: covers the symlink case too.
+deps
 
 # Where third-party dependencies like ExDoc output generated docs.
 /doc/

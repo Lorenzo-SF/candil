@@ -10,13 +10,13 @@ defmodule Candil.Backend.OpenAICompat do
     * `provider: :ollama` (Ollama's `/v1/chat/completions` endpoint)
     * `provider: :azure` (Azure OpenAI Service)
 
-  Auth tokens and base URLs come from `Candil.Config` per provider.
+  Auth tokens and base URLs come from `Candil.Store` per provider.
   This module is auto-registered for those providers on first lookup.
   """
 
   @behaviour Candil.Backend
 
-  alias Candil.{Config, Error, HTTP, Model, Provider, Telemetry}
+  alias Candil.{Error, HTTP, Model, Provider, Store, Telemetry}
 
   @default_base_urls %{
     openai: "https://api.openai.com",
@@ -80,7 +80,14 @@ defmodule Candil.Backend.OpenAICompat do
             {:ok, build_chunk_stream(body)}
 
           {:error, reason} ->
-            Telemetry.emit_error(request_id, :stream, System.monotonic_time() - started, :http, %{})
+            Telemetry.emit_error(
+              request_id,
+              :stream,
+              System.monotonic_time() - started,
+              :http,
+              %{}
+            )
+
             {:error, reason}
         end
 
@@ -100,11 +107,12 @@ defmodule Candil.Backend.OpenAICompat do
             body = %{model: model_id(model), input: text}
             headers = auth_headers(token)
 
-        case HTTP.post_json(url, body, headers,
-               timeout_ms: opts[:timeout_ms] || 60_000,
-               retry: Keyword.get(opts, :retry, true)
-             ) do
-              {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vec}]}}} when is_list(vec) ->
+            case HTTP.post_json(url, body, headers,
+                   timeout_ms: opts[:timeout_ms] || 60_000,
+                   retry: Keyword.get(opts, :retry, true)
+                 ) do
+              {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vec}]}}}
+              when is_list(vec) ->
                 {:ok, vec}
 
               {:ok, %{status: status, body: body}} ->
@@ -175,7 +183,7 @@ defmodule Candil.Backend.OpenAICompat do
   end
 
   defp provider_token(provider) do
-    case Config.get_provider(provider) do
+    case Store.get_provider(provider) do
       {:ok, %Provider{api_key: key}} when is_binary(key) -> key
       _ -> nil
     end
@@ -183,7 +191,9 @@ defmodule Candil.Backend.OpenAICompat do
 
   @spec auth_headers(String.t() | nil) :: [{String.t(), String.t()}]
   defp auth_headers(nil), do: [{"Content-Type", "application/json"}]
-  defp auth_headers(token), do: [{"Content-Type", "application/json"}, {"Authorization", "Bearer #{token}"}]
+
+  defp auth_headers(token),
+    do: [{"Content-Type", "application/json"}, {"Authorization", "Bearer #{token}"}]
 
   @spec provider_of(String.t() | Model.t()) :: atom()
   defp provider_of(%Model{provider: provider}), do: provider
@@ -230,7 +240,8 @@ defmodule Candil.Backend.OpenAICompat do
      }}
   end
 
-  defp parse_chat_response(other), do: {:error, Error.invalid_request("unexpected response: #{inspect(other)}")}
+  defp parse_chat_response(other),
+    do: {:error, Error.invalid_request("unexpected response: #{inspect(other)}")}
 
   @spec build_chunk_stream(map()) :: Enumerable.t()
   defp build_chunk_stream(_body) do

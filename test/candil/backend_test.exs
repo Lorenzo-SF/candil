@@ -89,7 +89,11 @@ defmodule Candil.BackendTest do
         @behaviour Candil.Backend
 
         @impl true
-        def chat(_, _, _), do: {:ok, %{content: "hi", finish_reason: nil, usage: %{input_tokens: 0, output_tokens: 0}}}
+        def chat(_, _, _),
+          do:
+            {:ok,
+             %{content: "hi", finish_reason: nil, usage: %{input_tokens: 0, output_tokens: 0}}}
+
         @impl true
         def chat_stream(_, _, _), do: {:ok, []}
         @impl true

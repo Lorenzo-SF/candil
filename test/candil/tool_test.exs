@@ -2,6 +2,7 @@ defmodule Candil.ToolTest do
   use ExUnit.Case, async: false
 
   alias Candil.Tool
+  alias Candil.Tools
 
   setup do
     start_supervised(Tool)
@@ -76,12 +77,16 @@ defmodule Candil.ToolTest do
         %Candil.Tool{
           name: "get_weather",
           description: "Get the current weather",
-          schema: %{"type" => "object", "properties" => %{"city" => %{"type" => "string"}}, "required" => ["city"]},
+          schema: %{
+            "type" => "object",
+            "properties" => %{"city" => %{"type" => "string"}},
+            "required" => ["city"]
+          },
           function: fn _ -> :ok end
         }
       ]
 
-      assert [schema] = Candil.Tools.schemas_to_prompt(tools)
+      assert [schema] = Tools.schemas_to_prompt(tools)
       assert schema["type"] == "function"
       assert schema["function"]["name"] == "get_weather"
       assert schema["function"]["description"] == "Get the current weather"
