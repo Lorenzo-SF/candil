@@ -35,7 +35,7 @@ cuerpo.**
 ---
 
 > **ESTADO: CERRADA.** La Fase -1 se ejecutó en ocho rebanadas y está
-> verificada: 519 tests, 8 de 8 gates en verde, 63.1 % de cobertura. Este
+> verificada: 515 tests y 24 doctests, 8 de 8 gates en verde, 63.1 % de cobertura. Este
 > apartado se conserva como descripción de lo que se hizo y de por qué; el
 > estado actual está en [`HANDOFF.md`](HANDOFF.md).
 >
