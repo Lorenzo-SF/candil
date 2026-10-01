@@ -99,6 +99,20 @@ límite está escrito en el código: un `kill -9` a la VM entera no deja ningún
 proceso BEAM vivo que pueda matar nada. Y `spawn_executable` **no** busca en el
 `PATH`: `git` salía como `:enoent` en una máquina que tiene git.
 
+**4.1, verificado además contra un cmake de verdad.** La suite usa un doble
+de cmake, que es lo que le permite comprobar el argv exacto que recibió un
+proceso y nada más. `test/candil/build/source_real_test.exs` cubre el hueco
+que un doble no cubre: cmake 3.25.1 y ninja 1.11.1 de verdad, `git clone`
+real, los dos generadores, los binarios compilados **y ejecutados**, y el error
+de un compilador real llegando por su stderr. Sin cmake en el PATH lo dice en
+vez de pasar en silencio. Cinco tests, dos segundos.
+
+Descubierto al escribirlo, y ahora en el moduledoc: **cmake cachea su
+configuración en `build_dir`**, así que volver a lanzar `install/2` ahí con
+otros `cmake_args` no los aplica. Es comportamiento de cmake, y borrar un
+directorio de build en silencio es justo cómo se pierden veinte minutos de
+compilación, así que está documentado en vez de disimulado.
+
 `install/2` **no** delega en `Candil.Installer.download_engine/1`, y es una
 decisión: el installer escribe en `engine.binary_dir` y no en el `dir` del
 plan, no lee `sha256`, no tiene reanudación por `Range`, ni `.part`, ni rename,
