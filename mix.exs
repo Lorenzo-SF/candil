@@ -72,6 +72,7 @@ defmodule Candil.MixProject do
       # depends on a diagnostics library being present.
       {:botica, github: "Lorenzo-SF/botica", branch: "main", optional: true, override: true},
       {:jason, "~> 1.4"},
+      {:toml, "~> 0.7"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, ">= 1.0.0", only: [:dev, :test], runtime: false},
@@ -90,7 +91,14 @@ defmodule Candil.MixProject do
       extras: ["README.md", "LICENSE.md"],
       groups_for_modules: [
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],
-        Config: [Candil.Config, Candil.ConfigManager, Candil.Model, Candil.Provider],
+        Store: [
+          Candil.Store,
+          Candil.ConfigManager,
+          Candil.Model,
+          Candil.Provider,
+          Candil.Source,
+          Candil.Build
+        ],
         Diagnostics: [Candil.Health, Candil.Embeddings],
         Conversation: [
           Candil.Conversation,

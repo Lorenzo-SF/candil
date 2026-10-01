@@ -1,4 +1,4 @@
-defmodule Candil.ConfigManager do
+defmodule Candil.StoreManager do
   @moduledoc """
   Reads, validates, and normalizes LLM/embedding provider configuration.
 
@@ -6,8 +6,8 @@ defmodule Candil.ConfigManager do
   JSON files, environment variables, or application env. Used by
   diagnostics tools to validate provider settings before probing.
 
-  This is complementary to `Candil.Config` — while `Candil.Config` stores
-  structured engine/model/provider definitions in ETS, `Candil.ConfigManager`
+  This is complementary to `Candil.Store` — while `Candil.Store` stores
+  structured engine/model/provider definitions in ETS, `Candil.StoreManager`
   handles raw map-based config validation and normalization for ad-hoc
   provider connections.
   """

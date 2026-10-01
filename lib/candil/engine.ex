@@ -32,6 +32,7 @@ defmodule Candil.Engine do
 
   @type alias :: atom()
 
+  alias Candil.Build
   alias Candil.Engine.Server
   alias Candil.{EnginePool, Installer}
 
@@ -74,6 +75,31 @@ defmodule Candil.Engine do
           start_args: [binary()],
           launcher: module() | nil
         }
+
+  @doc """
+  Validates an engine struct. Returns `:ok` or `{:error, [reasons]}`.
+
+  Called by `Candil.Store.register_engine/1` before the entry is written, so
+  an engine that could never start is rejected at registration rather than at
+  the first `Candil.Engine.start/2`.
+  """
+  @spec validate(t()) :: :ok | {:error, [binary()]}
+  def validate(%__MODULE__{} = engine) do
+    errors =
+      []
+      |> validate_install(engine)
+
+    if errors == [], do: :ok, else: {:error, Enum.reverse(errors)}
+  end
+
+  defp validate_install(errors, %__MODULE__{install: nil}), do: errors
+
+  defp validate_install(errors, %__MODULE__{install: install}) do
+    case Build.validate(install) do
+      [] -> errors
+      problems -> Enum.reverse(problems) ++ errors
+    end
+  end
 
   @doc """
   Resolves the engine's API key to a plain string.

@@ -1,4 +1,4 @@
-defmodule Candil.Config do
+defmodule Candil.Store do
   @moduledoc """
   Engine and model registry for the `Candil` public API.
 
@@ -8,7 +8,7 @@ defmodule Candil.Config do
 
   ## Application config
 
-      config :candil, Candil.Config,
+      config :candil, Candil.Store,
         engines: [
           %{
             alias: :llama_server,
@@ -49,9 +49,9 @@ defmodule Candil.Config do
 
   ## Programmatic registration
 
-      Candil.Config.register_engine(%Candil.Engine{alias: :llama_server, ...})
-      Candil.Config.register_model(%Candil.Model{alias: :llama3, ...})
-      Candil.Config.register_provider(%Candil.Provider{alias: :openai, ...})
+      Candil.Store.register_engine(%Candil.Engine{alias: :llama_server, ...})
+      Candil.Store.register_model(%Candil.Model{alias: :llama3, ...})
+      Candil.Store.register_provider(%Candil.Provider{alias: :openai, ...})
 
   Values for `:api_key` can be:
 
@@ -77,23 +77,40 @@ defmodule Candil.Config do
   @doc """
   Registers an engine definition.
 
-  Overwrites any existing entry with the same alias.
+  Overwrites any existing entry with the same alias. The engine is validated
+  first, so an invalid one is rejected at the door rather than at the first
+  inference attempt three layers down.
   """
-  @spec register_engine(Engine.t()) :: :ok
+  @spec register_engine(Engine.t()) :: :ok | {:error, [binary()]}
   def register_engine(%Engine{alias: a} = engine) when is_atom(a) do
-    :ets.insert(@table_engines, {a, engine})
-    :ok
+    case Engine.validate(engine) do
+      :ok ->
+        :ets.insert(@table_engines, {a, engine})
+        :ok
+
+      {:error, reasons} ->
+        {:error, reasons}
+    end
   end
 
   @doc """
   Registers a model definition.
 
-  Overwrites any existing entry with the same alias.
+  Overwrites any existing entry with the same alias. Validation happens here,
+  not later: `Candil.Model.validate/1` existed for the whole 3.x line and was
+  never called by anything, so every malformed model was accepted and only
+  discovered when the engine refused to start.
   """
-  @spec register_model(Model.t()) :: :ok
+  @spec register_model(Model.t()) :: :ok | {:error, [binary()]}
   def register_model(%Model{alias: a} = model) when is_atom(a) do
-    :ets.insert(@table_models, {a, model})
-    :ok
+    case Model.validate(model) do
+      :ok ->
+        :ets.insert(@table_models, {a, model})
+        :ok
+
+      {:error, reasons} ->
+        {:error, reasons}
+    end
   end
 
   @doc """
@@ -101,26 +118,33 @@ defmodule Candil.Config do
 
   Overwrites any existing entry with the same alias.
 
-  Raises `ArgumentError` if `api_key` is a plain string — only
-  `{:system, "ENV_VAR"}` tuples are accepted (see moduledoc).
+  A plain string `api_key` is accepted. It used to be rejected, with an error
+  message that named the rule, while the README in the same repository
+  documented the plain string. Following the documentation raised.
+
+  Prefer `{:system, "ENV_VAR"}` anyway: a literal key in a config file ends up
+  in a shell history, a process listing and a backup.
   """
-  @spec register_provider(Provider.t()) :: :ok
+  @spec register_provider(Provider.t()) :: :ok | {:error, [binary()]}
   def register_provider(%Provider{alias: a, api_key: key} = provider) when is_atom(a) do
     case validate_api_key(key) do
       :ok ->
         :ets.insert(@table_providers, {a, provider})
         :ok
 
-      {:error, reason} ->
-        raise ArgumentError, reason
+      {:error, reasons} ->
+        {:error, reasons}
     end
   end
 
   defp validate_api_key(nil), do: :ok
-  defp validate_api_key({:system, var}) when is_binary(var), do: :ok
+  defp validate_api_key({:system, var}) when is_binary(var) and var != "", do: :ok
+  defp validate_api_key(key) when is_binary(key) and key != "", do: :ok
 
-  defp validate_api_key(_),
-    do: {:error, "api_key must be {:system, \"ENV_VAR\"} tuple or nil, got plain string"}
+  defp validate_api_key(other),
+    do:
+      {:error,
+       ["api_key must be a string, {:system, \"ENV_VAR\"} or nil, got: #{inspect(other)}"]}
 
   @doc """
   Looks up an engine by alias.

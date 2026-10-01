@@ -5,7 +5,7 @@ defmodule Candil.Llm do
   # implementation. The original moduledoc (concepts, lifecycle examples) is
   # preserved in `docs/candil_llm.md` for reference.
 
-  alias Candil.{Config, Engine, Inference, Installer, Model, Provider, Stream}
+  alias Candil.{Engine, Inference, Installer, Model, Provider, Store, Stream}
 
   @doc """
   Downloads the appropriate precompiled llama.cpp binary for this engine.
@@ -49,8 +49,8 @@ defmodule Candil.Llm do
   # Convenience: start engine by alias + model alias
   def start_engine(engine_alias, model_alias)
       when is_atom(engine_alias) and is_atom(model_alias) do
-    with {:ok, engine} <- Config.get_engine(engine_alias),
-         {:ok, model} <- Config.get_model(model_alias) do
+    with {:ok, engine} <- Store.get_engine(engine_alias),
+         {:ok, model} <- Store.get_model(model_alias) do
       Engine.start(engine, model)
     end
   end

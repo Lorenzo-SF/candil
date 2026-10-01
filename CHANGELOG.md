@@ -144,6 +144,38 @@ Result: 279 tests, 0 failures, coverage 52.7% to 54.2%, all eight gates green.
     boolean to a string list. A build plan would have crashed before invoking
     cmake.
 
+### Changed — phase -1: contracts (part 3): Store and the TOML schema
+- `Candil.Config` is now `Candil.Store`. The name said "configuration" but the
+  job is the catalogue of engines, models and providers; the configuration
+  is one of the ways that catalogue gets filled. This is a breaking rename, in
+  a major, on purpose: the ETS table names are unchanged, so only the module
+  name moved.
+- `Candil.Store.register_engine/1`, `register_model/1` and
+  `register_provider/1` validate before writing, and return
+  `{:error, reasons}` instead of inserting anyway. `Candil.Model.validate/1`
+  existed for the whole 3.x line and nothing called it, so every malformed
+  model was accepted and discovered only when the engine refused to start.
+- `register_provider/1` accepts a plain string `api_key` again. It used to
+  raise, with an error message naming the rule, while the README in the same
+  repository documented the plain string. It now returns
+  `{:error, reasons}` instead of raising, so a bad config file lists its
+  problems rather than crashing the caller.
+- New `Candil.Config.Schema`, validating the `candil.toml` document. It returns
+  every problem at once rather than the first, because someone fixing a
+  config file should not have to run the tool once per typo.
+- New `Candil.Config.File` for reading it, honouring `CANDIL_CONFIG`,
+  expanding every `~` in a path, and treating a missing file as an empty
+  config rather than an error.
+- `toml` is a new dependency. `Config.File.save/2` is the one stub; it
+  validates before refusing, so a caller gets its schema problems first.
+
+### Fixed
+- `Candil.Config.File.expand/1` matched the `source` and `draft` keys as
+  atoms while the map came out of TOML with string keys. It compiled, passed
+  the empty-document test, and silently did nothing for every real config.
+  This is the second time in this phase that an atom/string key mixup wrote
+  code that could not fail in the tests that exercised it.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)

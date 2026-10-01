@@ -9,8 +9,7 @@ defmodule Candil.Backend.LlamaCpp do
 
   @behaviour Candil.Backend
 
-  alias Candil.Config
-  alias Candil.Embeddings
+  alias Candil.{Embeddings, Store}
 
   @impl true
   def chat(_model, _messages, _opts) do
@@ -35,6 +34,6 @@ defmodule Candil.Backend.LlamaCpp do
 
   @impl true
   def models do
-    Config.list_models()
+    Store.list_models()
   end
 end

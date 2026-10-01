@@ -10,13 +10,13 @@ defmodule Candil.Backend.OpenAICompat do
     * `provider: :ollama` (Ollama's `/v1/chat/completions` endpoint)
     * `provider: :azure` (Azure OpenAI Service)
 
-  Auth tokens and base URLs come from `Candil.Config` per provider.
+  Auth tokens and base URLs come from `Candil.Store` per provider.
   This module is auto-registered for those providers on first lookup.
   """
 
   @behaviour Candil.Backend
 
-  alias Candil.{Config, Error, HTTP, Model, Provider, Telemetry}
+  alias Candil.{Error, HTTP, Model, Provider, Store, Telemetry}
 
   @default_base_urls %{
     openai: "https://api.openai.com",
@@ -183,7 +183,7 @@ defmodule Candil.Backend.OpenAICompat do
   end
 
   defp provider_token(provider) do
-    case Config.get_provider(provider) do
+    case Store.get_provider(provider) do
       {:ok, %Provider{api_key: key}} when is_binary(key) -> key
       _ -> nil
     end

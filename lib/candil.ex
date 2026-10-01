@@ -33,9 +33,9 @@ defmodule Candil do
 
   ## Configuration
 
-      Candil.Config.register_engine(engine)
-      Candil.Config.register_model(model)
-      Candil.Config.register_provider(provider)
+      Candil.Store.register_engine(engine)
+      Candil.Store.register_model(model)
+      Candil.Store.register_provider(provider)
   """
 
   alias Candil.Llm

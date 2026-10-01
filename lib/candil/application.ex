@@ -2,7 +2,7 @@ defmodule Candil.Application do
   @moduledoc """
   OTP application for `Candil`.
 
-  Starts the ETS-based configuration registry (`Candil.Config`) and
+  Starts the ETS-based configuration registry (`Candil.Store`) and
   the dynamic supervisor that manages llama-server engines started
   via `Candil.start_engine/2`.
 
@@ -22,7 +22,7 @@ defmodule Candil.Application do
   def start(_type, _args) do
     children = [
       {Registry, keys: :unique, name: Candil.Registry},
-      Candil.Config,
+      Candil.Store,
       Candil.Cancellation,
       Candil.Tool,
       Candil.EnginePool,
