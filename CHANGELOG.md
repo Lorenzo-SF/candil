@@ -95,12 +95,44 @@ Result: 279 tests, 0 failures, coverage 52.7% to 54.2%, all eight gates green.
   guess produces a binary that compiles and runs and is quietly slow.
 - `Candil.Error.not_implemented/2` and a new `:not_implemented` reason.
 
+### Changed — phase -1: contracts (part 2): Model and Engine
+- `Candil.Engine` gains `binary`, `base_port`, `api_key`, `auth_headers` and
+  `install`, and loses `use_precompiled`. The install plan is now the only way
+  to say how a binary is obtained, because a boolean and a plan overlapping on
+  the same question is how a config ends up meaning two things at once.
+- `Candil.Model` gains `port`, `source`, `draft`, `tags`, `enabled`,
+  `launcher` and `base_url`; its `type` gains `:external`; and `download_url`
+  is gone in favour of `:source`. The port moved here from the engine: one
+  engine serves many models, and the same model can run twice at once on a GPU
+  slot and a CPU slot, which is what `--cpu` is for.
+- `Candil.Engine.auth_headers/1` and `base_url_and_headers/2` are new, and
+  they are the fix for the bug that made a ropero server unreachable. The
+  local inference path sent a fixed empty header list, so any
+  `llama-server` started with `--api-key` answered 401 with no way to inject
+  one. Passing `--api-key` is the normal way to run a server that is not on
+  loopback, so this was not a ropero quirk.
+- `Engine.Server.build_args/2` now emits `--alias` and, when the engine has
+  one, `--api-key`. The flag belongs on the command line as well as in the
+  headers: a server started with it rejects anything without a matching bearer,
+  and Candil is not the only thing that may need to talk to it.
+- `Candil.Model.file_path/1` derives the path from `:source` when
+  `model_dir`/`filename` are absent, and `Candil.EnginePool` can hand out a
+  port from `base_port` for a model whose `port` is `:auto`.
+
+### Fixed
+- `Candil.Model.validate/1` no longer raises on a path with `..` in it. It
+  used to call `file_path/1`, which raises on traversal, so validating a
+  hostile config crashed the validator instead of rejecting it. Traversal and
+  "not locatable" are now separate messages, because one of them is a typo and
+  the other might not be.
+- `Candil.Installer.download_model/1` delegates to `Candil.Source.fetch/2`
+  instead of inspecting its result. Until the fetch phase lands, that call
+  cannot succeed, and branching on a success that cannot happen turns a stub
+  into load-bearing code.
+
 ### Changed
 - `mix docs` now has four doctests, because the repository ran none at all.
   Every `iex>` example in a moduledoc was previously unverified.
-- `Candil.Engine` and `Candil.Model` are unchanged in this commit. They are
-  next: they are the structs every other v4 contract refers to, so changing
-  them is what the rest of the freeze hangs from.
 
 ### Fixed
 - Two bugs introduced while writing the new modules and caught by their own

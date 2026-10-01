@@ -11,10 +11,12 @@ defmodule Candil.Llm do
   Downloads the appropriate precompiled llama.cpp binary for this engine.
 
   Detects the current OS, architecture and GPU automatically. Does nothing
-  if `use_precompiled` is `false`.
+  when the engine declares no `:install` plan, or a plan with
+  `strategy: :none`, because then the binary is expected to already be there.
   """
   @spec download_engine(Engine.t()) :: :ok | {:error, binary()}
-  def download_engine(%Engine{use_precompiled: false}), do: :ok
+  def download_engine(%Engine{install: nil}), do: :ok
+  def download_engine(%Engine{install: %{strategy: :none}}), do: :ok
 
   def download_engine(%Engine{} = engine) do
     Installer.download_engine(engine)

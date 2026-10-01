@@ -6,7 +6,8 @@ defmodule Candil do
 
   ## Quick start — local model
 
-      engine = %Candil.Engine{alias: :llama_server, use_precompiled: true, host: "127.0.0.1", port: 8080}
+      engine = %Candil.Engine{alias: :llama_server, binary: "llama-server",
+                              host: "127.0.0.1", port: 8080}
       model  = %Candil.Model{alias: :llama3, type: :local, model_dir: "/models",
                               filename: "llama-3-8b-q4_k_m.gguf", engine: :llama_server,
                               context_size: 8192, usage: [:chat]}
@@ -43,7 +44,7 @@ defmodule Candil do
   Downloads the appropriate precompiled llama.cpp binary for this engine.
 
   Detects the current OS, architecture and GPU automatically. Does nothing
-  if `use_precompiled` is `false`.
+  when the engine declares no `:install` plan.
   """
   defdelegate download_engine(engine), to: Llm
 

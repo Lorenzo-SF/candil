@@ -12,7 +12,7 @@ defmodule Candil.Config do
         engines: [
           %{
             alias: :llama_server,
-            use_precompiled: true,
+            binary: "llama-server",
             precompiled_version: :latest,
             host: "127.0.0.1",
             port: 8080,

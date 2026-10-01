@@ -4,8 +4,8 @@ defmodule Candil.LlmTest do
   alias Candil.{Error, Llm}
 
   describe "download_engine/1" do
-    test "returns :ok when use_precompiled is false" do
-      engine = %Candil.Engine{alias: :test, use_precompiled: false}
+    test "returns :ok when the engine declares no install plan" do
+      engine = %Candil.Engine{alias: :test, install: nil}
       assert Llm.download_engine(engine) == :ok
     end
   end
