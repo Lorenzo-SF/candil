@@ -255,6 +255,33 @@ family: a plausible line that cannot fail in the test that exercises it.
 - Auth is `none` or `api_key`, and keys are compared in constant time. JWT is
   not here and does not belong in v4.
 
+### Added — phase -1: contracts (part 7): Context, completed
+- `Candil.Context.Builder`, `Candil.Context.Summarizer` and
+  `Candil.Context.PrefixManager`. `Candil.Context` itself is the store; these
+  are what make a session usable.
+- `Candil.Context.Builder.build/3` returns `{:error, :context_exceeded}`
+  rather than quietly truncating. A truncated conversation is one where the
+  model answers a question it was not asked, with no way for the caller to
+  tell. An error is recoverable; a plausible wrong answer is not.
+- `Candil.Context.Summarizer` never destroys anything. It writes a summary
+  and moves a marker; the messages stay. A summariser that fails halfway
+  leaves the session exactly as it was, which is why it summarises before it
+  would otherwise delete rather than the other way round.
+- `Candil.Context.PrefixManager` exists to make a byte-identical prefix
+  possible, not to avoid the transfer. The provider-side KV cache is only
+  reusable when the bytes match, and `stats/0` is there so the claim can be
+  checked rather than assumed.
+
+### Fixed
+- `Builder.build/3` never appended the new messages. It returned the system
+  prompt, the summary and the history, and dropped the question that had
+  just been asked. That is the worst thing a context builder can do, and the
+  test that caught it was the first one written.
+- `context_size` was read off the session. The context window belongs to the
+  model: one session can be routed to a 4k model and then a 131k one, and the
+  window travels with the model, not with the conversation. It is an option
+  now.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)
