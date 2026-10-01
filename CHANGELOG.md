@@ -228,6 +228,33 @@ family: a plausible line that cannot fail in the test that exercises it.
   cross-language near miss is not made to match, because that would make the
   score a lie.
 
+### Added — phase -1: contracts (part 6): Gateway
+- `Candil.Gateway`, `Candil.Gateway.{Auth, Endpoint}`. An OpenAI-compatible
+  HTTP server in front of the catalogue, so `opencode`, `openai-python` or
+  `curl` can use Candil without writing Elixir.
+- Every route has a `/c/:consumer` prefix as well as a bare form, so one
+  gateway can serve several consumers without their configuration colliding.
+- `plug` and `bandit` are dependencies.
+
+### Fixed
+- `Candil.Gateway.Endpoint.consumer/3` used `String.to_atom/1` on a name taken
+  from the URL. The atom table is finite and never shrinks, so an endpoint
+  that converts whatever arrives can be made to leak memory at a byte per
+  request. It is now `String.to_existing_atom/1`: a consumer that exists was
+  defined in the config file, and the config file already made its atom.
+- The `Candil.Config` to `Candil.Store` rename had also renamed
+  `Candil.ConfigManager` to `Candil.StoreManager`, which is a different
+  module doing a different job. Reverted. A blanket string replacement is not
+  a rename.
+
+### Notes
+- `Gateway.start/1` validates the auth configuration and then returns
+  `{:error, :not_implemented}`. It does not return a pid for a server that is
+  not listening yet; a caller that waits for a port which never binds is worse
+  off than one told up front.
+- Auth is `none` or `api_key`, and keys are compared in constant time. JWT is
+  not here and does not belong in v4.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)

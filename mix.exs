@@ -73,6 +73,8 @@ defmodule Candil.MixProject do
       {:botica, github: "Lorenzo-SF/botica", branch: "main", optional: true, override: true},
       {:jason, "~> 1.4"},
       {:toml, "~> 0.7"},
+      {:plug, "~> 1.16"},
+      {:bandit, "~> 1.5"},
       {:mox, "~> 1.0", only: :test},
       {:credo, "~> 1.7", only: [:dev, :test], runtime: false},
       {:dialyxir, ">= 1.0.0", only: [:dev, :test], runtime: false},
@@ -101,6 +103,11 @@ defmodule Candil.MixProject do
         ],
         Diagnostics: [Candil.Health, Candil.Embeddings],
         Context: [Candil.Context, Candil.Context.Session],
+        Gateway: [
+          Candil.Gateway,
+          Candil.Gateway.Auth,
+          Candil.Gateway.Endpoint
+        ],
         Router: [
           Candil.Router,
           Candil.Router.Decision,
