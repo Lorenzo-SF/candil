@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+Nothing changes in the public API. This is tooling and documentation for the
+4.0 line; the API breaks land with `4.0.0-alpha.1` and later.
+
+### Added
+- `.tool-versions` pinning Erlang/OTP 28.5.0.7 and Elixir 1.19.5-otp-28, kept
+  in sync with the CI env.
+- `proyecto 4.0/PLAN-PARALELO.md` — execution plan for the 12 phases: a contract
+  freeze, eight lanes with exclusive file ownership, the dependency graph, the
+  merge protocol and the token-economy rules.
+- `docs/BASELINE-4.0.md` — the measured quality baseline on the
+  `4.0-work-start` tag, including why the coverage floor is 50 and not the 70%
+  the design document quotes.
+- `trebejo`, `alaja` and `botica` as dependencies.
+- `benchee` (dev only) for the four hot paths where the design document makes a
+  performance claim.
+- CI: a weekly `deps-sync` job. All four GitHub deps track `main`, so a
+  breaking push to any of them lands here first.
+- CI: `mix format --check-formatted` as its own gate, separate from compile.
+- CI: `mix docs --warnings-as-errors`, a dialyzer job with its own PLT cache,
+  and a coverage floor that can only go up.
+
+### Changed
+- `apero` and `arrea` now declare `branch: "main"` explicitly, and all four
+  GitHub deps declare `override: true`. Without the branch, a dep silently
+  follows whatever the remote HEAD is. Without the override, Mix reads
+  `branch: "main"` and no-branch declarations of the same repo as two different
+  deps and aborts.
+- Credo is un-commented in CI and runs `--format=oneline`. It was disabled
+  because strict mode failed on legacy style.
+- `.gitignore`: `_build` and `deps` lost their trailing slash, so a symlinked
+  build directory is no longer committable.
+
+### Fixed
+- Two CI gates that did not gate anything: `mix deps.audit` does not exist (it
+  is `mix hex.audit`), and excoveralls' `minimum_coverage` is only enforced by
+  `mix coveralls.html` and `mix coveralls.cobertura`, never by a plain
+  `mix test --cover`.
+- `mix docs` exits 0 while printing warnings, so the docs job now passes
+  `--warnings-as-errors`.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)
