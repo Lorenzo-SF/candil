@@ -176,6 +176,26 @@ Result: 279 tests, 0 failures, coverage 52.7% to 54.2%, all eight gates green.
   This is the second time in this phase that an atom/string key mixup wrote
   code that could not fail in the tests that exercised it.
 
+### Added — phase -1: contracts (part 4): Context
+- `Candil.Context` and `Candil.Context.Session`. Conversation history shared
+  between consumers, keyed by `{consumer, session_id}`.
+- `Candil.Context` is in the supervision tree, after `Candil.Store` and
+  before the rest, because the other children read its tables.
+
+### Fixed
+Three bugs in the new code, all caught by its own tests and all of the same
+family: a plausible line that cannot fail in the test that exercises it.
+
+- `gc/1` compared `DateTime.to_unix(last_used_at, :microsecond)` against
+  `System.monotonic_time(:microsecond)`. Two different epochs, so the
+  comparison was meaningless and the TTL collected nothing, ever.
+- The LRU half of `gc/1` computed the excess to remove as
+  `max(-(length - max), 0)`. Negating before `max/2` means the negative side
+  always wins, so the count was 0 and `Enum.split(sorted, 0)` removed
+  nothing. The collection silently never collected anything.
+- `Session.tokens/1` used `&div(String.length(&1.content), 4)`, which is a
+  unary capture, inside an `Enum.reduce/3` that calls it with two arguments.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)

@@ -100,6 +100,7 @@ defmodule Candil.MixProject do
           Candil.Build
         ],
         Diagnostics: [Candil.Health, Candil.Embeddings],
+        Context: [Candil.Context, Candil.Context.Session],
         Conversation: [
           Candil.Conversation,
           Candil.Conversation.Context,
