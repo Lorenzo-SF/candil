@@ -64,20 +64,38 @@ defmodule Candil.Backend.OpenAICompat do
         Telemetry.emit_start(request_id, :stream, %{model: model_id(model)})
         started = System.monotonic_time()
 
+        # The chunks are actually collected, not discarded.
+        #
+        # This used to make a real streaming request, throw the data away, and
+        # return `Stream.repeatedly(fn -> Process.sleep(50); %{content: "",
+        # done: true} end) |> Stream.take(1)` — a one-chunk stream that always
+        # said "done" immediately. A caller could not tell the difference
+        # between a working stream and a broken one, which is worse than no
+        # stream at all.
         case HTTP.post_streaming(
                url,
                body,
                headers,
                [timeout_ms: opts[:timeout_ms] || 120_000, retry: false],
-               into: fn
-                 {:data, _data}, _acc -> :cont
-                 :done, _acc -> :done
-                 {:error, _}, _acc -> :error
-               end
+               into: fn {:data, data}, acc -> {:cont, [data | acc]} end
              ) do
-          {:ok, _} ->
+          {:ok, chunks} ->
             Telemetry.emit_stop(request_id, :stream, System.monotonic_time() - started, [])
-            {:ok, build_chunk_stream(body)}
+
+            deltas = chunks |> Enum.reverse() |> Enum.flat_map(&parse_openai_deltas/1)
+
+            # Stream.resource/3, not Stream.flat_map + Stream.concat. The
+            # latter folds down to a bare function, and a caller that checks
+            # `is_struct(x, Stream)` or calls Enum.into/2 on it gets an error.
+            {:ok,
+             Stream.resource(
+               fn -> deltas end,
+               fn
+                 [] -> {:halt, %{}}
+                 [delta | rest] -> {[delta], rest}
+               end,
+               fn _acc -> :ok end
+             )}
 
           {:error, reason} ->
             Telemetry.emit_error(
@@ -98,40 +116,46 @@ defmodule Candil.Backend.OpenAICompat do
 
   @impl true
   def embed(model, texts, opts) when is_list(texts) do
-    case config_for(provider_of(model), opts) do
-      {:ok, base_url, token} ->
-        url = "#{base_url}/v1/embeddings"
+    with {:ok, base_url, token} <- config_for(provider_of(model), opts) do
+      url = "#{base_url}/v1/embeddings"
 
-        results =
-          Enum.map(texts, fn text ->
-            body = %{model: model_id(model), input: text}
-            headers = auth_headers(token)
+      # One request for the whole batch, not one per text. Embedding 100
+      # texts was 100 round trips; the OpenAI and llama-server APIs both accept
+      # an array in `input`.
+      body = %{model: model_id(model), input: texts}
 
-            case HTTP.post_json(url, body, headers,
-                   timeout_ms: opts[:timeout_ms] || 60_000,
-                   retry: Keyword.get(opts, :retry, true)
-                 ) do
-              {:ok, %{status: 200, body: %{"data" => [%{"embedding" => vec}]}}}
-              when is_list(vec) ->
-                {:ok, vec}
+      case post_embeddings(url, body, token, opts) do
+        {:ok, vectors} when is_list(vectors) -> {:ok, vectors}
+        {:error, reason} -> {:error, reason}
+      end
+    end
+  end
 
-              {:ok, %{status: status, body: body}} ->
-                {:error, Error.http_error(status, body)}
+  defp post_embeddings(url, body, token, opts) do
+    headers = auth_headers(token)
 
-              {:error, reason} ->
-                {:error, reason}
-            end
-          end)
+    case HTTP.post_json(url, body, headers,
+           timeout_ms: opts[:timeout_ms] || 60_000,
+           retry: Keyword.get(opts, :retry, true)
+         ) do
+      {:ok, %{status: 200, body: %{"data" => data}}} when is_list(data) ->
+        {:ok, data |> Enum.sort_by(&(&1["index"] || 0)) |> Enum.map(&extract_vector/1)}
 
-        case Enum.split_with(results, &match?({:ok, _}, &1)) do
-          {oks, []} -> {:ok, Enum.map(oks, fn {:ok, v} -> v end)}
-          {_oks, errs} -> {:error, elem(hd(errs), 1)}
-        end
+      {:ok, %{status: status, body: body}} ->
+        # The whole batch failed. A 400 from the provider is not attributable
+        # to any one text, so it is the result of the call, not one entry of a
+        # per-text list.
+        {:error, Error.http_error(status, body)}
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  # `index` is authoritative: do not assume the server answered in the order
+  # the texts were sent.
+  defp extract_vector(%{"embedding" => vec}) when is_list(vec), do: vec
+  defp extract_vector(other), do: Error.http_error(200, other)
 
   @impl true
   def models do
@@ -243,15 +267,26 @@ defmodule Candil.Backend.OpenAICompat do
   defp parse_chat_response(other),
     do: {:error, Error.invalid_request("unexpected response: #{inspect(other)}")}
 
-  @spec build_chunk_stream(map()) :: Enumerable.t()
-  defp build_chunk_stream(_body) do
-    # The actual streaming happens via HTTP.post_streaming + SSE parser
-    # in Candil.Stream. This stub returns an empty stream — callers
-    # that need real OpenAI streaming should use Candil.Stream directly.
-    Stream.repeatedly(fn ->
-      Process.sleep(50)
-      %{content: "", finish_reason: nil, done: true}
+  # Un chunk de SSE de OpenAI: {"choices":[{"delta":{"content":"..."}}]}
+  # Un servidor de herramientas puede mandar `tool_calls` en vez de `content`;
+  # se pasa entero para que el llamador lo vea.
+  defp parse_openai_deltas(data) do
+    data
+    |> String.split("\n")
+    |> Enum.filter(&String.starts_with?(&1, "data:"))
+    |> Enum.map(&(String.replace_prefix(&1, "data:", "") |> String.trim()))
+    |> Enum.reject(&(&1 == "" or &1 == "[DONE]"))
+    |> Enum.flat_map(fn payload ->
+      case Jason.decode(payload) do
+        {:ok, %{"choices" => choices}} when is_list(choices) ->
+          Enum.flat_map(choices, fn
+            %{"delta" => delta} -> [delta]
+            _ -> []
+          end)
+
+        _ ->
+          []
+      end
     end)
-    |> Stream.take(1)
   end
 end

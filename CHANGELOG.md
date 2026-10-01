@@ -304,6 +304,41 @@ family: a plausible line that cannot fail in the test that exercises it.
   `embedder` resolved to a model alias that matches nothing, through the one
   lookup that should have rejected it.
 
+### Fixed — phase 0: the eight bugs
+
+- **H1, the one that blocked absorbing ropero.** The local inference path sent
+  a fixed empty header list, so any `llama-server` started with `--api-key`
+  answered 401 and there was no way to inject one. `Engine.auth_headers_for/1`
+  resolves the engine that serves a model and returns its headers;
+  `Inference.Chat`, `Inference.Embeddings` and `Stream` now use it. `Engine.Server`
+  emits `--api-key` and `--alias` on the command line as well, because a server
+  started with the flag rejects anything without a matching bearer and Candil
+  is not the only thing that may need to talk to it.
+- **B1, B2**: `Candil.Backend.LlamaCpp.chat/3` and `chat_stream/3` were stubs
+  returning `backend_unavailable`, which meant `Candil.Agent.run/3` and
+  `Candil.Structured.complete/4` could never work.
+- **B3**: `OpenAICompat.chat_stream/3` made a real streaming request, threw the
+  data away, and returned a one-chunk `Stream.repeatedly(fn -> Process.sleep(50);
+  %{content: "", done: true} end)`. A caller could not tell a working stream
+  from a broken one. It now collects and parses the deltas.
+- **B4**: `OpenAICompat.embed/3` issued one request per text. Embedding 100
+  texts was 100 round trips. It now sends the array in `input` and sorts by
+  `index`, because the server is not obliged to answer in order.
+- **B8**: `Installer.verify_checksum/2` was `File.read(path)` followed by
+  hashing the binary — 17 GB in one allocation for a GGUF. It streams in
+  1 MB blocks and is public, with tests.
+- **B5**: `Store.register_provider/1` accepts a plain string `api_key` and
+  returns `{:error, reasons}` instead of raising.
+
+`EnginePool` losing its LRU is **B7**, and it is not in this phase: another
+session already did it as part of phase 2, in PR #18.
+
+### Changed
+- `Stream.resource/3` returns a bare function rather than a `%Stream{}` in
+  Elixir 1.19. A test asserting `is_struct(stream, Stream)` had been passing
+  for the wrong reason; it now asserts `Enumerable`, which is the contract
+  that matters.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)

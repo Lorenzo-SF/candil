@@ -56,7 +56,7 @@ defmodule Candil.Stream do
         do_stream(
           "#{base_url}/v1/chat/completions",
           body,
-          [],
+          Engine.auth_headers_for(model_alias),
           &parse_openai_chunk/1,
           callback,
           opts
