@@ -205,6 +205,13 @@ jobs:
     name: Docs
     runs-on: ubuntu-latest
     steps:
+      # The workflow sets MIX_ENV=test globally, and ex_doc is declared
+      # `only: :dev`. In test there is no docs task at all — `mix docs` fails
+      # with "The task \"docs\" could not be found", which reads like a broken
+      # project rather than a mis-scoped env.
+      - name: Build in the dev env
+        run: echo "MIX_ENV=dev" >> "$GITHUB_ENV"
+
       - uses: actions/checkout@v4
 
       - name: Install OTP & Elixir
