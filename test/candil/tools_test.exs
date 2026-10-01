@@ -45,7 +45,8 @@ defmodule Candil.ToolsTest do
 
   describe "parse_tool_calls/1 — local (string) format" do
     test "parses a `<|tool_call|>` block" do
-      text = ~s(<|tool_call|>\n{"name": "get_weather", "arguments": {"city": "Madrid"}}\n<|/tool_call|>)
+      text =
+        ~s(<|tool_call|>\n{"name": "get_weather", "arguments": {"city": "Madrid"}}\n<|/tool_call|>)
 
       assert {:ok, [%{name: "get_weather", args: %{"city" => "Madrid"}}]} =
                Tools.parse_tool_calls(text)

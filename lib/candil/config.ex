@@ -1,6 +1,6 @@
 defmodule Candil.Config do
   @moduledoc """
-  Engine and model registry for `Candil.Llm`.
+  Engine and model registry for the `Candil` public API.
 
   Stores engine and model definitions in ETS so they can be looked up by
   alias throughout the application. Definitions can be loaded at startup

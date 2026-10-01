@@ -2,7 +2,7 @@ defmodule Candil.Structured do
   @moduledoc """
   Force the model to produce JSON matching a schema.
 
-  Wraps `Candil.Backend.chat/3` with:
+  Wraps `c:Candil.Backend.chat/3` with:
 
     1. A system prompt that tells the model to respond with JSON only.
     2. A post-validation step that re-parses the response and rejects
@@ -54,9 +54,8 @@ defmodule Candil.Structured do
     backend =
       case opts[:backend] do
         nil ->
-          with {:ok, mod} <- Backend.for(Backend.infer_provider(:local, model), model) do
-            mod
-          else
+          case Backend.for(Backend.infer_provider(:local, model), model) do
+            {:ok, mod} -> mod
             _ -> nil
           end
 
@@ -78,13 +77,25 @@ defmodule Candil.Structured do
 
   # ── Private ─────────────────────────────────────────────────────────────
 
-  @spec do_complete(module(), String.t() | atom(), String.t(), schema(), non_neg_integer(), keyword(), String.t() | nil) ::
+  @spec do_complete(
+          module(),
+          String.t() | atom(),
+          String.t(),
+          schema(),
+          non_neg_integer(),
+          keyword(),
+          String.t() | nil
+        ) ::
           result()
   defp do_complete(_backend, _model, _prompt, _schema, 0, _opts, last_error) do
     {:error,
      %Error{
        reason: :invalid_request,
-       context: %{message: "schema validation failed", last_error: last_error, attempts_exhausted: true}
+       context: %{
+         message: "schema validation failed",
+         last_error: last_error,
+         attempts_exhausted: true
+       }
      }}
   end
 

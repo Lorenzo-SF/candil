@@ -2,9 +2,9 @@ defmodule Candil.Backend.OpenAICompatTest do
   use ExUnit.Case, async: false
   import Mox
 
-  alias Candil.{Error, HTTPAdapterMock, Model}
-  alias Candil.Backend.OpenAICompat
   alias Apero.Http.{Request, Response}
+  alias Candil.Backend.OpenAICompat
+  alias Candil.{Error, HTTPAdapterMock, Model}
 
   setup :verify_on_exit!
 
@@ -17,7 +17,9 @@ defmodule Candil.Backend.OpenAICompatTest do
     expect(HTTPAdapterMock, :request, fn %Request{method: :post, url: url} = req ->
       assert String.ends_with?(url, url_suffix)
       assert req.headers != []
-      {:ok, %Response{status: status, headers: [{"content-type", "application/json"}], body: body}}
+
+      {:ok,
+       %Response{status: status, headers: [{"content-type", "application/json"}], body: body}}
     end)
   end
 
@@ -67,7 +69,10 @@ defmodule Candil.Backend.OpenAICompatTest do
 
   describe "chat_stream/3" do
     test "returns a chunk stream on 200" do
-      expect(HTTPAdapterMock, :stream, fn %Request{method: :post, body: %{stream: true}}, _acc, _fun, _opts ->
+      expect(HTTPAdapterMock, :stream, fn %Request{method: :post, body: %{stream: true}},
+                                          _acc,
+                                          _fun,
+                                          _opts ->
         {:ok, []}
       end)
 

@@ -48,6 +48,7 @@ defmodule Candil.Telemetry do
       %{system_time: System.system_time()},
       Map.put(meta, :request_id, request_id) |> Map.put(:kind, kind)
     )
+
     :ok
   end
 
@@ -66,6 +67,7 @@ defmodule Candil.Telemetry do
       %{duration: duration_native},
       Map.put(meta_map, :request_id, request_id) |> Map.put(:kind, kind)
     )
+
     :ok
   end
 
@@ -79,6 +81,7 @@ defmodule Candil.Telemetry do
       %{count: 1},
       %{request_id: request_id, tokens_so_far: tokens_so_far}
     )
+
     :ok
   end
 
@@ -93,6 +96,7 @@ defmodule Candil.Telemetry do
       %{duration: duration_native},
       Map.merge(meta, %{request_id: request_id, kind: kind, reason: reason})
     )
+
     :ok
   end
 
@@ -111,6 +115,7 @@ defmodule Candil.Telemetry do
         tokens_out: tokens_out
       }
     )
+
     :ok
   end
 
@@ -124,6 +129,7 @@ defmodule Candil.Telemetry do
       %{system_time: System.system_time()},
       %{request_id: request_id, reason: reason}
     )
+
     :ok
   end
 end

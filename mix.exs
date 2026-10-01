@@ -131,7 +131,17 @@ defmodule Candil.MixProject do
     [
       plt_file: {:no_warn, "priv/plts/candil"},
       plt_core_path: "priv/plts/core",
-      plt_add_apps: [:mix],
+      # The sibling libraries Candil actually calls into, not just :mix.
+      #
+      # Without this, dialyzer's PLT contains OTP and Candil but none of the
+      # app dependencies, so every cross-app call comes back as
+      # `unknown_function`. Candil calls Trebejo.OS.arch/0, Apero.Proc.which/1
+      # and Arrea.LongRunning, so those three are in.
+      #
+      # Add a sibling here the first time you call into it, not before. Every
+      # app here makes the PLT build slower, and the CI caches it per OTP
+      # version, so a stale entry costs build time on every cache miss.
+      plt_add_apps: [:mix, :trebejo, :apero, :arrea],
       flags: [:error_handling, :no_opaque, :no_underspecs]
     ]
   end

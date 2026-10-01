@@ -18,7 +18,12 @@ defmodule Candil.AgentTest do
     def chat(_model, _messages, _opts) do
       case GenServer.call(__MODULE__, :take) do
         nil ->
-          {:ok, %{content: "FINAL_ANSWER: all done", finish_reason: "stop", usage: %{input_tokens: 0, output_tokens: 0}}}
+          {:ok,
+           %{
+             content: "FINAL_ANSWER: all done",
+             finish_reason: "stop",
+             usage: %{input_tokens: 0, output_tokens: 0}
+           }}
 
         response ->
           response
@@ -77,7 +82,8 @@ defmodule Candil.AgentTest do
       responses = [
         {:ok,
          %{
-           content: ~s(<|tool_call|>\n{"name": "sum", "arguments": {"a": 2, "b": 3}}\n<|/tool_call|>),
+           content:
+             ~s(<|tool_call|>\n{"name": "sum", "arguments": {"a": 2, "b": 3}}\n<|/tool_call|>),
            finish_reason: "stop",
            usage: %{input_tokens: 0, output_tokens: 0}
          }},

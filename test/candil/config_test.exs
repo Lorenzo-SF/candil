@@ -6,9 +6,9 @@ defmodule Candil.ConfigTest do
 
   setup do
     # Clean up tables before each test
-    :ets.delete_all_objects(:apero_llm_engines)
-    :ets.delete_all_objects(:apero_llm_models)
-    :ets.delete_all_objects(:apero_llm_providers)
+    :ets.delete_all_objects(:candil_llm_engines)
+    :ets.delete_all_objects(:candil_llm_models)
+    :ets.delete_all_objects(:candil_llm_providers)
     :ok
   end
 

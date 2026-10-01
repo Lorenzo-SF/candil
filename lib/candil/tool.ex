@@ -3,7 +3,7 @@ defmodule Candil.Tool do
   Defines a callable tool that an LLM can invoke.
 
   A tool wraps an Elixir function in a schema that the model can call.
-  Use `Candil.Tool.define/4` to register, `Candil.Tool.list/0` to query,
+  Use `Candil.Tool.define/1` to register, `Candil.Tool.list/0` to query,
   and `Candil.Tool.call/2` to invoke.
 
   ## Example
@@ -30,7 +30,7 @@ defmodule Candil.Tool do
   ## Custom implementations
 
   For tools that don't follow the `use Candil.Tool` macro, define a
-  `Candil.Tool.t/0` struct manually:
+  `t:Candil.Tool.t/0` struct manually:
 
       %Candil.Tool{
         name: "send_email",
@@ -75,12 +75,14 @@ defmodule Candil.Tool do
   end
 
   @doc """
-  Define a tool at runtime. Either a `Candil.Tool.t/0` struct or the
+  Define a tool at runtime. Either a `t:Candil.Tool.t/0` struct or the
   four-tuple `(name, description, schema, function)`.
   """
   @spec define(Candil.Tool.t() | {String.t(), String.t(), map(), function()}) :: :ok
   def define(%__MODULE__{name: name} = tool), do: GenServer.call(@name, {:put, name, tool})
-  def define({name, description, schema, function}) when is_binary(name) and is_function(function) do
+
+  def define({name, description, schema, function})
+      when is_binary(name) and is_function(function) do
     define(%__MODULE__{name: name, description: description, schema: schema, function: function})
   end
 
@@ -120,8 +122,11 @@ defmodule Candil.Tool do
     missing = Enum.filter(required, fn key -> not Map.has_key?(args, key) end)
 
     case missing do
-      [] -> :ok
-      keys -> {:error, %Candil.Error{reason: :invalid_request, context: %{tool: name, missing: keys}}}
+      [] ->
+        :ok
+
+      keys ->
+        {:error, %Candil.Error{reason: :invalid_request, context: %{tool: name, missing: keys}}}
     end
   end
 

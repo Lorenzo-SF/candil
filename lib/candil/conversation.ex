@@ -1,6 +1,6 @@
 defmodule Candil.Conversation do
   @moduledoc """
-  Conversation history management for `Candil.Llm`.
+  Conversation history management for the `Candil` public API.
 
   Maintains a message history and automatically manages context window
   limits. When the accumulated token estimate exceeds `max_context_tokens`,
@@ -116,7 +116,8 @@ defmodule Candil.Conversation do
   updated conversation.
   """
   @spec add_message(t(), binary(), binary()) :: t()
-  def add_message(%__MODULE__{} = conv, role, content) when role in ["user", "assistant", "system"] do
+  def add_message(%__MODULE__{} = conv, role, content)
+      when role in ["user", "assistant", "system"] do
     %{conv | messages: conv.messages ++ [%{role: role, content: content}]}
   end
 

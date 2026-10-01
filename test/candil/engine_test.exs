@@ -36,9 +36,9 @@ defmodule Candil.EngineTest do
       assert Engine.binary_dir(engine) == "/custom/path"
     end
 
-    test "falls back to ~/.apero/llm/bin when binary_dir is nil" do
+    test "falls back to ~/.candil/llm/bin when binary_dir is nil" do
       engine = %Engine{alias: :test, binary_dir: nil}
-      expected = Path.join([System.user_home!(), ".apero", "llm", "bin"])
+      expected = Path.join([System.user_home!(), ".candil", "llm", "bin"])
       assert Engine.binary_dir(engine) == expected
     end
   end

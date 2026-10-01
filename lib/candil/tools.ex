@@ -8,7 +8,7 @@ defmodule Candil.Tools do
 
   This module:
 
-    1. Serialises a list of `Candil.Tool.t/0` schemas into the prompt
+    1. Serialises a list of `t:Candil.Tool.t/0` schemas into the prompt
        (or the API's `tools` parameter) — `schemas_to_prompt/1`.
     2. Parses the model's response into a list of `%ToolCall{}` structs
        — `parse_tool_calls/1`.
@@ -44,7 +44,7 @@ defmodule Candil.Tools do
   @type tool_call :: %{name: String.t(), args: map()}
 
   @doc """
-  Serialise a list of `Candil.Tool.t/0` into OpenAI-compatible wire
+  Serialise a list of `t:Candil.Tool.t/0` into OpenAI-compatible wire
   schemas suitable for `body["tools"]`.
 
   Each entry is `%{"type" => "function", "function" => %{...}}`.
@@ -88,7 +88,8 @@ defmodule Candil.Tools do
         parse_tool_calls(response["content"])
 
       true ->
-        {:error, %Candil.Error{reason: :invalid_request, context: %{message: "no tool_calls in response"}}}
+        {:error,
+         %Candil.Error{reason: :invalid_request, context: %{message: "no tool_calls in response"}}}
     end
   end
 
@@ -122,9 +123,14 @@ defmodule Candil.Tools do
 
   defp fetch_name(map) do
     cond do
-      is_binary(map["name"]) -> {:ok, map["name"]}
-      is_binary(map[:name]) -> {:ok, map[:name]}
-      true -> {:error, %Candil.Error{reason: :invalid_request, context: %{message: "missing name"}}}
+      is_binary(map["name"]) ->
+        {:ok, map["name"]}
+
+      is_binary(map[:name]) ->
+        {:ok, map[:name]}
+
+      true ->
+        {:error, %Candil.Error{reason: :invalid_request, context: %{message: "missing name"}}}
     end
   end
 
@@ -143,27 +149,37 @@ defmodule Candil.Tools do
   @doc false
   @spec parse_openai_tool_calls([map()]) :: {:ok, [tool_call()]} | {:error, term()}
   defp parse_openai_tool_calls(calls) when is_list(calls) do
-    Enum.reduce_while(calls, {:ok, []}, fn call, {:ok, acc} ->
-      fn_name = get_in(call, ["function", "name"]) || call["name"]
-      fn_args_json = get_in(call, ["function", "arguments"]) || call["arguments"]
-
-      cond do
-        is_nil(fn_name) ->
-          {:halt, {:error, %Candil.Error{reason: :invalid_request, context: %{message: "missing name"}}}}
-
-        is_nil(fn_args_json) ->
-          {:halt, {:error, %Candil.Error{reason: :invalid_request, context: %{message: "missing args"}}}}
-
-        true ->
-          case decode_json(fn_args_json) do
-            {:ok, args} -> {:cont, {:ok, [%{name: fn_name, args: args} | acc]}}
-            {:error, _} = err -> {:halt, err}
-          end
+    calls
+    |> Enum.reduce_while({:ok, []}, fn call, {:ok, acc} ->
+      case parse_one_call(call) do
+        {:ok, parsed} -> {:cont, {:ok, [parsed | acc]}}
+        {:error, _} = err -> {:halt, err}
       end
     end)
     |> case do
       {:ok, calls} -> {:ok, Enum.reverse(calls)}
       {:error, _} = err -> err
+    end
+  end
+
+  # One tool call. Accepts both the nested OpenAI shape
+  # (%{"function" => %{"name" => _, "arguments" => _}}) and the flat one.
+  defp parse_one_call(call) do
+    fn_name = get_in(call, ["function", "name"]) || call["name"]
+    fn_args_json = get_in(call, ["function", "arguments"]) || call["arguments"]
+
+    cond do
+      is_nil(fn_name) ->
+        {:error, %Candil.Error{reason: :invalid_request, context: %{message: "missing name"}}}
+
+      is_nil(fn_args_json) ->
+        {:error, %Candil.Error{reason: :invalid_request, context: %{message: "missing args"}}}
+
+      true ->
+        case decode_json(fn_args_json) do
+          {:ok, args} -> {:ok, %{name: fn_name, args: args}}
+          {:error, _} = err -> err
+        end
     end
   end
 
@@ -196,11 +212,22 @@ defmodule Candil.Tools do
   @spec decode_json(String.t()) :: {:ok, map()} | {:error, term()}
   defp decode_json(text) when is_binary(text) do
     case Jason.decode(text) do
-      {:ok, %{} = map} -> {:ok, map}
-      {:ok, _} -> {:error, %Candil.Error{reason: :invalid_request, context: %{message: "tool call must be JSON object"}}}
-      {:error, %Jason.DecodeError{} = err} -> {:error, %Candil.Error{reason: :invalid_request, context: %{message: Exception.message(err)}}}
+      {:ok, %{} = map} ->
+        {:ok, map}
+
+      {:ok, _} ->
+        {:error,
+         %Candil.Error{
+           reason: :invalid_request,
+           context: %{message: "tool call must be JSON object"}
+         }}
+
+      {:error, %Jason.DecodeError{} = err} ->
+        {:error,
+         %Candil.Error{reason: :invalid_request, context: %{message: Exception.message(err)}}}
     end
   end
 
-  defp decode_json(_), do: {:error, %Candil.Error{reason: :invalid_request, context: %{message: "non-string json"}}}
+  defp decode_json(_),
+    do: {:error, %Candil.Error{reason: :invalid_request, context: %{message: "non-string json"}}}
 end

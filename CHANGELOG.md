@@ -47,6 +47,41 @@ Nothing changes in the public API. This is tooling and documentation for the
 - `mix docs` exits 0 while printing warnings, so the docs job now passes
   `--warnings-as-errors`.
 
+### Fixed — quality gates brought to green (phase -0)
+No behaviour change. Every gate below went from failing to passing, so the CI
+stops being decoration.
+
+- `mix format` applied across 24 files. `mix format --check-formatted` now
+  passes.
+- `mix credo --strict` from 37 issues to 0. Two of them needed real refactors
+  rather than formatting:
+  - `Candil.Agent.loop/7` had a `cond` with a single condition and three
+    levels of nesting. The ReAct branch is now `continue_or_finish/8`, so the
+    loop reads: cancel? stop-word? otherwise continue.
+  - `Candil.Tools.parse_openai_tool_calls/1` was over the complexity limit.
+    Per-call parsing moved to `parse_one_call/1`.
+- `Candil.Detector.safe_arch/0` used `apply/3` "to keep the compiler happy",
+  which is what hid a real dialyzer error: the PLT contained only OTP and
+  Candil, so `Trebejo.OS.arch/0` came back as `unknown_function`. The PLT now
+  includes `trebejo`, `apero` and `arrea`, the three libraries Candil calls
+  into, and the call is direct. All 15 cross-app calls are now type-checked.
+- Two stale tests, the cause of all 22 failures. `config_test.exs` cleaned
+  `:apero_llm_engines` and friends; the tables are named `:candil_llm_*`.
+  `engine_test.exs` expected `~/.apero/llm/bin`; the code returns
+  `~/.candil/llm/bin`. The code was right in both cases and the tests were
+  wrong — fixing the code to satisfy them would have restored the bug.
+- 54 `mix docs` warnings down to 0. The bulk was `Candil.Llm` being
+  `@moduledoc false` while `Candil`'s `defdelegate`s inherited its `@doc`s, so
+  the entire public facade rendered with unresolvable references. The docs now
+  live on `Candil` and `Candil.Llm` stays the hidden implementation.
+- `Candil.Backend`'s four callbacks had no `@doc`, and references to them need
+  the `c:` prefix rather than a plain function reference.
+- Type references in docs now use ExDoc's `t:` prefix, and two references to
+  arities that never existed (`Candil.Tool.define/4`, `Candil.Embeddings.embed/3`)
+  point at the real ones.
+
+Result: 279 tests, 0 failures, coverage 52.7% to 54.2%, all eight gates green.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)

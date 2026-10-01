@@ -1,11 +1,29 @@
-# Baseline de calidad — tag `4.0-work-start`
+# Baseline de calidad — tag `4.0-work-start` (cerrado)
 
 > Medición real, ejecutada sobre el código tal cual estaba en el tag, con la
 > toolchain que fija `.tool-versions`. No es una estimación: son salidas de
 > comandos.
 >
+> **Estado**: cerrado. Los 8 gates están en verde tras la fase -0.
+>
 > **Fecha**: 2026-10-01 · **Rama**: `4.0` · **Toolchain**: OTP 28.5.0.7 /
 > Elixir 1.19.5-otp-28
+
+## Antes y después
+
+| Gate | En `4.0-work-start` | Ahora |
+|---|---|---|
+| `mix format --check-formatted` | FAIL | **OK** |
+| `mix deps.unlock --check-unused` | OK | OK |
+| `mix compile --warnings-as-errors` | OK | OK |
+| `mix credo --strict --format=oneline` | FAIL, 37 issues | **OK, 0** |
+| `mix test` | FAIL, 22 fallos | **OK, 279/0** |
+| `mix dialyzer` | OK (a medias) | **OK, 0** |
+| `mix docs --warnings-as-errors` | FAIL, 54 warnings | **OK, 0** |
+| `mix hex.audit` | OK | OK |
+
+Cobertura: 52.7 % → **54.2 %**. 279 tests, 0 fallos, estable en 10 ejecuciones
+seguidas (no hay carrera pese al `async: true` con tablas ETS compartidas).
 
 ## Resultado
 

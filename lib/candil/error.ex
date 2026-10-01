@@ -56,7 +56,7 @@ defmodule Candil.Error do
     }
   end
 
-@doc """
+  @doc """
   Creates an HTTP error with status and optional body.
 
   If `status` matches a known category (401/403 → `:auth_error`,

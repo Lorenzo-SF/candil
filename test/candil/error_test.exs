@@ -218,7 +218,7 @@ defmodule Candil.ErrorTest do
       assert msg =~ ":model_not_found"
     end
 
-test "formats message with context" do
+    test "formats message with context" do
       err = Error.http_error(404, "broken")
       msg = Exception.message(err)
       assert msg =~ "Candil error"

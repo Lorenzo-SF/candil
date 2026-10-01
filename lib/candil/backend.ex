@@ -6,7 +6,7 @@ defmodule Candil.Backend do
     * `chat/3` — synchronous single-shot chat completion.
     * `chat_stream/3` — server-sent-event streaming chat completion.
     * `embed/3` — text → vector embeddings, optionally batched.
-    * `models/0` — list of `Candil.Model.t/0` the backend supports.
+    * `models/0` — list of `t:Candil.Model.t/0` the backend supports.
 
   Backends are stateless wrappers around whatever HTTP / port machinery
   Candil already exposes (`Candil.Engine`, `Candil.HTTP`,
@@ -42,6 +42,7 @@ defmodule Candil.Backend do
       Candil.Backend.register(:azure, MyApp.Backends.Azure)
   """
 
+  alias Candil.Error
   alias Candil.Model
 
   @type chat_response :: %{
@@ -58,12 +59,19 @@ defmodule Candil.Backend do
 
   @type embed_vector :: [float()]
 
+  @doc "One non-streaming chat completion against `model`."
   @callback chat(String.t() | Model.t(), [map()], keyword()) ::
               {:ok, chat_response()} | {:error, term()}
+
+  @doc "Same as `c:chat/3` but streaming, returning an enumerable of deltas."
   @callback chat_stream(String.t() | Model.t(), [map()], keyword()) ::
               {:ok, Enumerable.t()} | {:error, term()}
+
+  @doc "Embed `texts` into vectors. Implementations should batch; see `c:embed/3`."
   @callback embed(String.t() | Model.t(), [String.t()], keyword()) ::
               {:ok, [embed_vector()]} | {:error, term()}
+
+  @doc "List the model aliases this backend can serve."
   @callback models() :: [Model.t()]
 
   @doc """
@@ -142,7 +150,7 @@ defmodule Candil.Backend do
   """
   @spec backend_unavailable(atom(), term()) :: Candil.Error.t()
   def backend_unavailable(provider, model) do
-    Candil.Error.backend_unavailable({:no_backend_for, provider, model})
+    Error.backend_unavailable({:no_backend_for, provider, model})
   end
 
   # ── Private ─────────────────────────────────────────────────────────────
