@@ -34,6 +34,15 @@ cuerpo.**
 
 ---
 
+> **ESTADO: CERRADA.** La Fase -1 se ejecutó en ocho rebanadas y está
+> verificada: 519 tests, 8 de 8 gates en verde, 63.1 % de cobertura. Este
+> apartado se conserva como descripción de lo que se hizo y de por qué; el
+> estado actual está en [`HANDOFF.md`](HANDOFF.md).
+>
+> Lo que resultó ser **más de lo que decía aquí**: H1, el bug que bloqueaba
+> la absorción de ropero, quedó resuelto y probado dentro de la Fase -1, y no
+> dentro de la Fase 0 como estaba planificado.
+
 ## 2. Fase -1 — Contratos (2 días, carril único, antes de F0)
 
 Se escribe **todo el andamiaje de tipos y firmas**, sin implementaciones, y se
