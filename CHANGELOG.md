@@ -20,6 +20,25 @@ else in the 4.0 contract freeze is tooling and documentation.
   `:source` clones the repository, runs `cmake` twice and copies what it finds.
   Options: `:asset_url` to pin the download, `:cmake` for a toolchain that is
   not the one on the `PATH`, `:on_output` to stream compiler output.
+- `Candil.Instances` — the on-disk record of what is running, for the case the
+  `EnginePool` cannot answer: after `--detach` the owner is another process in
+  another VM, and the only thing a second `candil` can read is
+  `<data_dir>/run/instances.json`. Atomic writes, reads that prune entries
+  whose owner is gone, and `ad-hoc-ports` for the ones given with `--port`.
+  The `owner` is a tagged tuple with one variant today and the `{:socket, path}`
+  clause named but not written, so a daemon later does not rewrite `stop`.
+- `Candil.Engine.Launcher.Http` — attaches to an engine somebody else started.
+  With it, vLLM, TGI, LM Studio, Ollama, airllm, tensorrt-llm and mlx-lm are
+  covered without a line each. `pid: nil` is the safety property: `stop`
+  unregisters and sends nothing, because the process was never ours.
+- `candil run --detach` records the instance with this process's OS pid as the
+  owner, so killing the owner takes the engine with it and nothing is orphaned.
+- `candil stop` reads the file, not just this VM's pool, and sends `TERM`
+  rather than `KILL` so an engine unloading 20 GB gets to close things in
+  order.
+- `candil status` reports `STATE` from the health poller instead of from
+  whether a row exists. A row whose server stopped answering is `DOWN`, and a
+  table that says `ON` for it sends the user after the wrong bug.
 - `test/candil/build/source_real_test.exs` — the `:source` strategy against a
   real `cmake`, when one is on the `PATH`. The hermetic suite uses a stand-in
   for `cmake`, which is what lets it assert the exact argv a process received

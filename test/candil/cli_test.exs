@@ -7,7 +7,7 @@ defmodule Candil.CLITest do
 
   alias Candil.CLI
   alias Candil.CLI.{Colorize, Lifecycle, Ports, Preflight}
-  alias Candil.{Engine, EnginePool, Model, Store}
+  alias Candil.{Engine, EnginePool, Instances, Model, Store}
 
   doctest Candil.CLI.Version
 
@@ -249,7 +249,10 @@ defmodule Candil.CLITest do
       [row] = Jason.decode!(out)
       assert row["model"] == "coder"
       assert row["port"] == 9999
-      assert row["state"] == "ON"
+      # There IS a row, and nothing is serving on that port. "ON" here used
+      # to mean "there is a row", which sent the user to debug the wrong
+      # thing. The honest answer with a row and no server is DOWN.
+      assert row["state"] == "DOWN"
     end
 
     test "with nothing running it says so" do
@@ -298,6 +301,112 @@ defmodule Candil.CLITest do
 
     test "an unknown flag is skipped, not fatal" do
       assert Lifecycle.parse(["--futuro", "x", "--force"])[:force]
+    end
+  end
+
+  describe "run --detach (fase 4)" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "candil-f4-#{System.unique_integer([:positive])}")
+      previous = System.get_env("CANDIL_DATA_DIR")
+      System.put_env("CANDIL_DATA_DIR", dir)
+
+      on_exit(fn ->
+        File.rm_rf(dir)
+        if previous, do: System.put_env("CANDIL_DATA_DIR", previous)
+      end)
+
+      :ok
+    end
+
+    test "records the instance on disk, with this process as the owner" do
+      model!(:coder)
+      engine!()
+
+      capture_io(fn -> Lifecycle.run(["coder", "--port", "10500", "--detach"]) end)
+
+      assert [instance] = Instances.read()
+      assert instance.model == "coder"
+      assert instance.port == 10_500
+      # The owner is the OS pid of THIS process, because that is the thing
+      # whose death takes the engine with it. A detached instance is never
+      # detached from its owner.
+      assert instance.owner == %{kind: :pid, pid: os_pid()}
+    end
+
+    test "an explicit --port is remembered for the next run" do
+      model!(:coder)
+      engine!()
+
+      capture_io(fn -> Lifecycle.run(["coder", "--port", "10500", "--detach"]) end)
+
+      assert 10_500 in Instances.ad_hoc_ports()
+    end
+  end
+
+  describe "stop (fase 4)" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "candil-f4b-#{System.unique_integer([:positive])}")
+      previous = System.get_env("CANDIL_DATA_DIR")
+      System.put_env("CANDIL_DATA_DIR", dir)
+
+      on_exit(fn ->
+        File.rm_rf(dir)
+        if previous, do: System.put_env("CANDIL_DATA_DIR", previous)
+      end)
+
+      :ok
+    end
+
+    test "stops an instance that lives in ANOTHER process" do
+      # The case that only exists because of instances.json: a detached engine
+      # is absent from this VM's pool by construction, and stopping only what
+      # is in memory reports "nothing running" about something running.
+      # A real second process, so "is it alive" has a real answer.
+      {out, 0} = System.cmd("sh", ["-c", "sleep 30 & echo $!"], stderr_to_stdout: true)
+      owner = out |> String.trim() |> String.to_integer()
+
+      instance = Instances.build("coder", 9999, "llama_cpp", owner, true)
+      :ok = Instances.put({"coder", 9999}, instance)
+
+      capture_io(fn -> Lifecycle.stop(["coder"]) end)
+
+      refute Instances.alive?(%{pid: owner}), "the owner was signalled but is still alive"
+      assert [] == Instances.read(), "the entry was not removed from instances.json"
+    end
+
+    test "says so when there is nothing to stop" do
+      out = capture_io(fn -> Lifecycle.stop(["nada"]) end)
+      assert out =~ "no hay instancias"
+    end
+  end
+
+  describe "status (fase 4)" do
+    test "STATE comes from the health poller, not from having a row" do
+      EnginePool.put(
+        :coder,
+        9999,
+        self(),
+        %Model{alias: :coder, type: :local, engine: :e},
+        %Engine{alias: :e}
+      )
+
+      on_exit(fn -> EnginePool.delete(:coder, 9999) end)
+
+      out = capture_io(fn -> Lifecycle.status(["--json"]) end)
+      [row] = Jason.decode!(out)
+
+      # There is a row, but nothing is serving on that port, so the honest
+      # answer is DOWN. A table that says ON here sends the user to debug the
+      # wrong thing.
+      assert row["state"] == "DOWN"
+    end
+  end
+
+  defp os_pid do
+    case System.pid() do
+      pid when is_integer(pid) -> pid
+      pid when is_binary(pid) -> String.to_integer(pid)
+      pid when is_list(pid) -> List.to_integer(pid)
     end
   end
 end
