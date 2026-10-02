@@ -1,0 +1,76 @@
+defmodule Candil.CLI.Colorize do
+  @moduledoc """
+  Colours a running `llama-server`'s output by pattern.
+
+  Twenty-five lines, and they are what makes a 20 GB load legible: the first
+  minute of a start is a wall of progress percentages, and the three lines that
+  matter — the error, the throughput, and the moment the model is loaded — all
+  look the same as the noise around them without this.
+
+  ## Rules
+
+  Red for the words that mean stop: OOM, CUDA errors, segfaults. Magenta for
+  throughput, because that is the number you are waiting for. Green for the
+  two lines that mean it worked.
+
+  Anything unrecognised is passed through untouched. A colouriser that
+  swallows or rewrites unknown output is a colouriser that will eventually
+  hide the very error it was added to surface.
+  """
+
+  @rules [
+    {:red, ~r/(OOM|out of memory|CUDA error|error|failed|segfault|abort)/i},
+    {:magenta, ~r/(tok\/s|eval time|load time)/i},
+    {:green, ~r/(server is listening|model loaded|main: server is listening|all model shards)/i}
+  ]
+
+  @colors %{
+    red: "\e[31m",
+    magenta: "\e[35m",
+    green: "\e[32m"
+  }
+
+  @reset "\e[0m"
+
+  @doc """
+  The colour a line should be, or `nil` to leave it alone.
+  """
+  @spec colour_for(binary()) :: atom() | nil
+  def colour_for(line) when is_binary(line) do
+    Enum.find_value(@rules, fn {colour, pattern} -> Regex.match?(pattern, line) && colour end)
+  end
+
+  @doc """
+  The ANSI-wrapped line, or the line unchanged when nothing matches.
+
+  A line with no colour is not padded, wrapped or touched in any way. A log
+  is not ours to reformat.
+  """
+  @spec line(binary()) :: binary()
+  def line(text) when is_binary(text) do
+    case colour_for(text) do
+      nil -> text
+      colour -> @colors[colour] <> text <> @reset
+    end
+  end
+
+  @doc """
+  A function to hand to a `:on_output` callback, one line at a time.
+  """
+  @spec printer() :: (binary() -> :ok)
+  def printer, do: fn text -> IO.write(line(text)) end
+
+  @doc """
+  Whether the terminal can take ANSI at all.
+
+  Checked once, because writing escape codes into a pipe or a log file makes
+  the file harder to read than the uncoloured version would have been.
+  """
+  @spec enabled?() :: boolean()
+  def enabled? do
+    case System.get_env("NO_COLOR") do
+      nil -> System.get_env("TERM") not in [nil, "", "dumb"]
+      _ -> false
+    end
+  end
+end

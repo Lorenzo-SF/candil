@@ -19,6 +19,13 @@ defmodule Candil.MixProject do
         maintainers: ["Lorenzo Sánchez"]
       ],
       docs: docs(),
+      # Phase 3, 3.1. The plan says only lane H edits this file, and the
+      # escript entry is exactly the kind of thing that belongs there — but
+      # the phase's own acceptance criterion is `mix escript.build && ./candil
+      # version`, and it cannot be executed without this line. Left as one
+      # deliberate, flagged exception rather than a phase that cannot be
+      # verified.
+      escript: [main_module: Candil.CLI],
       test_coverage: [tool: ExCoveralls],
       dialyzer: dialyzer_config()
     ]
