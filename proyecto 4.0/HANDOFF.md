@@ -6,8 +6,11 @@
 > **está hecho, medido y verificado**, y lo que toca mañana. Cuando se
 > contradigan, este tiene razón sobre el presente y aquel sobre el futuro.
 >
-> **Fecha**: 2026-10-01 · **Rama**: `4.0` · **Toolchain**: Erlang/OTP 28.5.0.7,
-> Elixir 1.19.5-otp-28 · **Punto de partida**: tag `4.0-work-start`
+> **Fecha**: 2026-10-02 · **Rama**: `4.0` · **Toolchain**: Erlang/OTP 28.5.0.7,
+> Elixir 1.19.5-otp-28 · **Punto de partida**: tag `4.0-contracts-frozen`
+>
+> **Las fases 0 y 1 están cerradas** (PR #21 y #22, ambos con el CI en
+> verde). Este documento se actualizó con lo medido, no con lo previsto.
 
 ---
 
@@ -17,11 +20,11 @@
 |---|---|
 | Rama de trabajo | `4.0` |
 | `main` | Intacta, con su CI viejo. No se ha tocado. |
-| Tag de partida | `4.0-work-start` |
-| Tests | **515 tests + 24 doctests**, 0 fallos |
-| Cobertura | **63.1 %** (era 52.7 % en el tag) |
+| Tag de partida | `4.0-contracts-frozen` |
+| Tests | **549 tests + 24 doctests**, 0 fallos |
+| Cobertura | **64.6 %** (era 52.7 % en el tag de partida) |
 | Gates | **8 de 8 en verde** |
-| Commits en `4.0` | 12 |
+| PRs abiertos | #21 fase 0 · #22 fase 1 · #18 fase 2 (otra sesión) |
 
 ### Los ocho gates, y los comandos exactos
 
@@ -81,67 +84,39 @@ tests.
 `Engine.Server.build_args/2` emite `--api-key` y `--alias` en la línea de
 comandos. El camino local ya puede hablar con un `llama-server` protegido.
 
-### Lo que aún es stub, y es intencionado
+### Lo que aún es stub, y en qué fase
 
-Doce funciones, todas con un contrato escrito y un test que lo ejerce:
-
-```
-Candil.Source.fetch/2            fase 1     Candil.RAG.index/3            fase 10
-Candil.Source.progress/1         fase 1     Candil.RAG.search/3           fase 10
-Candil.Build.install/2           fase 2     Candil.RAG.create_index/2     fase 10
-Candil.Config.File.save/2        fase 1     Candil.RAG.drop_index/1       fase 10
-Candil.MCP.serve/1               fase 9     Candil.RAG.list_indexes/0     fase 10
-Candil.MCP.connect/1             fase 9
-Candil.Gateway.Endpoint.listen/4 fase 8
-```
-
-Ninguna lanza una excepción: devuelven
+Nueve. Todos con contrato escrito, spec y tests. Ninguno lanza: devuelven
 `{:error, %Candil.Error{reason: :not_implemented}}`, que cumple su propio
-`@spec`. Un stub que hace `raise` es `none()` para dialyzer, así que un
-freeze de contratos basado en raise necesita un fichero de ignore — y un
-fichero de ignore es justo lo que luego oculta un `no_return` real.
+`@spec`. Un stub que hace `raise` es `none()` para dialyzer.
 
----
-
-## 3. Lo siguiente: Fase 0, los bugs y H1
-
-**Es la fase que desbloquea todo lo demás.** Sin H1 implemented no se puede
-arrancar nada contra ropero.
-
-Orden recomendado, tal cual está en el documento de diseño:
-
-1. **Los 4 stubs de backend** (2 h) — `LlamaCpp.chat/3`, `chat_stream/3`,
-   `OpenAICompat.chat_stream/3` (borrar `build_chunk_stream/1`: un stream de
-   un chunk con `Process.sleep(50)` no es una feature a arreglar, es
-   eliminación), `OpenAICompat.embed/3` (batch en una request).
-2. **H1, la cabecera** (3 h) — el diseño ya está escrito y probado en
-   `test/candil/engine_auth_test.exs`; falta **usarlo** en
-   `Inference.Chat.do_chat_local/3`, `Inference.Embeddings.do_embed_local/3`
-   y `Stream.chat/4`. La prueba de aceptación es un `llama-server` real con
-   `--api-key`, y el mismo test con la key quitada esperando 401.
-3. **B5** (15 min) — `api_key` acepta un string plano. Ya está hecho en
-   `Store.register_provider/1`; queda propagarlo a `Provider` y su doc.
-4. **B6** (30 min) — `trebejo` ya está declarada; queda comprobar que
-   `Detector.safe_arch/0` ya no degrada en silencio.
-5. **B7** (1 h) — `EnginePool` sin LRU.
-6. **B8** (1 h) — checksum en streaming, no `File.read/1` de 17 GB.
-
-### La prueba que decide si la absorción es viable
-
-```bash
-llama-server --model ~/.candil/models/jina-code-embeddings-1.5b-Q8_0.gguf \
-  --port 39999 --api-key sk-test-key -fa on --embedding &
-
-iex> engine = %Candil.Engine{alias: :t, binary: "llama-server",
-           host: "127.0.0.1", port: 39999, api_key: "sk-test-key"}
-iex> Candil.Engine.start(engine, model)
-iex> Candil.embed(:embed_test, ["hola", "adios"])
+```
+Candil.Build.install/2            fase 2
+Candil.Gateway.Endpoint.listen/4  fase 8
+Candil.MCP.serve/1                fase 9
+Candil.MCP.connect/1              fase 9
+Candil.RAG.create_index/2         fase 10
+Candil.RAG.index/3                fase 10
+Candil.RAG.search/3               fase 10
+Candil.RAG.drop_index/1           fase 10
+Candil.RAG.list_indexes/0         fase 10
 ```
 
-Si eso devuelve vectores, todo lo demás es mecánico. Si devuelve 401, el
-problema no era H1.
-
 ---
+
+## 3. Lo siguiente
+
+La **fase 0** (los ocho bugs) y la **fase 1** (Source y el TOML) están
+hechas. La **fase 2** la lleva otra sesión en el PR #18.
+
+Lo que sigue en este carril, en orden:
+
+- **Conectar el resto de H1.** La ruta local ya manda cabeceras de
+  autenticación y el servidor ya recibe `--api-key`. Falta el test de
+  aceptación contra un `llama-server` real, que es el que decide si la
+  absorción de ropero es viable.
+- **Fase 2** si el PR #18 no lo cierra del todo.
+- **Fase 3** (CLI) — `PROMPT-FASE-3.md` lo trae la otra sesión.
 
 ## 4. Lo que se rompió por el camino, y conviene no repetirlo
 
@@ -158,6 +133,10 @@ cada uno costó tiempo:
 | `RAG.embedder/1` devolvía el string del TOML | `Store` está indexado por átomos. Todo fallo, siempre |
 | `expand/1` casaba claves como átomos con un mapa de TOML | Compilaba, pasaba el test vacío, no hacía nada en real |
 | El rename de `Config` arrastró a `ConfigManager` | Un reemplazo de cadena no es un rename |
+| El callback del stream devolvía `{:cont, acc}` | `Finch.stream/5` **envuelve** el callback: su retorno *es* el acumulador. La tupla se anidaba en cada chunk |
+| Reanudar abría con `[:read, :write]` | El `read_write` de Erlang **trunca** sin `:no_truncate`. Media descarga se pisaba y quedaba un fichero de la mitad del tamaño |
+| El writer TOML emitía `## header` | `##` es un comentario. El documento entero hacía round-trip a una tabla plana |
+| `Enum.split_with/2` leído al revés | Devuelve `{coincidentes, no_coincidentes}`. Todos los escalares acababan como sub-tablas |
 
 El patrón común: **una línea plausible que no puede fallar en el test que la
 ejerce**. O porque el test construye el dato con el mismo error, o porque el
