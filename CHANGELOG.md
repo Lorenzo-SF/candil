@@ -20,6 +20,16 @@ else in the 4.0 contract freeze is tooling and documentation.
   `:source` clones the repository, runs `cmake` twice and copies what it finds.
   Options: `:asset_url` to pin the download, `:cmake` for a toolchain that is
   not the one on the `PATH`, `:on_output` to stream compiler output.
+- `Candil.Doctor` — seven checks (`candil doctor`), and for every "no" the
+  command that fixes it. The message is the product: "engine failed" moves the
+  problem, "candil engine install (estrategia source)" solves it. Memory and
+  disk go to `Botica.Batteries`; the other five are ours because they are about
+  models, engines, ports and keys.
+- `Candil.Application` hydrates the `Store` from `candil.toml` on boot, after
+  the supervision tree is up. `Config.Hydrate` existed since phase 3 and
+  nothing called it, so the file was parsed and discarded and every
+  `candil models list` printed an empty table that looks like a broken config.
+  A broken config is a warning, never a reason to refuse to boot.
 - `Candil.Instances` — the on-disk record of what is running, for the case the
   `EnginePool` cannot answer: after `--detach` the owner is another process in
   another VM, and the only thing a second `candil` can read is
