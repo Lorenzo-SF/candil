@@ -15,6 +15,10 @@ defmodule Candil.CLITest do
     Enum.each(Store.list_models(), &Store.deregister_model(&1.alias))
     Enum.each(Store.list_engines(), &Store.deregister_engine(&1.alias))
     Enum.each(Store.list_providers(), &Store.deregister_provider(&1.alias))
+    # The EnginePool is shared too. `Engine.stop/1` now clears it, but a file
+    # that dies mid-test can still leave an instance behind, and `status` would
+    # then print a row where this test expects an empty registry.
+    Enum.each(EnginePool.list(), &EnginePool.delete(&1.alias, &1.port))
     :ok
   end
 
