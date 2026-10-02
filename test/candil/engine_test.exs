@@ -18,7 +18,7 @@ defmodule Candil.EngineTest do
   use ExUnit.Case, async: false
   import Mox
 
-  alias Candil.{Engine, HTTPAdapterMock}
+  alias Candil.{Engine, EnginePool, HTTPAdapterMock}
 
   setup :verify_on_exit!
 
@@ -135,6 +135,9 @@ defmodule Candil.EngineTest do
       assert Engine.base_url(model_alias) == "http://127.0.0.1:65535"
 
       :ok = Engine.stop(model_alias)
+      # start/2 registers in the EnginePool; stop/1 has to take it out again,
+      # or the next file sees a row for a server that is not running.
+      assert [] = EnginePool.list() |> Enum.filter(&(&1.alias == model_alias))
     end
 
     test "propagates launcher errors verbatim" do

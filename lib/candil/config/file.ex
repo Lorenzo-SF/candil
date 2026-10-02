@@ -157,18 +157,27 @@ defmodule Candil.Config.File do
   # `source` and `draft` are both source tables, so they get the same
   # treatment: `dest` and `path` are filesystem paths and get expanded.
   #
+  # They are handled independently rather than as two clauses. Two clauses with
+  # one pattern each looks equivalent and is not: a model with a `source` never
+  # reaches the `draft` clause, so its draft path kept a literal `~`. That is
+  # the one model that has a draft at all, and a literal `~` there is the C22
+  # trap — `--model-draft` arrives at llama-server between quotes.
+  #
   # The keys are strings because the map came out of a TOML document. Matching
   # on atoms here is a mistake that compiles, passes the empty-document test,
   # and silently does nothing for every real config.
-  defp expand_source(%{"source" => source} = spec) when is_map(source) do
-    Map.put(spec, "source", expand_source_table(source))
+  defp expand_source(spec) when is_map(spec) do
+    spec
+    |> expand_source_key("source")
+    |> expand_source_key("draft")
   end
 
-  defp expand_source(%{"draft" => draft} = spec) when is_map(draft) do
-    Map.put(spec, "draft", expand_source_table(draft))
+  defp expand_source_key(spec, key) do
+    case Map.get(spec, key) do
+      source when is_map(source) -> Map.put(spec, key, expand_source_table(source))
+      _ -> spec
+    end
   end
-
-  defp expand_source(spec), do: spec
 
   defp expand_source_table(source) do
     source |> maybe_expand_key("dest") |> maybe_expand_key("path")

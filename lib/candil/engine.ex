@@ -301,10 +301,10 @@ defmodule Candil.Engine do
   defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
     cond do
       engine.launcher != nil ->
-        register_start_result(start_via_launcher(engine, model), engine)
+        register_start_result(start_via_launcher(engine, model), engine, model)
 
       binary_exists?(engine) ->
-        register_start_result(start_via_server(engine, model), engine)
+        register_start_result(start_via_server(engine, model), engine, model)
 
       installable?(engine) ->
         case Installer.download_engine(engine) do
@@ -321,20 +321,32 @@ defmodule Candil.Engine do
   defp installable?(%__MODULE__{install: %{strategy: :none}}), do: false
   defp installable?(%__MODULE__{}), do: true
 
-  defp register_start_result(res, engine) do
+  defp register_start_result(res, engine, model) do
     case res do
       {:ok, pid} ->
-        EnginePool.put(engine)
+        register_instance(pid, engine, model)
         {:ok, pid}
 
       :ok ->
-        EnginePool.put(engine)
+        register_instance(nil, engine, model)
         :ok
 
       {:error, reason} ->
         {:error, reason}
     end
   end
+
+  defp register_instance(pid, engine, model) do
+    EnginePool.put(model.alias, instance_port(model, engine), pid, model, engine)
+  end
+
+  # `Model.port` is the authority in 4.0 (C8), but `Candil.Engine.Server` still
+  # binds to `engine.port`, and `:auto` means nothing until the CLI resolves it
+  # (§11.2). So this registers the port the server is actually answering on.
+  # When the server moves to the model's port, this clause quietly stops being
+  # the one that matches.
+  defp instance_port(%Candil.Model{port: port}, %__MODULE__{}) when is_integer(port), do: port
+  defp instance_port(_model, %__MODULE__{port: port}), do: port
 
   defp start_via_server(%__MODULE__{} = engine, %Candil.Model{} = model) do
     Server.start_link(%{engine: engine, model: model})
@@ -362,17 +374,33 @@ defmodule Candil.Engine do
   Stops the engine server running the given model alias.
 
   Returns `:ok` or `{:error, :not_running}`.
+
+  The `EnginePool` entry goes with it. `start/2` registers there and the
+  registry key is only the alias, so a stop that cleaned one and not the other
+  left the pool claiming an instance that was no longer running — which is how
+  a `status` ends up printing a dead row and `claim_port/2` eventually hands out
+  a port that is still in use.
   """
   @spec stop(atom()) :: :ok | {:error, :not_running}
   def stop(model_alias) when is_atom(model_alias) do
     case Registry.lookup(registry(), model_alias) do
       [{pid, _}] ->
         GenServer.stop(pid, :normal)
+        forget(model_alias)
         :ok
 
       [] ->
+        forget(model_alias)
         {:error, :not_running}
     end
+  end
+
+  # The pool is keyed by {alias, port}, so every instance of the model goes,
+  # not just the first.
+  defp forget(model_alias) do
+    EnginePool.list()
+    |> Enum.filter(&(&1.alias == model_alias))
+    |> Enum.each(&EnginePool.delete(&1.alias, &1.port))
   end
 
   @doc """
