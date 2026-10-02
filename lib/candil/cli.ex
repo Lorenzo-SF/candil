@@ -30,7 +30,11 @@ defmodule Candil.CLI do
   # falls through to the help and looks like a broken binary.
   @commands %{
     "version" => {Candil.CLI.Version, ["version", "--version", "-v"]},
-    "help" => {Candil.CLI.Help, ["help", "--help", "-h"]}
+    "help" => {Candil.CLI.Help, ["help", "--help", "-h"]},
+    "models" => {Candil.CLI.Models, ["models", "model"]},
+    "run" => {Candil.CLI.Lifecycle, ["run"]},
+    "stop" => {Candil.CLI.Lifecycle, ["stop"]},
+    "status" => {Candil.CLI.Lifecycle, ["status"]}
   }
 
   @default "help"
@@ -56,8 +60,20 @@ defmodule Candil.CLI do
   @spec run([binary()]) :: :ok
   def run(argv) do
     {module, _} = Map.fetch!(@commands, canonical(argv))
-    module.run(argv)
+    module.run(rest(argv))
   end
+
+  # `models` and `stop` are groups: `candil models list` needs the subcommand,
+  # not the group name, passed on. `run` and `status` need their arguments.
+  defp rest(argv) do
+    case Map.fetch!(@commands, canonical(argv)) do
+      {Candil.CLI.Models, _} -> Enum.drop(argv, 1)
+      _ -> argv
+    end
+  end
+
+  @doc false
+  def dispatch(argv), do: run(argv)
 
   @doc """
   The command table, for `mix help` and for anything that wants to render it
