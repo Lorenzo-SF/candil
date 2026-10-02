@@ -24,7 +24,21 @@
 | Tests | **549 tests + 24 doctests**, 0 fallos |
 | Cobertura | **64.6 %** (era 52.7 % en el tag de partida) |
 | Gates | **8 de 8 en verde** |
-| PRs abiertos | #21 fase 0 · #22 fase 1 · #18 fase 2 (otra sesión) |
+| Fases cerradas | −1 contratos · −0 gates · 0 los ocho bugs · 1 Source y TOML |
+
+### Ramas y PRs
+
+```
+main        16a6ecf   fase −1 y −0, mergeados
+ 4.0                   todo lo anterior más las fases 0 y 1
+ 4.0-f2-build          PR #18, fase 2, otra sesión
+```
+
+La fase 2 va por delante de la 0 y la 1 en el calendario, no en la
+dependencia: `Build.install/2` y el rewrite de `EnginePool` no tocan la
+ruta local de inferencia. Cuando las dos se mergeen, `EnginePool` aparece
+en `main` dos veces y hay que quedarse con la versión de la fase 2, que
+además es la que trae `claim_port/2`.
 
 ### Los ocho gates, y los comandos exactos
 
