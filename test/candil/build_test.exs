@@ -117,18 +117,87 @@ defmodule Candil.BuildTest do
     end
   end
 
-  describe "contract stubs" do
-    test "install/2 returns an error naming the function" do
-      assert {:error, %Candil.Error{reason: :not_implemented, context: context}} =
-               Build.install(@source)
-
-      assert context.function == "Candil.Build.install/2"
-      assert context.phase == 2
+  describe "jobs/1" do
+    test "jobs 0 means one per online scheduler" do
+      assert Build.jobs(%{@source | jobs: 0}) == System.schedulers_online()
     end
 
-    test "check/1 returns the missing list its spec promises" do
-      assert {:error, ["Candil.Build.check/1 is not implemented (phase 2)"]} =
-               Build.check(@source)
+    test "an explicit count is taken as given" do
+      assert Build.jobs(%{@source | jobs: 3}) == 3
+    end
+  end
+
+  describe "configure_command/1" do
+    test "puts the declared generator in front of everything" do
+      assert {"cmake", ["-G", "Ninja" | _rest]} = Build.configure_command(@source)
+
+      assert {"cmake", ["-G", "Unix Makefiles" | _]} =
+               Build.configure_command(%{@source | generator: :make})
+    end
+
+    test "still hands the user's arguments over verbatim, after ours" do
+      {_exec, argv} = Build.configure_command(@source)
+      ours = length(argv) - length(@source.cmake_args)
+      assert Enum.slice(argv, ours, length(@source.cmake_args)) == @source.cmake_args
+    end
+  end
+
+  describe "build_command/1" do
+    test "uses --parallel, which both ninja and make understand" do
+      assert {"cmake", argv} = Build.build_command(%{@source | jobs: 4})
+      assert ["--build", "/build/llama.cpp", "--parallel", "4"] == argv
+    end
+
+    test "resolves jobs 0 before it reaches the command line" do
+      assert {"cmake", argv} = Build.build_command(%{@source | jobs: 0})
+      assert List.last(argv) == Integer.to_string(System.schedulers_online())
+    end
+  end
+
+  describe "check/1" do
+    setup do
+      dir = Path.join(System.tmp_dir!(), "candil-check-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(dir)
+      on_exit(fn -> File.rm_rf(dir) end)
+      {:ok, dir: dir}
+    end
+
+    test "is :ok when nothing was declared" do
+      assert :ok = Build.check(%Build{strategy: :none})
+    end
+
+    test "reports every declared binary that is not there", %{dir: dir} do
+      plan = %Build{@source | dir: dir, binaries: ["llama-server", "llama-cli"]}
+      assert {:error, missing} = Build.check(plan)
+      assert Enum.sort(missing) == ["llama-cli", "llama-server"]
+    end
+
+    test "counts a binary that lost its executable bit as missing", %{dir: dir} do
+      File.write!(Path.join(dir, "llama-server"), "#!/bin/sh\n")
+      File.chmod!(Path.join(dir, "llama-server"), 0o644)
+      File.write!(Path.join(dir, "llama-cli"), "#!/bin/sh\n")
+      File.chmod!(Path.join(dir, "llama-cli"), 0o755)
+
+      plan = %Build{@source | dir: dir, binaries: ["llama-server", "llama-cli"]}
+      assert {:error, ["llama-server"]} = Build.check(plan)
+    end
+
+    test "is :ok when every declared binary is present and executable", %{dir: dir} do
+      for name <- ["llama-server", "llama-cli"] do
+        path = Path.join(dir, name)
+        File.write!(path, "#!/bin/sh\n")
+        File.chmod!(path, 0o755)
+      end
+
+      plan = %Build{@source | dir: dir, binaries: ["llama-server", "llama-cli"]}
+      assert :ok = Build.check(plan)
+    end
+  end
+
+  describe "strategy :none" do
+    test "install says there is nothing to do rather than pretending" do
+      assert {:error, "nothing to install: strategy is :none"} =
+               Build.install(%Build{strategy: :none})
     end
   end
 end

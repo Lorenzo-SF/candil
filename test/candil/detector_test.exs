@@ -1,10 +1,13 @@
 defmodule Candil.DetectorTest do
   use ExUnit.Case, async: false
 
+  import ExUnit.CaptureLog
   import Mox
 
   alias Apero.Http.{Request, Response}
   alias Candil.{Detector, HTTPAdapterMock}
+  alias Candil.Detector.Models
+  alias Trebejo.OS
 
   setup :verify_on_exit!
 
@@ -81,6 +84,108 @@ defmodule Candil.DetectorTest do
       end)
 
       assert {:ok, ^download_url} = Detector.asset_url(:latest)
+    end
+  end
+
+  # B6. A missing Trebejo used to turn into a bare `:unknown`, and the
+  # precompiled binary was then chosen from it and failed three layers later
+  # with nothing connecting the two. The shape of `detect/0` did not change —
+  # callers depend on it — but the reason now travels with it and is logged.
+
+  describe "safe_arch/0" do
+    test "returns a tagged tuple, never a bare value" do
+      # The contract is the shape, not the answer: whichever way it goes, the
+      # caller is told which one it is.
+      case Detector.safe_arch() do
+        {:ok, arch} -> assert is_atom(arch)
+        {:error, :trebejo_not_available} -> :ok
+      end
+    end
+
+    test "agrees with Trebejo when Trebejo is there" do
+      assert {:ok, arch} = Detector.safe_arch()
+      assert arch == OS.arch()
+    end
+
+    test "is public, so a caller can ask before downloading anything" do
+      assert function_exported?(Detector, :safe_arch, 0)
+    end
+  end
+
+  describe "detect/0 when the architecture cannot be read" do
+    test "carries the reason instead of hiding it" do
+      detection = Detector.detect()
+
+      if detection.arch == :unknown do
+        assert detection.arch_error == :trebejo_not_available
+      else
+        assert detection.arch_error == nil
+      end
+    end
+
+    test "logs a warning that names the problem" do
+      log =
+        capture_log(fn ->
+          send(self(), {:detection, Detector.detect()})
+        end)
+
+      assert_received {:detection, detection}
+
+      if detection.arch_error do
+        assert log =~ "trebejo_not_available"
+        assert log =~ ":unknown"
+      else
+        refute log =~ "trebejo_not_available"
+      end
+    end
+
+    test "still builds an asset pattern, degraded or not" do
+      detection = Detector.detect()
+      assert is_binary(detection.asset_pattern)
+      assert detection.asset_pattern != ""
+    end
+  end
+
+  # Found by running the real API, not by reading it. `releases/latest` for
+  # llama.cpp is a version tag with no binaries in it, and the old fallback
+  # answered that by handing back a Windows CUDA zip — on Linux.
+
+  describe "find_matching_asset/2 against the real shape of a release" do
+    @real_release [
+      %{
+        "name" => "cudart-llama-bin-win-cuda-12.4-x64.zip",
+        "browser_download_url" => "https://example.test/WIN.zip"
+      },
+      %{
+        "name" => "llama-b11327-bin-ubuntu-x64.zip",
+        "browser_download_url" => "https://example.test/UBUNTU.zip"
+      },
+      %{
+        "name" => "llama-b11327-bin-macos-arm64.zip",
+        "browser_download_url" => "https://example.test/MAC.zip"
+      }
+    ]
+
+    @empty_release [
+      %{"name" => "nightly-tag.txt", "browser_download_url" => "https://example.test/x"}
+    ]
+
+    test "returns the asset that matches, when there is one" do
+      assert {:ok, "https://example.test/UBUNTU.zip"} =
+               Models.find_matching_asset(@real_release, "bin-ubuntu-x64")
+    end
+
+    test "refuses rather than offering a binary for another platform" do
+      # The one that used to be a Windows CUDA zip. Downloading it on Linux
+      # works, unpacking it works, and running it does not.
+      assert {:error, {:no_such_platform, "bin-linux-riscv64"}} =
+               Models.find_matching_asset(@real_release, "bin-linux-riscv64")
+    end
+
+    test "says the release has no binaries at all, separately" do
+      # `:latest` for llama.cpp lands here, and the two are different problems.
+      assert {:error, :no_matching_asset} =
+               Models.find_matching_asset(@empty_release, "bin-ubuntu-x64")
     end
   end
 end

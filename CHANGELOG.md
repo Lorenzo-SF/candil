@@ -7,10 +7,56 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
-Nothing changes in the public API. This is tooling and documentation for the
-4.0 line; the API breaks land with `4.0.0-alpha.1` and later.
+The `Candil.EnginePool` API breaks here, on purpose (C13): it was an LRU of
+engines with no capacity to enforce, and the 4.0 line is a major. Everything
+else in the 4.0 contract freeze is tooling and documentation.
 
 ### Added
+- `Candil.Build.install/2` with both strategies. `:precompiled` resolves the
+  release asset through `Candil.Detector`, downloads it to a `.part` file,
+  resumes with `Range: bytes=N-` when one is already there, folds the SHA-256
+  in block by block as the bytes go past, renames into place only on success,
+  and unpacks the declared binaries into `dir` with the executable bit set.
+  `:source` clones the repository, runs `cmake` twice and copies what it finds.
+  Options: `:asset_url` to pin the download, `:cmake` for a toolchain that is
+  not the one on the `PATH`, `:on_output` to stream compiler output.
+- `test/candil/build/source_real_test.exs` — the `:source` strategy against a
+  real `cmake`, when one is on the `PATH`. The hermetic suite uses a stand-in
+  for `cmake`, which is what lets it assert the exact argv a process received
+  and nothing more. This one catches the gap a stand-in cannot: a flag that
+  only a real `cmake` validates, a build layout a real generator produces, a
+  real compiler error on a real stderr. Without `cmake` installed it says so
+  rather than passing quietly.
+  This does not delegate to `Candil.Installer.download_engine/1`, and that is a
+  decision rather than an oversight: the installer writes to
+  `engine.binary_dir` instead of the plan's own `dir`, reads no `sha256`, has
+  no `Range` resume, no `.part` and no rename, and hashes the whole download
+  with `File.read/1` — which is B8, and B8 belongs to phase 0. Sharing would
+  have meant fixing a phase-0 bug from a phase that is not allowed to touch
+  it.
+- `Candil.Build.check/1` — `:ok`, or the names of the declared binaries that are
+  absent or not executable.
+- `Candil.Build.configure_command/1` and `build_command/1` — the exact
+  `{executable, argv}` pairs, public so a test can assert the user's
+  `cmake_args` are passed verbatim without running a compiler.
+- `Candil.Build.jobs/1` — `jobs: 0` resolved to one job per online scheduler,
+  which is the `nproc` the user would have typed.
+- `Candil.EnginePool.claim_port/2` — a port in `base..max` that is free both as
+  far as the registry knows and as far as the operating system is concerned.
+  The second half is decided by actually connecting, which is the only way to
+  tell a free port from one with a dead `ropero` still holding the socket.
+- `Candil.EnginePool.delete/2`, `get/2`, `by_model/1`, `list/0`, `count/0` and
+  `ports/0`.
+- `proyecto 4.0/candil.toml` — ropero's configuration, translated by hand
+  (C15). It loads and validates: 1 engine, 1 provider, 3 consumers, 7 models,
+  and all seven register in `Candil.Store`.
+- `proyecto 4.0/PROMPT-FASE-3.md` — the handoff prompt for phase 3, in the
+  same shape as the phase 2 one. It opens by saying what phase 3 cannot be
+  verified against, because the dependency graph runs F0 → F1 → F2 → F3 and
+  the first two have not been done.
+- `HANDOFF.md` §3-bis — what phase 2 wrote but could not execute here, and the
+  commands to run on a machine that has a GPU. Green is not the same as
+  verified, and this section is the difference.
 - `.tool-versions` pinning Erlang/OTP 28.5.0.7 and Elixir 1.19.5-otp-28, kept
   in sync with the CI env.
 - `proyecto 4.0/PLAN-PARALELO.md` — execution plan for the 12 phases: a contract
@@ -29,6 +75,19 @@ Nothing changes in the public API. This is tooling and documentation for the
   and a coverage floor that can only go up.
 
 ### Changed
+- **`Candil.EnginePool` is a registry, not a pool.** It was an LRU of engines
+  with a `get/0` that returned the least-recently-used one and an `evict/0`
+  that nothing called — so it was the record of the last write, wearing a name
+  that promised capacity management. Four 20 GB models do not fit, and an LRU
+  of four entries does not change that; the LRU was pretending to solve a
+  memory-pressure problem nobody has. It is now `%{{alias, port} => instance}`
+  with no eviction. `put/1` became `put/5` and is a `call` rather than a
+  `cast`, because a cast answers `:ok` whether or not anything was stored, and
+  the answer decided which port the next request went to. `get/0` stays for one
+  release, deprecated and answering `:empty`; `evict/0` is gone.
+- `Candil.Engine.start/2` registers `{model.alias, port}` together with the
+  model and the engine, so an instance says what it is serving and not only
+  which binary started it.
 - `apero` and `arrea` now declare `branch: "main"` explicitly, and all four
   GitHub deps declare `override: true`. Without the branch, a dep silently
   follows whatever the remote HEAD is. Without the override, Mix reads
@@ -40,6 +99,14 @@ Nothing changes in the public API. This is tooling and documentation for the
   build directory is no longer committable.
 
 ### Fixed
+- `Candil.Config.File.expand/1` never expanded a `draft` path for a model that
+  also had a `source`. The two source tables were handled by two function
+  clauses with one pattern each, and a model with a `source` never reached the
+  `draft` one. The only model in the ropero configuration that has a draft is
+  exactly the one that also has a source, so its `--model-draft` path kept a
+  literal `~` — which reaches `llama-server` between quotes and becomes a
+  directory named `~` (C22). The test that claimed to cover this used a model
+  with a draft and no source, which is the one shape that already worked.
 - Two CI gates that did not gate anything: `mix deps.audit` does not exist (it
   is `mix hex.audit`), and excoveralls' `minimum_coverage` is only enforced by
   `mix coveralls.html` and `mix coveralls.cobertura`, never by a plain

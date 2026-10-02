@@ -223,13 +223,13 @@ IO.puts(response.content)
 - **Candil.Llm** — Punto de entrada principal para todas las operaciones LLM
 - **Candil.Engine** — Gestiona procesos locales de llama-server
 - **Candil.Engine.Server** — GenServer que envuelve el proceso OS de llama-server
-- **Candil.EnginePool** — Seguimiento LRU de engines activos
+- **Candil.EnginePool** — Registro de instancias vivas, indexado por `{model, port}`
 - **Candil.Inference** — Maneja chat completions y embeddings
 - **Candil.HTTP** — Cliente HTTP compartido con reintentos, circuit breaker y rate limiting
 - **Candil.Stream** — Soporte de streaming SSE
 - **Candil.Provider** — Abstracción de provider remoto (OpenAI, Anthropic, Ollama)
 - **Candil.Model** — Definiciones de modelos (local o remoto)
-- **Candil.Config** — Registro ETS para engines, modelos y providers
+- **Candil.Store** — Registro ETS para engines, modelos y providers
 - **Candil.ConfigManager** — Validación y normalización de configuración de providers
 - **Candil.Error** — Errores unificados de inferencia y transporte
 - **Candil.Cost** — Estimación de coste por tokens para modelos conocidos

@@ -219,4 +219,43 @@ defmodule Candil.SourceFetchTest do
       end
     end
   end
+
+  # The marker is not what makes a re-download skip: `present?/1` does that,
+  # and it did before. What the marker answers is a different question — was
+  # this file verified by us, or is it just a file that happens to be there.
+
+  describe "the .complete marker" do
+    test "is written when a download commits, and only then", ctx do
+      source = url_source(ctx.port, dir: ctx.dir)
+
+      refute Source.complete?(source)
+      assert {:ok, _path} = Source.fetch(source)
+      assert Source.complete?(source)
+    end
+
+    test "is absent when the checksum does not match", ctx do
+      source = url_source(ctx.port, dir: ctx.dir, sha256: String.duplicate("0", 64))
+
+      assert {:error, _} = Source.fetch(source)
+      refute Source.complete?(source)
+    end
+
+    test "says a hand-placed file is present but unverified", ctx do
+      source = url_source(ctx.port, dir: ctx.dir)
+      dest = Source.dest_path(source)
+      File.write!(dest, "a gguf somebody copied in")
+
+      assert Source.present?(source)
+      refute Source.complete?(source)
+    end
+
+    test "does not change whether a second call re-downloads", ctx do
+      source = url_source(ctx.port, dir: ctx.dir)
+      assert {:ok, path} = Source.fetch(source)
+      mtime = File.stat!(path).mtime
+
+      assert {:ok, ^path} = Source.fetch(source)
+      assert File.stat!(path).mtime == mtime
+    end
+  end
 end

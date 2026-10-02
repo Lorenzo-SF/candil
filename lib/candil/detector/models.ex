@@ -39,6 +39,23 @@ defmodule Candil.Detector.Models do
   def arch_string(:i386), do: "x86"
   def arch_string(_), do: "x64"
 
+  @doc """
+  The asset whose name contains `pattern`, or an error naming why there is none.
+
+  There used to be a fallback here: if nothing matched, take the first zip
+  that was not a source archive and offer it anyway. Run against the real
+  llama.cpp releases, that returned `cudart-llama-bin-win-cuda-12.4-x64.zip`
+  on a Linux x64 machine — a Windows CUDA bundle, which downloads fine,
+  unpacks fine, and fails the moment it is executed. It also hid the other
+  problem: the release `releases/latest` points at carries no binaries at all,
+  so `:latest` "worked" and returned the wrong thing.
+
+  A wrong binary is worse than no binary. The caller can report that this
+  machine has no published asset; it cannot report that a Windows zip was
+  downloaded in good faith.
+  """
+  @spec find_matching_asset([map()], binary()) ::
+          {:ok, binary()} | {:error, :no_matching_asset | {:no_such_platform, binary()}}
   def find_matching_asset(assets, pattern) do
     match =
       Enum.find(assets, fn asset ->
@@ -47,25 +64,19 @@ defmodule Candil.Detector.Models do
       end)
 
     case match do
-      nil ->
-        fallback = find_fallback_asset(assets)
-
-        if fallback,
-          do: {:ok, fallback["browser_download_url"]},
-          else: {:error, :no_matching_asset}
-
-      asset ->
-        {:ok, asset["browser_download_url"]}
+      nil -> {:error, no_platform(assets, pattern)}
+      asset -> {:ok, asset["browser_download_url"]}
     end
   end
 
-  defp find_fallback_asset(assets) do
-    Enum.find(assets, fn asset ->
-      name = Map.get(asset, "name", "")
-
-      String.ends_with?(name, ".zip") and
-        not String.contains?(name, "src") and
-        not String.contains?(name, "sha256")
-    end)
+  # Why there is no match, said in a way the user can act on. "there is no
+  # linux-x64 build of this release" is answerable; ":no_matching_asset" is
+  # not.
+  defp no_platform(assets, pattern) do
+    if Enum.any?(assets, &(Map.get(&1, "name", "") |> String.ends_with?(".zip"))) do
+      {:no_such_platform, pattern}
+    else
+      :no_matching_asset
+    end
   end
 end
