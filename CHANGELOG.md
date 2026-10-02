@@ -339,6 +339,12 @@ session already did it as part of phase 2, in PR #18.
   for the wrong reason; it now asserts `Enumerable`, which is the contract
   that matters.
 
+### Changed
+- `Stream.resource/3` returns a bare function rather than a `%Stream{}` in
+  Elixir 1.19. A test asserting `is_struct(stream, Stream)` had been passing
+  for the wrong reason; it now asserts `Enumerable`, which is the contract
+  that matters.
+
 ### Added — phase 1: Source and the TOML writer
 
 - `Candil.Source.fetch/2` streams a model file to disk: writes a `.part`,
