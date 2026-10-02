@@ -6,6 +6,7 @@ defmodule Candil.SourceTest do
 
   doctest Candil.Source
 
+  @hf_local %Source{kind: :local, path: Path.join(System.tmp_dir!(), "candil-source-test.bin")}
   @hf %Source{
     kind: :huggingface,
     repo: "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF",
@@ -141,26 +142,42 @@ defmodule Candil.SourceTest do
     end
   end
 
-  describe "contract stubs" do
-    test "fetch/2 returns an error that names the function, not an exception" do
-      assert {:error, %Error{reason: :not_implemented, context: context}} =
-               Source.fetch(@hf)
+  setup do
+    File.mkdir_p!(Path.dirname(@hf_local.path))
+    File.write!(@hf_local.path, "contenido")
+    on_exit(fn -> File.rm(@hf_local.path) end)
+    :ok
+  end
 
-      assert context.function == "Candil.Source.fetch/2"
-      assert context.phase == 1
+  describe "fetch/2" do
+    test "a local source returns its own path without touching the network" do
+      path = @hf_local.path
+      source = %Source{kind: :local, path: path}
+      assert {:ok, ^path} = Source.fetch(source)
     end
 
-    test "progress/1 behaves the same way" do
-      assert {:error,
-              %Error{reason: :not_implemented, context: %{function: "Candil.Source.progress/1"}}} =
-               Source.progress(@hf)
+    test "a source with no destination is an error" do
+      assert {:error, %Error{reason: :invalid_request}} = Source.fetch(%Source{kind: :url})
     end
 
-    test "the stubs honour their own spec, which is what keeps dialyzer quiet" do
-      # A stub that raises is `none()` to dialyzer and reports
-      # invalid_contract, so the contract-first stubs all need a warning
-      # filter. Returning the error keeps the spec truthful instead.
-      assert {:error, %Error{}} = Source.fetch(@hf)
+    test "an already-present file is not downloaded again" do
+      # The point of present?/1: a 17 GB model that is already on disk must
+      # not be re-fetched, and a caller must be able to ask before starting.
+      assert Source.present?(@hf_local)
+    end
+  end
+
+  describe "progress/1" do
+    test "is zero when nothing is in flight" do
+      assert {:ok, 0} = Source.progress(@hf_local)
+    end
+
+    test "is zero for a source with no destination" do
+      assert {:ok, 0} = Source.progress(%Source{kind: :url})
+    end
+
+    test "reset is safe on a source with no destination" do
+      assert :ok = Source.reset_progress(%Source{kind: :url})
     end
   end
 end

@@ -339,6 +339,44 @@ session already did it as part of phase 2, in PR #18.
   for the wrong reason; it now asserts `Enumerable`, which is the contract
   that matters.
 
+### Added — phase 1: Source and the TOML writer
+
+- `Candil.Source.fetch/2` streams a model file to disk: writes a `.part`,
+  resumes with a `Range` header, hashes as the bytes arrive, and renames into
+  place only on success. A truncated model directory is worse than a missing
+  one — every existence check says it is there and the failure surfaces at
+  load time.
+- `Candil.Source.progress/1` and `reset_progress/1`, readable from another
+  process, cleared on completion so a poller never sees a stale total.
+- `Candil.Config.File.save/2` writes atomically (temp + rename in the same
+  directory) and validates first: a config that cannot be read back is worse
+  than one that was never written, because it looks authoritative.
+- The TOML writer is hand-rolled rather than `Toml.encode/2`, and there is a
+  test that a realistic config round-trips byte-for-byte.
+
+### Fixed, found by writing the tests against a real server
+
+- The stream callback returned `{:cont, state}`, but `Finch.stream/5` wraps
+  the callback: `fun = fn entry, acc -> {:cont, fun.(entry, acc)} end`. The
+  tuple nests on every chunk and the next pattern match fails. **`Candil.Installer.stream_download/4` had the same bug** and only ever worked because a mock returned the whole body in one event.
+- The callback only knew `{:data, _}`. Finch opens every stream with
+  `{:status, code}` and `{:headers, _}`, so it raised on the first event of
+  every download.
+- Chunk data arrives as iodata. `File.write/3` calls `chardata_to_string/1`
+  on it and raises on the list form.
+- **A resumed download opened the file `[:read, :write, :binary]`. Erlang's
+  `read_write` TRUNCATES unless `:no_truncate` is given**, so the second half
+  of the file was written over the first and left a file exactly half the
+  right size — which passes every existence check.
+- The TOML writer emitted `## header` where TOML wants `[header]`. `##` is a
+  comment, so the whole document round-tripped to one flat table.
+- A TOML table is positional: every bare key belongs to the most recent
+  header, so emitting a sub-table before the scalars files all of them under
+  the sub-table. The file still parses, and still validates. Now scalars
+  first, sub-tables after.
+- `Enum.split_with/2` returns `{matching, non_matching}`. Reading it the
+  other way round filed every scalar as a sub-table.
+
 ## [3.0.0] - 2026-09-18
 
 ### Added — FASE-3 (candil 3.0)
