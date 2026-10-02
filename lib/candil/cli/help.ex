@@ -15,6 +15,7 @@ defmodule Candil.CLI.Help do
   @commands [
     {"version", "Print the version and exit"},
     {"models", "list, info, pull or remove models"},
+    {"doctor", "check this machine and say how to fix it"},
     {"help", "Print this"}
   ]
 

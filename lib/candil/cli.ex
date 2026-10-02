@@ -34,7 +34,8 @@ defmodule Candil.CLI do
     "models" => {Candil.CLI.Models, ["models", "model"]},
     "run" => {Candil.CLI.Lifecycle, ["run"]},
     "stop" => {Candil.CLI.Lifecycle, ["stop"]},
-    "status" => {Candil.CLI.Lifecycle, ["status"]}
+    "status" => {Candil.CLI.Lifecycle, ["status"]},
+    "doctor" => {Candil.CLI.Doctor, ["doctor"]}
   }
 
   @default "help"
