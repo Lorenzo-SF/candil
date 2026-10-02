@@ -11,7 +11,7 @@ defmodule Candil.Application do
   a table that is sometimes there.
 
   Note: `Arrea.Application` is NOT listed here because `Arrea` is a direct
-  dependency of Candil (`mix.exs` → `{:arrea, "~> 2.1.0"}`) and its
+  dependency of Candil (`mix.exs` → `{:arrea, "~> 3.0"}`, from GitHub) and its
   `mix.exs` declares `mod: {Arrea.Application, []}`. The OTP application
   controller starts `Arrea.Application` automatically as soon as the
   application graph boots — no manual `Arrea.Supervisor.start_link/1` call
