@@ -1,8 +1,15 @@
 defmodule Candil.Inference.Chat do
   @moduledoc false
 
-  alias Candil.{Engine, Error, HTTP, Model, Provider, RequestBuilder, Store}
+  alias Candil.{Engine, Error, HTTP, Inference, Model, Provider, RequestBuilder, Store}
 
+  # This module had no `@spec` at all, so dialyzer had to infer the return type
+  # from the body — and it inferred one that omitted `{:ok, _}`, which made
+  # every caller's success branch look unreachable. `Candil.Context.chat/4`
+  # hit it first. The contract is below, written from what the code returns:
+  # `parse_openai_response/1` answers `{:ok, response}` for any 2xx.
+  @spec do_chat_local(atom(), [Inference.message()], keyword()) ::
+          {:ok, Inference.response()} | {:error, term()}
   def do_chat_local(model_alias, messages, opts) do
     start = System.monotonic_time()
     :telemetry.execute([:candil, :llm, :chat, :start], %{}, %{model: model_alias})
@@ -36,6 +43,8 @@ defmodule Candil.Inference.Chat do
     result
   end
 
+  @spec do_chat_remote(Model.t(), Provider.t(), [Inference.message()], keyword()) ::
+          {:ok, Inference.response()} | {:error, term()}
   def do_chat_remote(%Model{} = model, %Provider{} = provider, messages, opts) do
     start = System.monotonic_time()
     :telemetry.execute([:candil, :llm, :chat, :start], %{}, %{model: model.name})

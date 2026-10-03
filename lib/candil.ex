@@ -38,6 +38,7 @@ defmodule Candil do
       Candil.Store.register_provider(provider)
   """
 
+  alias Candil.Inference
   alias Candil.Llm
 
   @doc """
@@ -101,6 +102,8 @@ defmodule Candil do
     * `:stop` — list of stop sequences
 
   """
+  @spec chat(atom(), [Inference.message()], keyword()) ::
+          {:ok, Inference.response()} | {:error, term()}
   defdelegate chat(model_alias, messages, opts), to: Llm
 
   @doc """
