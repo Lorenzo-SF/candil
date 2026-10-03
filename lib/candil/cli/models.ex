@@ -10,8 +10,8 @@ defmodule Candil.CLI.Models do
 
   alias Alaja.Components.Table
   alias Alaja.Printer, as: Say
+  alias Candil.{Concurrency, Model, Source, Store}
   alias Candil.Error, as: Err
-  alias Candil.{Model, Source, Store}
 
   @doc """
   `candil models list`.
@@ -29,9 +29,11 @@ defmodule Candil.CLI.Models do
         :ok
 
       models ->
+        models = Enum.sort_by(models, & &1.alias)
+
         Table.print(
           headers: ["alias", "type", "ctx", "port", "usage", "size", "state"],
-          rows: Enum.map(Enum.sort_by(models, & &1.alias), &row/1),
+          rows: rows(models),
           headers_color: :cyan,
           headers_effects: [:bold],
           table_border: :rounded,
@@ -40,6 +42,22 @@ defmodule Candil.CLI.Models do
 
         :ok
     end
+  end
+
+  # A row costs two filesystem calls — the size and whether the file is there —
+  # and a catalogue of twenty models is forty of them, in series, on whatever
+  # disk the models happen to live on. `Candil.Concurrency` spreads them and
+  # keeps the order, so the table does not reshuffle depending on which row
+  # finished first.
+  defp rows(models) do
+    tasks = Enum.map(models, fn model -> {model.alias, fn -> row(model) end} end)
+
+    # `map/2` already returns `{label, value}` in the order it was given, so the
+    # table keeps the sorted-by-alias order without re-sorting here. Zipping the
+    # labels in again would give `{alias, {alias, row}}` and a table of tuples.
+    tasks
+    |> Concurrency.map()
+    |> Enum.map(&elem(&1, 1))
   end
 
   defp row(%Model{} = model) do
