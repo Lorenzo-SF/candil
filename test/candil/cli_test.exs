@@ -55,6 +55,27 @@ defmodule Candil.CLITest do
     File.rm(Path.join(System.tmp_dir!(), "candil-cli-#{alias_name}.gguf"))
   end
 
+  describe "the exit status" do
+    # An escript's exit status is its `main/1` return, and only if that is an
+    # integer. Handlers return atoms, so without a translation at the boundary
+    # `candil doctor` on a machine with no engine binary printed a report full
+    # of failures and exited 0 — and a CI pipeline went green on it.
+    test "an :error from a handler becomes 1" do
+      assert Escript.exit_status(:error) == 1
+      assert Escript.exit_status({:error, :circuit_open}) == 1
+    end
+
+    test ":ok and anything unrecognised stay 0" do
+      assert Escript.exit_status(:ok) == 0
+      assert Escript.exit_status(nil) == 0
+      assert Escript.exit_status([]) == 0
+    end
+
+    test "an integer passes through, so a framework usage error is not lost" do
+      assert Escript.exit_status(2) == 2
+    end
+  end
+
   describe "dispatch" do
     test "the bare word `version` prints the version" do
       # Not just the flag. The first cut only knew `--version` and `-v`, so

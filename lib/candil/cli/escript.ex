@@ -38,12 +38,40 @@ defmodule Candil.CLI.Escript do
 
   @doc """
   Runs the CLI and returns the escript exit status.
+
+  ## Why the translation is here
+
+  An escript's exit status is its `main/1` return value, and **only if that
+  value is an integer** — anything else is 0. The DSL's `main/1` returns
+  whatever a handler returned, and handlers return `:ok` or `:error`, which are
+  atoms. So before this, `candil doctor` on a machine with no engine binary
+  printed a report full of failures and exited **0**: a CI pipeline running it
+  went green on a broken machine, and no amount of reading the output would have
+  caught it, because the output is a table and a table has no exit code.
+
+  Translating at the boundary is the right place for it: handlers keep
+  returning the meaningful atom (which is what they are tested against), and the
+  shell gets the number it can branch on.
   """
-  @spec main([binary()]) :: :ok
+  @spec main([binary()]) :: non_neg_integer()
   def main(argv) do
     terminal_policy!()
-    CLI.main(expand(argv))
+    CLI.main(expand(argv)) |> exit_status()
   end
+
+  # 2 and above are reserved for Alaja's own usage errors: a wrong flag or a
+  # missing required argument is a mistake in the *command line*, not a failure
+  # of the thing the command was asked to do. `run` without a model exits 1
+  # because the DSL treats it as usage; a command that ran and failed exits 1
+  # too, because from a script's point of view both are "it did not do what I
+  # asked". The distinction is kept in the message, which is where it is useful.
+  @doc false
+  @spec exit_status(term()) :: non_neg_integer()
+  def exit_status(0), do: 0
+  def exit_status(status) when is_integer(status), do: status
+  def exit_status(:error), do: 1
+  def exit_status({:error, _reason}), do: 1
+  def exit_status(_), do: 0
 
   @doc """
   Rewrites the leading alias tokens, in place, leaving everything else alone.

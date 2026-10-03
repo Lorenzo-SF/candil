@@ -56,3 +56,10 @@ Thumbs.db
 # --- Dialyzer PLTs ---
 /priv/plts/
 graphify-out/
+
+# El escript construido. No va al repo: un binario obsoleto commiteado es
+# indistinguible de uno recien construido cuando un smoke corre
+# `mix escript.build 2>/dev/null || true` y falla por lo que sea, y entonces
+# "el binario responde" no demuestra nada. Se commitea el codigo; el binario
+# se construye.
+candil

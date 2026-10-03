@@ -29,6 +29,17 @@ defmodule Candil.CLI do
   enough.
   """
 
+  # `halt_on_error` is deliberately NOT set, even though `Alaja.CLI` itself
+  # sets it. The difference is what Candil is. Alaja is a binary; Candil is a
+  # library that ships a binary, and `Candil.CLI.main/1` is callable in-process
+  # by a host that embeds Candil — that is how the CLI is tested, and it is a
+  # real thing a user can do. `halt_on_error` generates `System.halt/1`, which
+  # is uncatchable, so it takes the caller's VM down with it: the test suite
+  # died mid-run without a summary, which is a much more expensive way to
+  # discover the same thing.
+  #
+  # The exit status does not need it. `Candil.CLI.Escript` translates whatever
+  # a handler returned into an integer, and that is the number a shell reads.
   use Alaja.CLI.Definition,
     otp_app: :candil,
     command_help: true,
