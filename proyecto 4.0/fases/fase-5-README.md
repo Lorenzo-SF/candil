@@ -80,8 +80,8 @@ dos veces.
 2. LEE ESTO
 ════════════════════════════════════════════════════════════════════════
 
-  1. proyecto 4.0/PLAN-F5-F9-F10.md → sección de la fase 5
-  2. proyecto 4.0/candil-4.0-final.md → SOLO la §17 (línea ~1419) y la
+  1. proyecto 4.0/fases/PLAN-VENTANA-PARALELA.md → sección de la fase 5
+  2. proyecto 4.0/original/candil-4.0-final.md → SOLO la §17 (línea ~1419) y la
      Fase 5 (línea ~2552). NO leas el documento entero: son 3.000 líneas
   3. proyecto 4.0/HANDOFF.md §2 y §3
 

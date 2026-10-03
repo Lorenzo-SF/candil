@@ -315,7 +315,7 @@ El carril H mantiene, en cada fase:
 |---|---|
 | `README.md` | Ejemplo ejecutable y **verificado**. Si el ejemplo no corre, no está. |
 | `CHANGELOG.md` | Formato Keep a Changelog. Una sección por fase, con los nombres de función reales. |
-| `docs/DESIGN.md` | Enlaza a `proyecto 4.0/candil-4.0-final.md`, no lo copia. |
+| `docs/DESIGN.md` | Enlaza a `proyecto 4.0/original/candil-4.0-final.md`, no lo copia. |
 | `docs/CONFIG.md` | El TOML comentado, siempre **sincronizado con el código**. Un `candil config example` que lo genera es mejor que un fichero escrito a mano. |
 | `groups_for_modules` en `mix.exs` | Sin módulos renombrados, porque ExDoc los convierte en enlaces muertos en silencio. Lo comprueba el job de `docs` del CI. |
 | `mix docs` | Debe construir sin warnings. Gate del CI. |
@@ -348,7 +348,7 @@ del tag. El CI solo lo ejecuta en el `schedule` semanal, para detectar deriva.
 ## 9. Checklist de arranque de cada agente
 
 ```markdown
-- [ ] He leído el §N de `proyecto 4.0/candil-4.0-final.md` de MI fase
+- [ ] He leído el §N de `proyecto 4.0/original/candil-4.0-final.md` de MI fase
 - [ ] Sé qué ficheros son míos (§3) y no voy a tocar ningún otro
 - [ ] He leído las firmas congeladas que voy a implementar
 - [ ] Mi rama es `4.0/f<N>-<nombre>`

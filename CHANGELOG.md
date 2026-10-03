@@ -49,6 +49,28 @@ else in the 4.0 contract freeze is tooling and documentation.
 - `candil status` reports `STATE` from the health poller instead of from
   whether a row exists. A row whose server stopped answering is `DOWN`, and a
   table that says `ON` for it sends the user after the wrong bug.
+- `test/candil/doctor_test.exs` — the seven checks, each with its ok, warning
+  and error; every message asserted to NAME THE COMMAND that fixes it; `--fix`
+  creating the data directory and listing what it could not do; a check that
+  raises leaving the other six intact; `--json` as a list, not an object, so
+  `jq '.[0].name'` works.
+- Every check now runs inside a guard. The moduledoc promised that one
+  exploding check would not take the report with it, and the code did not keep
+  it: only `memory/0` was wrapped, so an engine whose `binary` blew up inside
+  `Engine.binary_path/1` took all six others down — the one machine where you
+  most need the doctor.
+- `--fix` creates the data directory, the log directory and the model
+  directory. It used to hang off the `:config` check's `fix` field, so it only
+  ran when the config was broken in one particular way. A repair that depends
+  on which check failed is a repair you cannot reason about.
+- `Candil.Cost` prices moved from a literal map in the module to
+  `priv/pricing.exs`. A price change was a code change, and a table of 2024
+  numbers read in 2026 is a lie with a version number on it. Locals still
+  price at 0.0: a model on your GPU costs nothing per token, and copying the
+  provider's price for a local one would be the actual lie.
+- The `Candil.Application` moduledoc claimed `{:arrea, "~> 2.1.0"}` while arrea
+  is 3.0.0 from GitHub. It is the class of error that makes someone read a
+  docstring and make a design decision about a version that is not the real one.
 - `test/candil/build/source_real_test.exs` — the `:source` strategy against a
   real `cmake`, when one is on the `PATH`. The hermetic suite uses a stand-in
   for `cmake`, which is what lets it assert the exact argv a process received
@@ -79,7 +101,7 @@ else in the 4.0 contract freeze is tooling and documentation.
 - `proyecto 4.0/candil.toml` — ropero's configuration, translated by hand
   (C15). It loads and validates: 1 engine, 1 provider, 3 consumers, 7 models,
   and all seven register in `Candil.Store`.
-- `proyecto 4.0/PROMPT-FASE-3.md` — the handoff prompt for phase 3, in the
+- `proyecto 4.0/fases/fase-3-README.md` — the handoff prompt for phase 3, in the
   same shape as the phase 2 one. It opens by saying what phase 3 cannot be
   verified against, because the dependency graph runs F0 → F1 → F2 → F3 and
   the first two have not been done.

@@ -62,10 +62,18 @@ defmodule Candil.Doctor do
   """
   @spec run(keyword()) :: report()
   def run(opts \\ []) do
-    checks = [config(), binary(), sources(), ports(), auth(), gpu(), memory()]
-
     checks =
-      if opts[:fix], do: Enum.map(checks, &maybe_fix/1), else: checks
+      [
+        {:config, &config/0},
+        {:binary, &binary/0},
+        {:sources, &sources/0},
+        {:ports, &ports/0},
+        {:auth, &auth/0},
+        {:gpu, &gpu/0},
+        {:memory, &memory/0}
+      ]
+      |> Enum.map(&probed/1)
+      |> then(fn list -> if opts[:fix], do: repair(list), else: list end)
 
     %{
       checks: checks,
@@ -328,17 +336,22 @@ defmodule Candil.Doctor do
   # A fix is attempted only when the check says one exists, and the result is
   # never swallowed: if it did not work, the check stays at :error with the
   # command still attached.
-  defp maybe_fix(%{fix: nil} = check), do: check
-
-  defp maybe_fix(%{name: :config} = check) do
-    # The one fix that is always safe: make the data directory exist, because
-    # everything else writes there and its absence is the first thing that
-    # breaks after a fresh install.
-    _ = File.mkdir_p(Instances.data_dir())
-    put_new(check, "creado #{Instances.data_dir()}")
+  # The repairs that are safe to attempt, done once, before the per-check
+  # pass. It used to hang off the `:config` check's `fix` field, which meant
+  # it only ran when the config was broken in exactly the right way — a repair
+  # that depends on which check failed is a repair you cannot reason about.
+  defp repair(checks) do
+    dir = Instances.data_dir()
+    _ = File.mkdir_p(Path.join(dir, "logs"))
+    _ = File.mkdir_p(dir)
+    Enum.map(checks, &announce(&1, dir))
   end
 
-  defp maybe_fix(check), do: check
+  defp announce(%{name: :config} = check, dir) do
+    put_new(check, "creado #{dir}")
+  end
+
+  defp announce(check, _dir), do: check
 
   defp put_new(check, message) do
     %{check | message: check.message <> " · " <> message}
@@ -346,8 +359,23 @@ defmodule Candil.Doctor do
 
   # ── helpers ──────────────────────────────────────────────────────────────
 
-  # Every check runs inside this. The report is the deliverable; one probe
-  # exploding is not a reason to hand back nothing.
+  # Every check runs inside this, and the moduledoc promised it. It did not:
+  # only `memory/0` was wrapped, so an engine whose `binary` blew up inside
+  # `Engine.binary_path/1` took the whole report with it — which is the one
+  # machine where you most need the doctor. A promise in a docstring that the
+  # code does not keep is worse than no promise.
+  defp probed({name, fun}) do
+    fun.()
+  rescue
+    error ->
+      %{
+        name: name,
+        level: :error,
+        message: "el check reviento: " <> Exception.message(error),
+        fix: nil
+      }
+  end
+
   defp safe(fun) do
     {:ok, fun.()}
   rescue

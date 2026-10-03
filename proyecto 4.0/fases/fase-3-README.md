@@ -94,11 +94,11 @@ memoria del agente Mavis, `candil-sandbox-toolchain`.
       la §3-bis con lo que NO está probado, la §4 con la lista de errores ya
      arquitectos con su porqué, y la §5-bis con el hueco de TOML→Store.
 
-  (b) `proyecto 4.0/PROMPT-FASE-2.md`              <- por el estilo y el tono
+  (b) `proyecto 4.0/fases/fase-2-README.md`              <- por el estilo y el tono
       Es el mismo formato que el que tú vas a escribir al final. Y su §7
       ("lo que no vas a hacer") es la lista de trampas de este repo.
 
-  (c) `proyecto 4.0/candil-4.0-final.md`
+  (c) `proyecto 4.0/original/candil-4.0-final.md`
         · Seccion 11.2 (linea ~993)  resolución de puerto, PREFLIGHT, --force
         · Seccion 11.3 (linea ~1028) supervivencia: foreground, --detach
         · Seccion 14.4 (linea ~1279) Candil.EnginePool 4.0  <- API exacta
@@ -369,7 +369,7 @@ añade o actualiza la §3-bis con lo que siga sin poder probarse desde un
 sandbox. Numeros medidos del output real de los comandos, no de memoria.
 Commit, push, PR, y avisame del resultado con los ocho gates.
 
-Y escribe `proyecto 4.0/PROMPT-FASE-4.md` para la siguiente sesión, con el
+Y escribe `proyecto 4.0/fases/fase-4-README.md` para la siguiente sesión, con el
 mismo formato. La Fase 4 (instancias.json, --detach real, Launcher.Http) es la
 que hereda todo lo que dejes sin cerrar aqui.
 

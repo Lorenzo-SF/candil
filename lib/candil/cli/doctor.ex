@@ -22,7 +22,9 @@ defmodule Candil.CLI.Doctor do
     report = Check.run(opts)
 
     if opts[:json] do
-      IO.puts(Jason.encode!(report))
+      # A LIST, not the report object. `jq '.[0].name'` is the whole point of
+      # having --json, and an object would make it `.checks[0].name`.
+      IO.puts(Jason.encode!(report.checks))
     else
       IO.puts(Check.render(report))
       IO.puts(unsolved(report))
