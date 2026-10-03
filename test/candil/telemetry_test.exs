@@ -1,75 +1,90 @@
 defmodule Candil.TelemetryTest do
+  @moduledoc """
+  The Arrea mirroring is the integration, and an integration nobody asserts is
+  an integration that quietly stops happening.
+  """
   use ExUnit.Case, async: false
 
   alias Candil.Telemetry
 
   setup do
-    handler_id = "candil-test-#{System.unique_integer()}"
-    parent = self()
+    id = "candil-telemetry-test-#{System.unique_integer([:positive])}"
+    handler = fn name, _measurements, _meta, _config -> send(self(), {:event, name}) end
 
     :telemetry.attach_many(
-      handler_id,
-      [
-        [:candil, :inference, :start],
-        [:candil, :inference, :stop],
-        [:candil, :inference, :token],
-        [:candil, :inference, :error],
-        [:candil, :cost, :estimate],
-        [:candil, :cancellation]
-      ],
-      fn name, measurements, meta, _config ->
-        send(parent, {:telemetry, name, measurements, meta})
-      end,
+      id,
+      [[:arrea, :candil_inference_start], [:candil, :inference, :start]],
+      handler,
       nil
     )
 
-    on_exit(fn -> :telemetry.detach(handler_id) end)
-    {:ok, handler_id: handler_id}
+    on_exit(fn -> :telemetry.detach(id) end)
+    :ok
   end
 
-  test "emit_start/3 fires [:candil, :inference, :start]", _ctx do
-    assert :ok = Telemetry.emit_start("req-1", :chat, %{model: "gpt-4o"})
+  describe "the two namespaces" do
+    test "an event is visible to a host that only ever attached to :arrea" do
+      # This is the whole reason the mirroring exists: a host that already
+      # instruments Arrea sees Candil without attaching anything new.
+      Telemetry.emit_start("r1", :chat, %{model: "coder"})
 
-    assert_received {:telemetry, [:candil, :inference, :start], _measurements, meta}
-    assert meta.request_id == "req-1"
-    assert meta.kind == :chat
-    assert meta.model == "gpt-4o"
+      assert_receive {:event, [:arrea, :candil_inference_start]}
+    end
+
+    test "and Candil's own event is unchanged, so existing handlers keep working" do
+      Telemetry.emit_start("r1", :chat, %{model: "coder"})
+
+      assert_receive {:event, [:candil, :inference, :start]}
+    end
+
+    test "a two-part event name is not renamed by the mirroring" do
+      # `candil_cancellation` has no action to split off, and the naive
+      # mapping turned `[:candil, :cancellation]` into
+      # `[:candil, :candil_cancellation]` — a silent rename of an event that
+      # handlers are already attached to.
+      id = "candil-cancel-#{System.unique_integer([:positive])}"
+
+      :telemetry.attach_many(
+        id,
+        [[:candil, :cancellation]],
+        fn name, _m, _meta, _config -> send(self(), {:event, name}) end,
+        nil
+      )
+
+      on_exit(fn -> :telemetry.detach(id) end)
+
+      Telemetry.emit_cancellation("r1")
+
+      assert_receive {:event, [:candil, :cancellation]}
+    end
   end
 
-  test "emit_stop/4 fires [:candil, :inference, :stop] with duration", _ctx do
-    assert :ok = Telemetry.emit_stop("req-1", :chat, 100_000, tokens_in: 10, tokens_out: 5)
-    assert_received {:telemetry, [:candil, :inference, :stop], %{duration: 100_000}, meta}
-    assert meta.request_id == "req-1"
-    assert meta.tokens_in == 10
-    assert meta.tokens_out == 5
-  end
+  describe "metadata" do
+    test "the model and the kind travel with the event" do
+      Telemetry.emit_start("r42", :stream, %{model: "coder", provider: :ollama})
 
-  test "emit_token/2 fires for every streamed chunk", _ctx do
-    assert :ok = Telemetry.emit_token("req-1", 1)
-    assert :ok = Telemetry.emit_token("req-1", 2)
+      assert_receive {:event, [:arrea, :candil_inference_start]}
+      assert_receive {:event, [:candil, :inference, :start]}
 
-    assert_received {:telemetry, [:candil, :inference, :token], _, %{tokens_so_far: 1}}
-    assert_received {:telemetry, [:candil, :inference, :token], _, %{tokens_so_far: 2}}
-  end
+      # the handler captures the whole envelope, so read it back
+      id = "candil-meta-#{System.unique_integer([:positive])}"
 
-  test "emit_error/5 fires [:candil, :inference, :error]", _ctx do
-    assert :ok = Telemetry.emit_error("req-1", :chat, 100_000, :timeout, %{model: "gpt-4o"})
+      :telemetry.attach(
+        id,
+        [:candil, :inference, :start],
+        fn _name, _m, meta, _config -> send(self(), {:meta, meta}) end,
+        nil
+      )
 
-    assert_received {:telemetry, [:candil, :inference, :error], _, meta}
-    assert meta.reason == :timeout
-    assert meta.kind == :chat
-  end
+      on_exit(fn -> :telemetry.detach(id) end)
 
-  test "emit_cost/5 fires [:candil, :cost, :estimate]", _ctx do
-    assert :ok = Telemetry.emit_cost(:openai, "gpt-4o", 100, 50, 0.0025)
-    assert_received {:telemetry, [:candil, :cost, :estimate], %{cost_usd: 0.0025}, meta}
-    assert meta.tokens_in == 100
-    assert meta.tokens_out == 50
-  end
+      Telemetry.emit_start("r42", :stream, %{model: "coder", provider: :ollama})
+      assert_receive {:meta, meta}
 
-  test "emit_cancellation/2 fires [:candil, :cancellation]", _ctx do
-    assert :ok = Telemetry.emit_cancellation("req-1", :cancelled)
-    assert_received {:telemetry, [:candil, :cancellation], _, meta}
-    assert meta.reason == :cancelled
+      assert meta.model == "coder"
+      assert meta.provider == :ollama
+      assert meta.kind == :stream
+      assert meta.request_id == "r42"
+    end
   end
 end

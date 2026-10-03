@@ -29,7 +29,7 @@ defmodule Candil.EnginePool do
 
   use GenServer
 
-  alias Candil.{Engine, Model}
+  alias Candil.{Engine, Model, Telemetry}
 
   @connect_host ~c"127.0.0.1"
 
@@ -78,13 +78,27 @@ defmodule Candil.EnginePool do
   @spec put(atom(), pos_integer(), pid() | nil, Model.t(), Engine.t()) :: :ok
   def put(model_alias, port, pid, %Model{} = model, %Engine{} = engine)
       when is_atom(model_alias) and is_integer(port) and port > 0 do
-    GenServer.call(__MODULE__, {:put, model_alias, port, pid, model, engine})
+    :ok =
+      GenServer.call(__MODULE__, {:put, model_alias, port, pid, model, engine})
+
+    # Emitted after the call, not before: an `:engine_start` that fires for an
+    # instance the pool then refuses would tell a host its model is up when it
+    # is not, and "the model is up" is the one thing this event is for.
+    Telemetry.emit_engine(:start, %{
+      alias: model_alias,
+      port: port,
+      engine: engine.alias
+    })
+
+    :ok
   end
 
   @doc "Removes an instance. Unknown keys are not an error: the point of the call is the absence."
   @spec delete(atom(), pos_integer()) :: :ok
   def delete(model_alias, port) when is_atom(model_alias) and is_integer(port) and port > 0 do
-    GenServer.call(__MODULE__, {:delete, model_alias, port})
+    :ok = GenServer.call(__MODULE__, {:delete, model_alias, port})
+    Telemetry.emit_engine(:stop, %{alias: model_alias, port: port})
+    :ok
   end
 
   @doc "Looks up one instance."

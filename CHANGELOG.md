@@ -7,7 +7,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **`Candil.Conversation` is deprecated in writing (D8).** The moduledoc carries
+  the notice: it keeps the history in the calling process, which is the thing
+  `Candil.Context` exists to fix, and it goes in 4.1.0. The replacement,
+  `chat_with_context/4`, is **written and blocked** — see
+  `proyecto 4.0/auditoria/bloqueos/`.
+- **`Candil.Conversation.TokenEstimator` is now a facade.** The implementation
+  moved to `Candil.Context.TokenEstimator`, which `Candil.Context` needs;
+  duplicating the heuristics is the thing D8 was written to prevent. The old
+  name still answers with the same numbers, so consumers outside the ecosystem do
+  not get an `UndefinedFunctionError` on their next upgrade.
+- **`Candil.Conversation.Context` is removed, not deprecated.** D8: it had never
+  left the house. Its trimming and its `+4`-per-message counting moved into
+  `Candil.Conversation` as private functions, with the arithmetic unchanged —
+  they are deliberately *not* the estimator's numbers.
+
 ### Fixed
+
+- **Four public functions gained the `@spec` they never had.** `Candil.chat/3`
+  and `Candil.Inference.Chat.do_chat_local/3` / `do_chat_remote/4` were
+  `@doc`'d and unspecced, so dialyzer had to infer their return type from the
+  body. It inferred one that omitted `{:ok, _}`, which made every caller's
+  success branch look like dead code.
+- **`Candil.Context.Builder.build/3` declared the wrong return type.** It said
+  `[map()]` and returns `[Inference.message()]` — it builds the system prefix,
+  the summary, the session history and the new messages, all with a binary role
+  and content. The loose type made the next call in the chain unprovable.
 
 - **`Detector.safe_arch/0` no longer reports `:unknown` as a success.** It
   guarded on "the `Trebejo.OS` module is loaded" and then wrapped whatever came

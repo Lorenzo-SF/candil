@@ -13,8 +13,14 @@ defmodule Candil.Engine.Server do
     * Automatic port cleanup on crash (Arrea links the port and the
       GenServer; if the binary dies, Arrea dies, and the link cascade
       kills this GenServer too).
-    * Crash isolation via `Arrea.WorkerSupervisor`'s `:one_for_one`
-      strategy.
+    * Crash isolation — but from two supervisors, not one, and the previous
+      version of this bullet said only `Arrea.WorkerSupervisor`, which was
+      wrong about half of it. The OS process runs under
+      `Arrea.WorkerSupervisor` because `Arrea.LongRunning.start/1` puts
+      it there. *This* GenServer runs under `Candil.EngineSupervisor`, a
+      `DynamicSupervisor` that Candil owns. Both are `:one_for_one`, so the
+      property holds; attributing it to Arrea alone made a host reading this
+      think it could find these processes in Arrea's tree, and it cannot.
 
   What this GenServer keeps:
 

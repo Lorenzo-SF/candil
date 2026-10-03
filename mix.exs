@@ -25,7 +25,7 @@ defmodule Candil.MixProject do
       # version`, and it cannot be executed without this line. Left as one
       # deliberate, flagged exception rather than a phase that cannot be
       # verified.
-      escript: [main_module: Candil.CLI],
+      escript: [main_module: Candil.CLI.Escript],
       test_coverage: [tool: ExCoveralls],
       dialyzer: dialyzer_config()
     ]
@@ -68,10 +68,18 @@ defmodule Candil.MixProject do
        runtime: false,
        override: true},
 
-      # Alaja: CLI definition, tables, colour. Used only by
-      # lib/candil/cli/** and lib/candil/doctor.ex. Alaja marks its own
-      # `batamanta` dep optional+runtime:false and never references it from
-      # lib/, so no `mix batamanta` step is needed here.
+      # Alaja: the CLI framework, the tables, the colour.
+      #
+      # It used to be described as "used only by lib/candil/cli/** and
+      # lib/candil/doctor.ex", which was true of the *calls* and false of the
+      # dependency: `Candil.CLI` is a module in `lib/candil/`, it declares the
+      # whole command line through `use Alaja.CLI.Definition`, and every
+      # command's flags, help and dispatch belong to it now. The one thing
+      # Candil keeps is the escript boundary — `Candil.CLI.Escript` — because
+      # the alias table and the terminal decision are not the DSL's to make.
+      #
+      # Alaja marks its own `batamanta` dep optional+runtime:false and never
+      # references it from lib/, so no `mix batamanta` step is needed here.
       {:alaja, github: "Lorenzo-SF/alaja", branch: "main", override: true},
 
       # Botica: health checks and fixes, used only by `candil doctor` for the

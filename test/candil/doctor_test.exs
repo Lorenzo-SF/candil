@@ -92,10 +92,10 @@ defmodule Candil.DoctorTest do
   defp check(report, name), do: Enum.find(report.checks, &(&1.name == name))
 
   describe "the report shape" do
-    test "always has the seven checks, in the design document's order" do
+    test "always has the eight checks, in the design document's order" do
       report = Doctor.run()
 
-      assert [:config, :binary, :sources, :ports, :auth, :gpu, :memory] =
+      assert [:config, :binary, :sources, :ports, :auth, :gpu, :memory, :disk] =
                Enum.map(report.checks, & &1.name)
 
       assert %{errors: errors, warnings: warnings} = report
@@ -170,7 +170,7 @@ defmodule Candil.DoctorTest do
 
       report = Doctor.run()
 
-      assert length(report.checks) == 7
+      assert length(report.checks) == 8
       assert Enum.find(report.checks, &(&1.name == :binary)).level in [:error, :warning]
     end
 
@@ -267,6 +267,15 @@ defmodule Candil.DoctorTest do
     end
   end
 
+  describe "disk comes from botica too" do
+    test "the message is botica's, not one we made up" do
+      disk = check(Doctor.run(), :disk)
+
+      assert is_binary(disk.message)
+      assert disk.message != ""
+    end
+  end
+
   describe "memory comes from botica" do
     test "the report has botica's own words, not a number we made up" do
       # If this ever says something empty, the shape of botica's answer
@@ -281,7 +290,7 @@ defmodule Candil.DoctorTest do
     test "es una LISTA, no un objeto, y por eso se puede pasar por jq" do
       # El criterio de la CLI entera es `jq '.[0].model'`. Un objeto
       # obligaría a `.checks[0].model` y el criterio es una sugerencia.
-      out = capture_io(fn -> Candil.CLI.Doctor.run(["--json"]) end)
+      out = capture_io(fn -> Candil.CLI.Doctor.run(%{json: true}) end)
       decoded = Jason.decode!(out)
 
       assert is_list(decoded)

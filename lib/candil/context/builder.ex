@@ -15,6 +15,7 @@ defmodule Candil.Context.Builder do
   """
 
   alias Candil.Context.Session
+  alias Candil.Inference
 
   @default_margin 512
   @default_context_size 4096
@@ -40,7 +41,8 @@ defmodule Candil.Context.Builder do
       iex> Candil.Context.Builder.build(session, [%{role: "user", content: "hola"}], context_size: 4)
       {:error, :context_exceeded}
   """
-  @spec build(Session.t(), [map()], keyword()) :: {:ok, [map()]} | {:error, :context_exceeded}
+  @spec build(Session.t(), [Inference.message()], keyword()) ::
+          {:ok, [Inference.message()]} | {:error, :context_exceeded}
   def build(session, messages, opts \\ []) do
     margin = Keyword.get(opts, :margin_tokens, @default_margin)
     window = Keyword.get(opts, :context_size, @default_context_size) - margin
