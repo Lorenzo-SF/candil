@@ -93,11 +93,14 @@ se puede operar en vez de algo en lo que se cree.
 - [ ] El número de tests no ha bajado de 702
 - [ ] `CHANGELOG.md` y `HANDOFF.md` al día
 - [ ] PR contra `4.0`, CI verde
+- [ ] **cerrado a `main`**: sync `main` → `4.0` y PR `4.0` → `main`
 - [ ] Tag `candil-4.0.0-beta.1`
 
 ## La rama
 
 ```
 git fetch origin
+# antes: sincroniza, para que 4.0 no se vaya atrasando de main
+# git checkout 4.0 && git merge origin/main && git push origin 4.0
 git checkout -b 4.0-f7-router origin/4.0
 ```

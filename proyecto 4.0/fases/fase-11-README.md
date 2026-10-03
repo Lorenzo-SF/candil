@@ -117,6 +117,8 @@ Candil.Context, Candil.Router, Candil.Gateway, Candil.MCP, Candil.RAG
 
 ```
 git fetch origin
+# antes: sincroniza, para que 4.0 no se vaya atrasando de main
+# git checkout 4.0 && git merge origin/main && git push origin 4.0
 git checkout -b 4.0-f11-cierre origin/4.0
 ```
 
