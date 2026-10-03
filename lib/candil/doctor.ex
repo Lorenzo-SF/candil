@@ -40,13 +40,15 @@ defmodule Candil.Doctor do
   where you would reach for it.
   """
 
+  alias Apero.File, as: AperoFile
   alias Apero.OS, as: AperoOS
   alias Botica.Batteries.Disk, as: BoticaDisk
-  alias Candil.Doctor.{Checks, FixTable}
   alias Botica.Batteries.Memory, as: BoticaMemory
+  alias Botica.{Doctor, Repair.Fixer}
   alias Candil.{Build, Engine, Instances, Model, Store}
   alias Candil.Config, as: CandilConfig
   alias Candil.Detector.GPU
+  alias Candil.Doctor.{Checks, FixTable}
 
   @type level :: :ok | :warning | :error
 
@@ -63,7 +65,7 @@ defmodule Candil.Doctor do
   Runs every check and returns the report.
 
   The running is `Botica`'s now: `Candil.Doctor.Checks` hands it eight
-  `Botica.Types.check_def/0` and `Botica.Runner.Executor` runs them in
+  `t:Botica.Types.check_def/0` and `Botica.Runner.Executor` runs them in
   parallel, each under its own timeout, isolating a check that raises. What
   comes back is put through `from_botica/3` so that the shape of this report is
   exactly what it always was.
@@ -97,7 +99,7 @@ defmodule Candil.Doctor do
       checks: Checks.all(table)
     }
 
-    case Botica.Doctor.run(config) do
+    case Doctor.run(config) do
       {:ok, results} ->
         checks = from_botica(results, table)
         if fix?, do: repair(checks, config, results, table), else: checks
@@ -186,7 +188,7 @@ defmodule Candil.Doctor do
     # dialyzer is right: there is nothing to fall back from. A clause that
     # cannot match is a branch that reads like it can, and the next person
     # trusts it.
-    {:ok, applied} = Botica.Repair.Fixer.fix(config, results)
+    {:ok, applied} = Fixer.fix(config, results)
 
     message =
       if :config in applied.applied do
@@ -492,7 +494,7 @@ defmodule Candil.Doctor do
     data = Instances.data_dir()
     logs = Instances.log_dir()
 
-    with :ok <- Apero.File.ensure_dir(data), :ok <- Apero.File.ensure_dir(logs) do
+    with :ok <- AperoFile.ensure_dir(data), :ok <- AperoFile.ensure_dir(logs) do
       {:ok, "creado #{created(data, logs)}"}
     else
       {:error, reason} ->

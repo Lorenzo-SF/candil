@@ -23,7 +23,7 @@ La tabla de la §1 midió el **antes**. Esto es el **después**, medido igual:
 | Dep | Antes | Ahora | Qué cambió |
 |---|---|---|---|
 | **alaja** | 2 símbolos en 2 de 9 ficheros del CLI | **el CLI entero**, con `use Alaja.CLI.Definition` | El parseo, el help, el despacho, los errores de uso y el color son de Alaja. Candil queda con la *declaración* y nada más. |
-| **botica** | 1 símbolo (`Batteries.Memory`) | **2** (`Memory` + `Batteries.Disk`) | El octavo check de `doctor` es `Botica.Batteries.Disk.check_disk/3`. |
+| **botica** | 2 símbolos de 8 checks | **el doctor entero** | Los ocho checks son `Botica.Types.check_def/0` y los corre `Botica.Runner.Executor`. `doctor` y `--fix` pasan por `Botica.Doctor` y `Botica.Repair.Fixer`. |
 | **arrea** | 9 símbolos / 5 ficheros | **9 + telemetría + sin duplicados** | `Candil.RateLimiter` (67 líneas, duplicado) sustituido por `Arrea.RateLimiter`; todos los eventos de Candil se reflejan por `Arrea.Telemetry`. |
 | **apero** | 7 símbolos / 10 ficheros | **9 símbolos**, escrituras atómicas | `Apero.Atomic.File` en `Config.File` y en `Instances`, que reimplementaban a mano el temp + rename. |
 | **trebejo** | 1 símbolo | igual, y es todo lo que hay | Revisado símbolo por símbolo: `OS.arch/0` es todo lo que Candil necesita. Ver abajo. |
@@ -100,6 +100,57 @@ reimplementaban "escribe a un temporal y renombra". Ahora es
 `Apero.Atomic.File.write/3`, que además limpia el temporal si falla y reintenta
 `:eagain`. El de `Instances` además tenía un bug: si el `rename` fallaba, el
 temporal se quedaba ahí para siempre.
+
+### El doctor entero, sobre Botica (tercera ronda)
+
+Botica no eran dos baterías: es un framework. `Botica.Doctor.run/2`,
+`Botica.Repair.Fixer`, `Botica.Runner.Executor`, `Botica.Check.Behaviour` — y
+Candil reimplementaba el runner, el informe y el reparador a mano, en serie.
+
+Lo que se gana, medido:
+
+- **Paralelismo real.** `Executor` usa `Task.async_stream`. Cuatro checks de
+  300 ms tardan **301 ms**; en serie eran 1200. `candil doctor` pagaba la suma
+  de los ocho.
+- **Timeout por check**, no una esperanza común.
+- **Aislamiento de caídas** con un mensaje legible. El executor aísla, pero
+  reporta el *exit reason* (`{%RuntimeError{}, stacktrace}`), que en una tabla
+  no se lee; el `rescue` de `Checks.probe/4` lo vuelve frase.
+
+El contrato público de `Candil.Doctor.run/1` no cambia, así que la CLI, el
+`--json` y los tests no se enteran. El orden se fija contra `Checks.ids/0` y
+no contra el executor, aunque hoy use `ordered: true`: un informe cuyo orden
+depende de los internos de una librería hermana cambia solo el día que ese flag
+cambie.
+
+`--fix` son dos cosas y el modelo de Botica solo cubre una:
+
+1. Reparaciones por check, vía `Botica.Repair.Fixer`.
+2. Los directorios, vía `prepare/0`. Un `candil.toml` que falta es un
+   *warning*, y el Fixer solo repara checks que volvieron `:error`; si todo
+   fuera por ahí, `candil doctor --fix` no haría nada en la máquina nueva para
+   la que existe.
+
+### Arrea: el fan-out, que es lo que F6 va a necesitar (tercera ronda)
+
+`Candil.Concurrency` es el seam: un solo sitio donde mirar cuando el retrieval
+de RAG y las llamadas MCP necesiten concurrencia. Hoy tiene **un** llamante
+real, `candil models list`, que hace dos stats de filesystem por modelo y los
+hacía en serie.
+
+Tres decisiones que no son obvias:
+
+- **Por debajo de cuatro tareas no hay procesos.** Cuatro procesos para tres
+  `File.stat/1` son un coste que el usuario paga sin ganancia.
+- **Sin tags de Arrea.** `normalize_command/3` solo acepta un **átomo** como
+  tag, y una etiqueta aquí es lo que tenga el llamante. Como `run_sync/2` es
+  `ordered: true`, correlacionar por posición es seguro y deja el contrato del
+  seam libre de "las etiquetas deben ser átomos".
+- **Un `raise` se reintenta en serie; un `throw` no.** `do_execute/2` rescate
+  excepciones pero no atrapa throws, así que un `throw` escapa — y está bien:
+  un `throw` es el llamante usando control de flujo, no una fila que no se pudo
+  construir. Tragárselo aquí convertiría una señal propia del llamante en un
+  reintento silencioso.
 
 ### Trebejo: no hay nada más que integrar
 
