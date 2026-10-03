@@ -23,10 +23,14 @@ defmodule Candil.Doctor do
   ## Botica for the generic half
 
   Memory and disk are not LLM problems and re-implementing them here would be
-  a worse `free` on a different machine. Those two go to
-  `BoticaMemory` and `Botica.Batteries.Disk`; the other five are
-  ours, because they are about models, engines, ports and keys. Each one in its
-  own domain, which is the correct division rather than a courtesy.
+  a worse `free` on a different machine. Those two go to Botica —
+  `Botica.Batteries.Memory` and `Botica.Batteries.Disk` — and the other six
+  are ours, because they are about models, engines, ports and keys. Each one in
+  its own domain, which is the correct division rather than a courtesy.
+
+  Disk was the one that had to be asked for: the audit claimed Botica was
+  integrated and only `Batteries.Memory` was. It was, until the check that
+  asked it for its other battery.
 
   ## One check, one crash
 
@@ -37,6 +41,7 @@ defmodule Candil.Doctor do
   """
 
   alias Apero.OS, as: AperoOS
+  alias Botica.Batteries.Disk, as: BoticaDisk
   alias Botica.Batteries.Memory, as: BoticaMemory
   alias Candil.{Build, Engine, Instances, Model, Store}
   alias Candil.Config, as: CandilConfig
@@ -70,7 +75,8 @@ defmodule Candil.Doctor do
         {:ports, &ports/0},
         {:auth, &auth/0},
         {:gpu, &gpu/0},
-        {:memory, &memory/0}
+        {:memory, &memory/0},
+        {:disk, &disk/0}
       ]
       |> Enum.map(&probed/1)
       |> then(fn list -> if opts[:fix], do: repair(list), else: list end)
@@ -328,6 +334,22 @@ defmodule Candil.Doctor do
       {:ok, {:warning, message}} -> warning(:memory, message)
       {:ok, {:error, message}} -> error(:memory, message)
       {:error, reason} -> warning(:memory, "no se pudo leer la memoria: " <> reason)
+    end
+  end
+
+  # Is there room on the disk, for the model files Candil is about to write.
+  # The path is the data directory rather than `/`, because `/` on a container
+  # can be a small overlay while the volume the models land on has hundreds of
+  # gigabytes free. Checking `/` would report a full machine that is not full.
+  @spec disk() :: check()
+  defp disk do
+    path = Instances.data_dir()
+
+    case safe(fn -> BoticaDisk.check_disk(path, 80, 95) end) do
+      {:ok, {:ok, message}} -> ok(:disk, message)
+      {:ok, {:warning, message}} -> warning(:disk, message)
+      {:ok, {:error, message}} -> error(:disk, message)
+      {:error, reason} -> warning(:disk, "no se pudo leer el disco: " <> reason)
     end
   end
 
