@@ -4,7 +4,7 @@ defmodule Candil.HTTP.Retry do
   alias Apero.Retry, as: AperoRetry
   alias Arrea.CircuitBreaker
   alias Candil.Error
-  alias Candil.RateLimiter
+  alias Candil.HTTP.RateLimit
 
   @doc """
   Wraps a raw request function with circuit breaker and retry.
@@ -39,9 +39,7 @@ defmodule Candil.HTTP.Retry do
     end
   end
 
-  defp check_rate_limit(_breaker, nil), do: :ok
-
   defp check_rate_limit(breaker, max_per_second) do
-    RateLimiter.check(breaker, max_per_second)
+    RateLimit.check(breaker, max_per_second)
   end
 end

@@ -2,7 +2,8 @@ defmodule Candil.HTTPTest do
   use ExUnit.Case, async: false
   import Mox
 
-  alias Candil.{Error, HTTP, HTTPAdapterMock, RateLimiter}
+  alias Candil.{Error, HTTP, HTTPAdapterMock}
+  alias Candil.HTTP.RateLimit
 
   setup :verify_on_exit!
 
@@ -20,31 +21,31 @@ defmodule Candil.HTTPTest do
     :ok
   end
 
-  describe "RateLimiter" do
-    test "check/2 returns :ok when no limit set" do
-      assert RateLimiter.check(:test_breaker, nil) == :ok
+  describe "the rate limit" do
+    test "no limit configured means no limiter is started and every request passes" do
+      assert RateLimit.check(:test_breaker, nil) == :ok
     end
 
-    test "check/2 allows requests within limit" do
-      # Allow 5 req/s — first request should pass
-      assert RateLimiter.check(:test_within_limit, 5) == :ok
+    test "allows requests within the limit" do
+      assert RateLimit.check(:test_within_limit, 5) == :ok
     end
 
-    test "check/2 rate limits when exceeded" do
+    test "rate limits when the bucket is empty" do
       breaker = :test_exceeded
 
-      # Use 1 req/s — first passes
-      assert RateLimiter.check(breaker, 1) == :ok
-
-      # Second within same window should be rate-limited
-      result = RateLimiter.check(breaker, 1)
-      assert {:error, %Error{reason: :rate_limited}} = result
+      assert RateLimit.check(breaker, 1) == :ok
+      assert RateLimit.check(breaker, 1) == {:error, :rate_limited}
     end
 
-    test "check/2 uses different windows per breaker" do
-      # Different breaker names should not interfere
-      RateLimiter.check(:breaker_a, 1)
-      assert RateLimiter.check(:breaker_b, 1) == :ok
+    test "one breaker's bucket does not drain another's" do
+      # The old sliding window kept a per-breaker list keyed by the breaker, and
+      # so does the token bucket — but keyed by a *namespaced* name, so a
+      # limiter here cannot collide with one Arrea or another host started.
+      a = :breaker_a
+      b = :breaker_b
+
+      assert RateLimit.check(a, 1) == :ok
+      assert RateLimit.check(b, 1) == :ok
     end
   end
 

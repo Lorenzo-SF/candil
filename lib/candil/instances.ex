@@ -33,6 +33,7 @@ defmodule Candil.Instances do
   A read prunes entries whose pid no longer exists. `nohup` leaves zombies, and
   an unpruned file lies about exactly that.
   """
+  alias Apero.Atomic.File, as: AtomicFile
 
   @typedoc """
   Who owns an instance. One variant today; the second is the door to a daemon.
@@ -131,11 +132,8 @@ defmodule Candil.Instances do
   """
   @spec write([instance()]) :: :ok | {:error, File.posix()}
   def write(instances) do
-    target = path()
-    temp = target <> ".tmp"
-
-    case File.write(temp, Jason.encode!(instances)) do
-      :ok -> File.rename(temp, target)
+    case AtomicFile.write(path(), Jason.encode!(instances), fsync: true) do
+      :ok -> :ok
       {:error, reason} -> {:error, reason}
     end
   end

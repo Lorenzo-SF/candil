@@ -24,9 +24,9 @@ La tabla de la §1 midió el **antes**. Esto es el **después**, medido igual:
 |---|---|---|---|
 | **alaja** | 2 símbolos en 2 de 9 ficheros del CLI | **el CLI entero**, con `use Alaja.CLI.Definition` | El parseo, el help, el despacho, los errores de uso y el color son de Alaja. Candil queda con la *declaración* y nada más. |
 | **botica** | 1 símbolo (`Batteries.Memory`) | **2** (`Memory` + `Batteries.Disk`) | El octavo check de `doctor` es `Botica.Batteries.Disk.check_disk/3`. |
-| **apero** | 7 símbolos / 10 ficheros | igual | Ya estaba; revisado, no hay hueco. |
-| **arrea** | 9 símbolos / 5 ficheros | igual | Ya estaba; la integración de concurrencia es trabajo de fases futuras, no de este cambio. |
-| **trebejo** | 1 símbolo | igual | `OS.arch/0` es lo que el diseño pide, y es `optional`. |
+| **arrea** | 9 símbolos / 5 ficheros | **9 + telemetría + sin duplicados** | `Candil.RateLimiter` (67 líneas, duplicado) sustituido por `Arrea.RateLimiter`; todos los eventos de Candil se reflejan por `Arrea.Telemetry`. |
+| **apero** | 7 símbolos / 10 ficheros | **9 símbolos**, escrituras atómicas | `Apero.Atomic.File` en `Config.File` y en `Instances`, que reimplementaban a mano el temp + rename. |
+| **trebejo** | 1 símbolo | igual, y es todo lo que hay | Revisado símbolo por símbolo: `OS.arch/0` es todo lo que Candil necesita. Ver abajo. |
 
 ### El CLI, al DSL
 
@@ -65,6 +65,70 @@ Para un host externo está `render_host_help/2`, que Alaja aplica a quien no sea
 - El uso de los booleanos en la línea `USAGE` (`candil run  --detach  ... <model>`)
   muestra los que tienen `default: false` como si fueran obligatorios. Cosmético, y
   también del renderizador de Alaja.
+
+---
+
+### Segunda ronda: Arrea, Apero y Trebejo
+
+**`Candil.RateLimiter` fuera.** Eran 67 líneas de ventana deslizante sobre ETS
+contra las 269 de `Arrea.RateLimiter`, que además se apoya en Apero. Se usaba en
+un solo sitio, `Candil.HTTP.Retry`, y **no tenía un solo test** — que es
+exactamente cómo un duplicado sobrevive un año de CI en verde. Ahora es
+`Candil.HTTP.RateLimit`, con sus tests.
+
+El algoritmo no es el mismo y conviene decirlo: la ventana deslizante de "N por
+segundo" deja pasar 2N en la frontera entre dos segundos; un cubo de tokens con
+`capacity: N, refill_per_second: N` no. Para una API de LLM el comportamiento
+estricto es el correcto.
+
+Cuando Apero no está, `Arrea.RateLimiter` contesta `:apero_unavailable` y Candil
+degrada a "sin límite", con un log. degrading y no fallar es lo que evita que
+una dependencia opcional ausente convierta un rate limit en una caída.
+
+**Telemetría reflejada.** Todos los eventos de `Candil.Telemetry` se emiten dos
+veces desde un único `execute/3` privado: en `[:candil, ...]` como siempre, y en
+`[:arrea, :candil_*]` a través de `Arrea.Telemetry.emit/3`. Un host que ya tiene
+handlers de Arrea ve a Candil sin adjuntar nada. Se añadieron los eventos que no
+existían: `:candil_engine_start/stop` y `:candil_http_request/response`.
+
+Deliberadamente **no** se usa `Arrea.Telemetry.measure/2`: rescata excepciones y
+devuelve `{:ok, result}`, así que envolver con él una llamada de inferencia
+cambiaría su tipo de retorno.
+
+**Apero: escrituras atómicas.** `Candil.Config.File` y `Candil.Instances`
+reimplementaban "escribe a un temporal y renombra". Ahora es
+`Apero.Atomic.File.write/3`, que además limpia el temporal si falla y reintenta
+`:eagain`. El de `Instances` además tenía un bug: si el `rename` fallaba, el
+temporal se quedaba ahí para siempre.
+
+### Trebejo: no hay nada más que integrar
+
+Revisado símbolo por símbolo, y la respuesta es que `OS.arch/0` es todo lo que
+Candil necesita:
+
+- `Trebejo.Git` es de credenciales y de disponibilidad del CLI de GitHub.
+  Candil no hace operaciones git.
+- `Trebejo.File` es un *watcher* de ficheros, no una utilidad de filesystem.
+  Candil no vigila ficheros.
+- `Trebejo.Proc` ya está, y cubierto por `Apero.Proc`.
+
+Añadir integraciones de Trebejo que nadie va a usar sería peor que no
+tenerlas. Este es el caso en el que la respuesta correcta es "no".
+
+### Lo que queda sin integrar, y por qué
+
+`Arrea.Parallel`, `Arrea.Bulkhead`, `Arrea.Pool` y `Arrea.Monitor` no se usan, y
+es a propósito: **no hay ningún `Task.async` en `lib/`**. No existe un fan-out
+que migrar, y `doctor` paralelizaría ocho checks cuyo orden es parte del
+resultado. Cuando F6 traiga el fan-out de retrieval y las llamadas MCP, ahí sí.
+
+Sobre el doc de `Candil.Engine.Server`: afirmaba que el aislamiento de caídas
+venía de `Arrea.WorkerSupervisor`. Es verdad a medias, y la mitad falsa importaba
+— el proceso OS cuelga de Arrea, pero ese GenServer cuelga de
+`Candil.EngineSupervisor`. Un host leyendo el doc buscaría esos procesos en el
+árbol de Arrea y no los encontraría. Corregido el doc; el código no se movió
+porque unificar los dos supervisores haría más difícil, no más fácil, saber qué
+proceso es de quién.
 
 ---
 

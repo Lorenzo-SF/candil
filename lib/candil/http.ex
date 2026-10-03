@@ -13,6 +13,7 @@ defmodule Candil.HTTP do
   alias Candil.Error
   alias Candil.HTTP.Client
   alias Candil.HTTP.Retry
+  alias Candil.Telemetry
 
   @default_timeout_ms 60_000
   @default_stream_timeout_ms 120_000
@@ -42,7 +43,7 @@ defmodule Candil.HTTP do
     breaker = Keyword.get(opts, :breaker_name, Client.breaker_name(url))
     rate_limit = Keyword.get(opts, :rate_limit)
 
-    fn -> Client.do_post_json(url, body, headers, timeout) end
+    request(url, breaker, fn -> Client.do_post_json(url, body, headers, timeout) end)
     |> Retry.run(breaker, rate_limit, opts)
     |> Client.wrap_error()
   end
@@ -67,7 +68,9 @@ defmodule Candil.HTTP do
     rate_limit = Keyword.get(opts, :rate_limit)
 
     result =
-      fn -> Client.do_post_streaming(url, body, headers, timeout, streaming_opts) end
+      request(url, breaker, fn ->
+        Client.do_post_streaming(url, body, headers, timeout, streaming_opts)
+      end)
       |> Retry.run(breaker, rate_limit, opts)
 
     case result do
@@ -89,4 +92,35 @@ defmodule Candil.HTTP do
   def get(url, headers \\ [], opts \\ []) do
     Client.get(url, headers, opts)
   end
+
+  # One call so every outbound request is announced, and so a future third
+  # transport gets it for free. Timed here rather than in the event body
+  # because `Retry.run/4` may call this more than once, and a per-attempt
+  # duration is more useful than a per-logical-request one.
+  # Returns a function, not a result: `Retry.run/4` calls it, and may call it
+  # more than once. Evaluating the request here instead would have handed
+  # `Retry.run/4` the *result* of the first attempt as if it were the function,
+  # which is how a circuit breaker ends up being called with a tuple.
+  defp request(url, breaker, fun) when is_function(fun, 0) do
+    fn ->
+      Telemetry.emit_http(:request, %{url: url, breaker: breaker})
+      started = System.monotonic_time(:microsecond)
+      result = fun.()
+      status = status_of(result)
+
+      Telemetry.emit_http(
+        :response,
+        %{status: status, duration: System.monotonic_time(:microsecond) - started},
+        %{url: url, breaker: breaker}
+      )
+
+      result
+    end
+  end
+
+  # A transport error has no status. `nil` says "the request never got an
+  # answer", which a handler can tell apart from a 500 and treat differently —
+  # collapsing both to 0 would make a network partition look like a busy server.
+  defp status_of({:ok, %{status: status}}), do: status
+  defp status_of(_), do: nil
 end
