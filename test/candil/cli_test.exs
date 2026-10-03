@@ -6,7 +6,7 @@ defmodule Candil.CLITest do
   import ExUnit.CaptureIO
 
   alias Candil.CLI
-  alias Candil.CLI.{Colorize, Lifecycle, Ports, Preflight}
+  alias Candil.CLI.{Colorize, Help, Lifecycle, Ports, Preflight}
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
 
   doctest Candil.CLI.Version
@@ -79,6 +79,32 @@ defmodule Candil.CLITest do
     test "the lifecycle verbs are routed, not treated as models" do
       assert capture_io(fn -> CLI.main(["status"]) end) =~ "instancias"
       assert capture_io(fn -> CLI.main(["models", "list"]) end) =~ "no models"
+    end
+
+    # The next two are here because the binary shipped broken with 702 tests
+    # green: nobody ran it, and the CI did not build it either.
+    test "the help lists every command the dispatch table can reach" do
+      shown = Help.commands() |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+      dispatchable = CLI.commands() |> Map.keys() |> MapSet.new()
+
+      assert dispatchable == shown,
+             "these are dispatchable but missing from the help: " <>
+               inspect(MapSet.difference(dispatchable, shown))
+    end
+
+    test "every command in the help has a description, not a blank line" do
+      for {name, description} <- Help.commands() do
+        assert description != "", "#{name} is listed with no description"
+      end
+    end
+
+    test "`run` with no model says so instead of raising" do
+      # `candil run` is the first thing anyone types. It used to die with a
+      # FunctionClauseError, which teaches nothing about the right spelling.
+      output = capture_io(fn -> CLI.main(["run"]) end)
+
+      assert output =~ "usage: candil run"
+      assert output =~ "models list"
     end
   end
 

@@ -1,4 +1,6 @@
 defmodule Candil.CLI do
+  require Logger
+
   @moduledoc """
   Entry point for the `candil` command line.
 
@@ -45,12 +47,24 @@ defmodule Candil.CLI do
 
   An escript `main/1` has to answer with a status code, not a value, so this
   is the only function shaped for the escript entry point.
+
+  The log level is dropped before the applications boot. `Arrea` logs
+  `[debug] [Arrea.Telemetry] Metrics configured successfully` on the way up,
+  and that landed on stdout in front of every command's output — which made
+  `candil doctor --json | jq` a parse error rather than a result. A machine
+  that reads this output cannot be asked to skip someone else's logs.
+
+  It is set here and not in a config file on purpose: this is the CLI
+  boundary. Used as a library, `Candil` leaves the host's log level alone.
   """
   @spec main([binary()]) :: :ok
   def main(argv) do
+    silence_logs()
     {:ok, _apps} = Application.ensure_all_started(:candil)
     run(argv)
   end
+
+  defp silence_logs, do: Logger.configure(level: :warning)
 
   @doc """
   Resolves `argv` to a command and runs it.

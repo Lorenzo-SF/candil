@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`candil run` with no arguments no longer raises.** It printed a
+  `FunctionClauseError` and exited 1. It now prints the usage line and points
+  at `candil models list`.
+- **`candil help` lists `run`, `stop` and `status`.** They worked and were
+  invisible: the help kept its own list of four commands while the dispatch
+  table had seven. The help now reads its names from `Candil.CLI`, so a
+  command cannot exist without appearing.
+- **`candil doctor --json` is parseable JSON.** A `[debug]` line from `Arrea`
+  preceded the array on stdout, so `candil doctor --json | jq` failed on it.
+  The logger level is now `:warning` in `config/config.exs` — a runtime call
+  in `Candil.CLI.main/1` arrived too late, after the applications had booted.
+- **`candil version` says 4.0.0.** `mix.exs` still said `3.0.0`.
+
+### Added
+
+- **The CI builds the escript and runs it.** All eight gates passed on a binary
+  that was broken in three places, because nothing ever built or executed it.
+  It now runs `mix escript.build`, smokes every command, and fails if the help
+  omits a command the dispatch table can reach.
+
 The `Candil.EnginePool` API breaks here, on purpose (C13): it was an LRU of
 engines with no capacity to enforce, and the 4.0 line is a major. Everything
 else in the 4.0 contract freeze is tooling and documentation.

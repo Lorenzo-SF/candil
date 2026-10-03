@@ -35,8 +35,18 @@ defmodule Candil.CLI.Lifecycle do
 
   @doc """
   `candil run <model> [opts]`.
+
+  Without a model name there is nothing to run, and saying so is the whole
+  answer. The first thing anyone types is `candil run`, and a
+  `FunctionClauseError` for it teaches nothing.
   """
   @spec run_model([binary()]) :: :ok
+  def run_model([]) do
+    error("usage: candil run <model> [--detach] [--port N]")
+    error("       `candil models list` para ver los modelos disponibles")
+    :ok
+  end
+
   def run_model([name | rest]) do
     alias_name = safe_alias(name)
     opts = parse(rest)

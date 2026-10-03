@@ -120,6 +120,39 @@ jobs:
           set -o pipefail
           mix test --cover 2>&1 | tee coverage.txt
 
+      # The gates above all pass on a binary that is broken. This step is the
+      # one that would have caught it.
+      #
+      # `candil run` with no arguments raised a FunctionClauseError, `candil
+      # help` did not list `run`/`stop`/`status`, and `candil version` said
+      # 3.0.0 — for four releases, with 702 tests green, because nothing here
+      # ever built the escript. A library test suite is not a product test.
+      - name: Build the escript
+        run: mix escript.build
+
+      - name: Smoke the CLI
+        run: |
+          set -eu
+          # Every command has to answer, and none may raise. `--help` on the
+          # bare binary is the first thing a new user types.
+          ./candil --help
+          ./candil version
+          ./candil doctor --json > /dev/null
+          # No arguments must be a usage line, not a stack trace.
+          ./candil run
+          ./candil stop
+          ./candil status
+
+      - name: The help must list every command the dispatch table has
+        run: |
+          set -eu
+          shown=$(./candil --help | grep -oE '^  [a-z]+' | tr -d ' ' | sort)
+          for cmd in $(mix run -e 'Candil.CLI.commands() |> Map.keys() |> Enum.join(" ")'); do
+            echo "$shown" | grep -qx "$cmd" \
+              || { echo "::error::'$cmd' is dispatchable but missing from the help"; exit 1; }
+          done
+          echo "help lists: $(echo $shown | tr '\n' ' ')"
+
       # Guards against coverage quietly dropping as code is added.
       #
       # The floor is 50 because the real number on the 4.0-work-start tag is
