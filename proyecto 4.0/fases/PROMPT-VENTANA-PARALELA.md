@@ -36,9 +36,9 @@ compilacion). El mirror de Hex tiene que correr como tarea de background, o
 2. LEE ESTO
 ════════════════════════════════════════════════════════════════════════
 
-  (a) `proyecto 4.0/PLAN-F5-F9-F10.md`             <- la seccion de la fase 5
+  (a) `proyecto 4.0/fases/PLAN-VENTANA-PARALELA.md`             <- la seccion de la fase 5
   (b) `proyecto 4.0/HANDOFF.md` §2 y §3            <- que hay y que sigue
-  (c) `proyecto 4.0/candil-4.0-final.md`
+  (c) `proyecto 4.0/original/candil-4.0-final.md`
         · Seccion 17 (linea ~1419)  Candil.Doctor, la salida exacta
         · Fase 5    (linea ~2552)  el bloque entero, con la limpieza de deuda
       NO leas el documento entero. Son 3.000 lineas.
@@ -221,8 +221,8 @@ esos ficheros, es que estas en la rama equivocada.
 2. LEE ESTO
 ════════════════════════════════════════════════════════════════════════
 
-  (a) `proyecto 4.0/PLAN-F5-F9-F10.md`             <- la seccion de la fase 9
-  (b) `proyecto 4.0/candil-4.0-final.md`
+  (a) `proyecto 4.0/fases/PLAN-VENTANA-PARALELA.md`             <- la seccion de la fase 9
+  (b) `proyecto 4.0/original/candil-4.0-final.md`
         · Seccion 21 (linea ~2676)  MCP entero: revision, transports, API
         · Fase 9    (linea ~2676)  el bloque con los siete tests
       NO leas el documento entero.
@@ -376,8 +376,8 @@ NO toques doctor.ex, mcp.ex ni sus tests.
 2. LEE ESTO
 ════════════════════════════════════════════════════════════════════════
 
-  (a) `proyecto 4.0/PLAN-F5-F9-F10.md`             <- la seccion de la fase 10
-  (b) `proyecto 4.0/candil-4.0-final.md`
+  (a) `proyecto 4.0/fases/PLAN-VENTANA-PARALELA.md`             <- la seccion de la fase 10
+  (b) `proyecto 4.0/original/candil-4.0-final.md`
         · Seccion 22 (linea ~2705)  RAG entero: modelo, API
         · Fase 10   (linea ~2705)  el bloque con los seis tests
       NO leas el documento entero.
