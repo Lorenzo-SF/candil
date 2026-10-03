@@ -51,7 +51,7 @@ te da el estado real, el segundo el diseño, el tercero cómo trabajar.
       fase está cada uno, el orden de trabajo, y la lista de errores ya
       cometidos con su porqué. La sección 4 es importante.
 
-  (b) `proyecto 4.0/candil-4.0-final.md`
+  (b) `proyecto 4.0/original/candil-4.0-final.md`
       Solo estas partes, indicadas por número de línea:
         · Seccion 13  (linea ~1152)  Candil.Build, las dos estrategias
         · Seccion 14.3 (linea ~1253) Candil.Engine 4.0
