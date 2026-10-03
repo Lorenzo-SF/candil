@@ -42,6 +42,7 @@ defmodule Candil.Doctor do
 
   alias Apero.OS, as: AperoOS
   alias Botica.Batteries.Disk, as: BoticaDisk
+  alias Candil.Doctor.{Checks, FixTable}
   alias Botica.Batteries.Memory, as: BoticaMemory
   alias Candil.{Build, Engine, Instances, Model, Store}
   alias Candil.Config, as: CandilConfig
@@ -61,31 +62,143 @@ defmodule Candil.Doctor do
   @doc """
   Runs every check and returns the report.
 
+  The running is `Botica`'s now: `Candil.Doctor.Checks` hands it eight
+  `Botica.Types.check_def/0` and `Botica.Runner.Executor` runs them in
+  parallel, each under its own timeout, isolating a check that raises. What
+  comes back is put through `from_botica/3` so that the shape of this report is
+  exactly what it always was.
+
+  That last part is the point. `Botica` is better at running checks; it does
+  not have opinions about what a LLM runtime's report looks like, and the CLI,
+  the `--json` contract and twenty-something tests all depend on this one.
+  Adapting at the boundary means the internal change costs nothing outside it.
+
   `opts[:fix]` additionally attempts the repairs that are safe to attempt, and
   records which ones it made. What it could not do is still listed, with the
   command, because a fix that silently gives up is worse than no fix.
   """
   @spec run(keyword()) :: report()
   def run(opts \\ []) do
-    checks =
-      [
-        {:config, &config/0},
-        {:binary, &binary/0},
-        {:sources, &sources/0},
-        {:ports, &ports/0},
-        {:auth, &auth/0},
-        {:gpu, &gpu/0},
-        {:memory, &memory/0},
-        {:disk, &disk/0}
-      ]
-      |> Enum.map(&probed/1)
-      |> then(fn list -> if opts[:fix], do: repair(list), else: list end)
+    table = FixTable.new()
+    checks = collect(table, opts[:fix] == true)
 
     %{
       checks: checks,
       errors: Enum.count(checks, &(&1.level == :error)),
       warnings: Enum.count(checks, &(&1.level == :warning))
     }
+  end
+
+  # A `case` does not share bindings between its branches, so the whole
+  # `Botica.Doctor.run/1` call lives in here rather than inline in `run/1`.
+  defp collect(table, fix?) do
+    config = %{
+      app_name: "candil",
+      checks: Checks.all(table)
+    }
+
+    case Botica.Doctor.run(config) do
+      {:ok, results} ->
+        checks = from_botica(results, table)
+        if fix?, do: repair(checks, config, results, table), else: checks
+
+      {:error, reason} ->
+        # Botica refuses to run a config it considers invalid, and every one of
+        # these definitions is built here, so this is unreachable in practice.
+        # It is still handled: a doctor that printed nothing because a
+        # dependency changed its mind would look exactly like a doctor that
+        # found nothing, and those two must never be confused.
+        [
+          %{
+            name: :runner,
+            level: :error,
+            message: "el runner no arranco: " <> to_string(reason),
+            fix: nil
+          }
+        ]
+    end
+  end
+
+  @doc """
+  Runs one check by name and returns it as a check map.
+
+  Public because `Candil.Doctor.Checks` wraps it; it is the same code that
+  always ran, just addressed directly instead of through a list.
+  """
+  @spec run_one(atom()) :: check()
+  def run_one(:config), do: config()
+  def run_one(:binary), do: binary()
+  def run_one(:sources), do: sources()
+  def run_one(:ports), do: ports()
+  def run_one(:auth), do: auth()
+  def run_one(:gpu), do: gpu()
+  def run_one(:memory), do: memory()
+  def run_one(:disk), do: disk()
+
+  # Botica's `result` is `%{id:, name:, status:, message:, fix_command:}`.
+  # Candil's is `%{name:, level:, message:, fix:}`.
+  #
+  # The order comes from `Checks.ids/0` and not from the order the results
+  # arrived in. Botica's executor uses `ordered: true` today, and a report whose
+  # order depends on a sibling library's internals is one that silently changes
+  # the day that flag does.
+  defp from_botica(results, table) do
+    by_id = Map.new(results, &{&1.id, &1})
+
+    Checks.ids()
+    |> Enum.map(fn id ->
+      case Map.get(by_id, id) do
+        nil ->
+          %{
+            name: id,
+            level: :error,
+            message: "el check no llego a ejecutarse",
+            fix: nil
+          }
+
+        result ->
+          %{
+            name: result.id,
+            level: result.status,
+            message: result.message,
+            fix: FixTable.get(table, id)
+          }
+      end
+    end)
+  end
+
+  # `--fix` is two things, and Botica's model only covers the first.
+  #
+  # 1. **Per-check repairs**, through `Botica.Repair.Fixer`: any check that came
+  #    back `:error` and carries a `fix` function is repaired here, and the
+  #    applied / failed / skipped split is Botica's to keep.
+  # 2. **The directories**, through `prepare/0`: a missing `candil.toml` is a
+  #    *warning*, so the Fixer would never look at it, and `candil doctor
+  #    --fix` would be a no-op on the fresh machine it exists for.
+  #
+  # The config check also registers `prepare/0` as its own `fix` (see
+  # `Checks.config_fix/0`), so if a config problem ever *is* an error it gets
+  # repaired through Botica's path. It is not called from here when that has
+  # already happened, because creating a directory twice is harmless but
+  # reporting it twice is a lie.
+  defp repair(checks, config, results, table) do
+    # `Fixer.fix/2` is typed `{:ok, fix_report()}` with no error clause, and
+    # dialyzer is right: there is nothing to fall back from. A clause that
+    # cannot match is a branch that reads like it can, and the next person
+    # trusts it.
+    {:ok, applied} = Botica.Repair.Fixer.fix(config, results)
+
+    message =
+      if :config in applied.applied do
+        FixTable.get(table, :config)
+      else
+        case prepare() do
+          {:ok, created} -> created
+          {:error, _reason} -> nil
+        end
+      end
+
+    if message, do: Enum.map(checks, &announce(&1, message)), else: checks
   end
 
   @doc """
@@ -362,12 +475,29 @@ defmodule Candil.Doctor do
   # pass. It used to hang off the `:config` check's `fix` field, which meant
   # it only ran when the config was broken in exactly the right way — a repair
   # that depends on which check failed is a repair you cannot reason about.
-  defp repair(checks) do
+  @doc """
+  Creates the directories Candil needs, and says where.
+
+  Not a `Botica.Repair.Fixer` repair, and deliberately so: a missing
+  `candil.toml` is a *warning*, and the Fixer only repairs checks that came back
+  `:error`. Routing this through the Fixer would make `candil doctor --fix` a
+  no-op on exactly the fresh machine it exists for.
+
+  It is public because `Candil.Doctor.Checks.config_fix/0` is the same function,
+  and a check that *does* come back `:error` should be repaired through Botica's
+  own path rather than a second one.
+  """
+  @spec prepare() :: {:ok, binary()} | {:error, binary()}
+  def prepare do
     data = Instances.data_dir()
     logs = Instances.log_dir()
-    _ = File.mkdir_p(data)
-    _ = File.mkdir_p(logs)
-    Enum.map(checks, &announce(&1, created(data, logs)))
+
+    with :ok <- Apero.File.ensure_dir(data), :ok <- Apero.File.ensure_dir(logs) do
+      {:ok, "creado #{created(data, logs)}"}
+    else
+      {:error, reason} ->
+        {:error, "no se pudo crear #{data}: #{inspect(reason)}"}
+    end
   end
 
   # Say what was actually created. `log_dir` can point anywhere, and a `--fix`
@@ -376,8 +506,12 @@ defmodule Candil.Doctor do
   defp created(data, logs) when data == logs, do: data
   defp created(data, logs), do: "#{data} y #{logs}"
 
-  defp announce(%{name: :config} = check, created) do
-    put_new(check, "creado #{created}")
+  # `message` already arrives as a sentence — `prepare/0` returns "creado /x y
+  # /x/logs" — so nothing is prepended here. An earlier version did, and the
+  # report said "creado creado /x", which is the kind of small nonsense that
+  # makes someone doubt the rest of the line.
+  defp announce(%{name: :config} = check, message) do
+    put_new(check, message)
   end
 
   defp announce(check, _created), do: check
@@ -393,18 +527,6 @@ defmodule Candil.Doctor do
   # `Engine.binary_path/1` took the whole report with it — which is the one
   # machine where you most need the doctor. A promise in a docstring that the
   # code does not keep is worse than no promise.
-  defp probed({name, fun}) do
-    fun.()
-  rescue
-    error ->
-      %{
-        name: name,
-        level: :error,
-        message: "el check reviento: " <> Exception.message(error),
-        fix: nil
-      }
-  end
-
   defp safe(fun) do
     {:ok, fun.()}
   rescue
