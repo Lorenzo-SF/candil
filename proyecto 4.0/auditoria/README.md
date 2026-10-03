@@ -60,4 +60,8 @@ que creía:
 ⚠ **A4 sigue abierta y toca este mismo trabajo.** `main` tiene branch protection
 con 1 approving review, y el PAT es admin. Mergear a `main` saltándosela
 significa saltarse la única protección que queda en el repo. Por eso el trabajo de
-esta sesión está en la rama `cierre-f0-f5` y **no se ha mergeado**.
+esta sesión está en el [PR #30](https://github.com/Lorenzo-SF/candil/pull/30)
+(`f5-cierre` → `main`) y **no se ha mergeado**. Comprobado, no supuesto:
+`main` tiene `required_approving_review_count: 1`, así que GitHub deja el
+merge en `blocked` hasta que alguien revise. El PAT es admin y *podría*
+saltárselo; por eso no lo ha hecho nadie.

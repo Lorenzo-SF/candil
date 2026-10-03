@@ -1,6 +1,7 @@
 # Candil 4.0 — cierre hasta F5 · entregable
 
-> **Rama**: `cierre-f0-f5` (desde `main` @ `7fc0920`) · **Fecha**: 2026-10-03
+> **Rama**: `f5-cierre` (desde `main` @ `7fc0920`) · **PR**: [#30](https://github.com/Lorenzo-SF/candil/pull/30)
+> **Fecha**: 2026-10-03
 > **Toolchain**: OTP 28.5.0.7 · Elixir 1.19.5-otp-28
 >
 > Alcance: terminar lo que faltaba o estaba mal **hasta la fase 5 incluida**, para
@@ -11,7 +12,7 @@
 
 ## 1. Los números, antes y después
 
-| | Antes (`7fc0920`) | Después (`cierre-f0-f5`) |
+| | Antes (`7fc0920`, `main`) | Después (`f5-cierre`) |
 |---|---|---|
 | Tests | 701 + 26 doctests | **705 + 26 doctests** |
 | Fallos | **1** | **0** |
@@ -221,7 +222,35 @@ ni GGUF en este sandbox.*
 | `### Added` duplicado en el CHANGELOG | Preexistente en `7fc0920` y cosmético. El README de F5 dice que si algo ya commiteado te parece mal, **lo digas en vez de tocarlo**. |
 | La cobertura no determinista | 4 cifras distintas en 4 ejecuciones. Información, no resultado. |
 
-## 7. Cómo se retoma
+## 7. La rama `4.0` está parada, y HANDOFF §1 la sigueelines gibt como rama de trabajo
+
+`HANDOFF.md` §1 dice que la rama de trabajo es `4.0` y que el flujo es
+`4.0-fN-algo → PR a 4.0 → sync main → PR 4.0 → main`. **Eso ya no describe la
+realidad**, y hay que comprobarlo comparando **árboles**, no ancestros
+(`HANDOFF.md` §6 avisa de que GitHub squashea los merges).
+
+16 ficheros difieren entre `main` y `4.0`, y en **los 16 la versión buena es la de
+`main`**:
+
+| | `main` | `4.0` |
+|---|---|---|
+| `mix.exs` | `version: "4.0.0"` | `version: "3.0.0"` |
+| `lib/candil/cli/help.ex` | los nombres salen de `CLI.commands()` | lista fija de 4 comandos |
+| `lib/candil/cli/lifecycle.ex` | `run_model([])` da el mensaje de uso | revienta con `FunctionClauseError` |
+| `.github/workflows/ci.yml` | construye y prueba el escript (−33 líneas) | no lo hace |
+| `config/config.exs` | logger a `:warning` (`--json` parseable) | sin el arreglo |
+| `test/candil/cli_test.exs` | comprueba help ↔ tabla de despacho | sin ese test |
+| `HANDOFF.md` / `README.md` / fases | 539 / 217 / 111 líneas | 469 / 172 / 108 |
+
+**Nada se ha quedado atrapado en `4.0`**: no tiene ni una línea que `main` no
+tenga. Está simplemente tres commits atrás, con los bugs ya arreglados en `main`.
+
+⚠ **No la he sincronizado**, porque decidir si `4.0` se actualiza, se archiva o se
+borra es política del repo, no una línea de código. Lo que sí conviene es que
+`HANDOFF.md` §1 deje de anunciar `4.0` como rama de trabajo: si el próximo agente
+lo lee, abre una rama desde un sitio donde faltan cinco arreglos.
+
+## 8. Cómo se retoma
 
 ```bash
 git fetch origin && git checkout main && git pull --ff-only origin main
