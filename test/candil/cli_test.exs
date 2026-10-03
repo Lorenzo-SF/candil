@@ -84,19 +84,43 @@ defmodule Candil.CLITest do
       assert capture_io(fn -> CLI.main(["version"]) end) =~ "Candil "
     end
 
-    # Through `Escript.main/1`, not `CLI.main/1`: the alias table lives at the
-    # escript boundary, so this is the path the binary actually takes. Calling
-    # `CLI.main(["--version"])` instead tests a path no user can reach, and it
-    # *looks* broken — Alaja owns `--version` as a global option and prints its
-    # own, lowercase, while the `version` command is Candil's. Fixing that
-    # "disagreement" in the test would have papered over the fact that the two
-    # entries were never the same entry point.
+    # `Escript.expand/1` and `CLI.main/1`, separately — never
+    # `Escript.main/1`. That one ends in `System.halt/1` on purpose, so calling
+    # it from a test kills the run part-way through and `mix test` still exits
+    # **0**: a suite that looks green because it stopped. It cost one round of
+    # "34 dots and no summary" to find that out.
+    #
+    # The two halves are what is under test anyway: `expand/1` owns the alias
+    # table and `CLI.main/1` owns the dispatch. Going through `Escript.main/1`
+    # would also have tested a path where `--version` and `version` are
+    # different entries — Alaja owns `--version` as a global option and prints
+    # its own, lowercase — and "fixing" that disagreement would have hidden the
+    # fact that they never were the same entry.
     test "the flag spellings agree with it" do
-      expected = capture_io(fn -> Escript.main(["version"]) end)
+      dispatch = fn argv -> capture_io(fn -> argv |> Escript.expand() |> CLI.main() end) end
+
+      expected = dispatch.(["version"])
 
       for spelling <- ["--version", "-v"] do
-        assert capture_io(fn -> Escript.main([spelling]) end) == expected
+        assert dispatch.([spelling]) == expected
       end
+    end
+
+    test "the alias table rewrites the first token only" do
+      # `candil models remove --version` means a model called `--version`, not
+      # a request for the version.
+      assert Escript.expand(["--version"]) == ["version"]
+      assert Escript.expand(["models", "--version"]) == ["models", "--version"]
+      assert Escript.expand([]) == []
+    end
+
+    test "an unknown command returns :error, which is what makes the exit 1" do
+      # `catch_all` routes it here. Returning `:ok` instead would print a good
+      # error and exit 0, which is the bug this replaced.
+      # stderr, not stdout: a failure that says so on stdout lands in whatever
+      # a script was capturing.
+      err = capture_io(:stderr, fn -> assert :error = Escript.unknown(%{name: "frobnicate"}) end)
+      assert err =~ "frobnicate"
     end
 
     test "unknown input prints the usage rather than raising" do

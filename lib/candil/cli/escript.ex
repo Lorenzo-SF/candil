@@ -25,6 +25,7 @@ defmodule Candil.CLI.Escript do
   Alaja renders afterwards obeys it.
   """
 
+  alias Alaja.Output
   alias Candil.CLI
   alias Candil.CLI.Colorize
 
@@ -53,10 +54,24 @@ defmodule Candil.CLI.Escript do
   returning the meaningful atom (which is what they are tested against), and the
   shell gets the number it can branch on.
   """
-  @spec main([binary()]) :: non_neg_integer()
+  @spec main([binary()]) :: no_return()
   def main(argv) do
     terminal_policy!()
-    CLI.main(expand(argv)) |> exit_status()
+    status = argv |> expand() |> CLI.main() |> exit_status()
+
+    # `System.halt/1`, and not `return status`.
+    #
+    # An escript's exit status is set by *halting* with it. Returning an integer
+    # from `main/1` does nothing: the generated wrapper calls `halt(0)` on the
+    # way out, whatever came back. That is why `candil doctor` could print a
+    # report full of failures and exit 0 while `candil run` exited 1 — the
+    # second one is Alaja's own usage error, which halts the process itself.
+    #
+    # Halting here rather than turning on the DSL's `halt_on_error` is the
+    # difference between the binary and the library. This module only ever runs
+    # as the escript entry point; a host that embeds Candil calls
+    # `Candil.CLI.main/1`, which returns a value and never halts anything.
+    System.halt(status)
   end
 
   # 2 and above are reserved for Alaja's own usage errors: a wrong flag or a
@@ -72,6 +87,31 @@ defmodule Candil.CLI.Escript do
   def exit_status(:error), do: 1
   def exit_status({:error, _reason}), do: 1
   def exit_status(_), do: 0
+
+  @doc """
+  Answers a command that does not exist.
+
+  Wired as the DSL's `catch_all`, so it runs instead of Alaja's
+  `ErrorHandler.unknown_command/2`. Two reasons, and the second is the one that
+  matters: it can suggest the command the user probably meant, and it returns
+  `:error`, which `exit_status/1` turns into exit 1. The framework's handler
+  prints a perfectly good error and returns `:ok`, so `candil frobnicate`
+  exited **0** — a script could not tell a typo from success.
+  """
+  @spec unknown(map()) :: :error
+  def unknown(%{name: name}) do
+    # `Alaja.Output.write_error/1`, not `Alaja.Printer.print_error/2`. The
+    # printer writes to stdout, and a command that failed saying so on stdout
+    # lands in the middle of whatever a script was capturing — `candil
+    # something --json` would put an error in the middle of its JSON. Alaja's
+    # output module is the one that resolves `:stderr` correctly, including the
+    # daemon case, and that is the same thing the DSL uses for its own dispatch
+    # errors.
+    Output.write_error("unknown command: #{name}")
+
+    Output.write_raw_error("los comandos son: " <> Enum.join(CLI.command_names(), ", ") <> "\n")
+    :error
+  end
 
   @doc """
   Rewrites the leading alias tokens, in place, leaving everything else alone.

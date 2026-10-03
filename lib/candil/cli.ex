@@ -43,7 +43,14 @@ defmodule Candil.CLI do
   use Alaja.CLI.Definition,
     otp_app: :candil,
     command_help: true,
-    usage_exit_code: 1
+    usage_exit_code: 1,
+    # An unknown top-level command is Candil's to answer, not the framework's:
+    # it can suggest the nearest real one, and it returns `:error` so the
+    # escript turns that into exit 1. Without a `catch_all`, Alaja's
+    # `ErrorHandler` prints the error and returns `:ok`, so `candil
+    # frobnicate` exited **0** — the same "failure that a script cannot see"
+    # that `doctor` had.
+    catch_all: {Candil.CLI.Escript, :unknown}
 
   alias Candil.CLI.{Doctor, Help, Lifecycle, Models, Version}
 
@@ -61,7 +68,13 @@ defmodule Candil.CLI do
     run({Help, :run})
   end
 
+  # A group needs a handler, not just its children. Without one, an unknown
+  # subcommand falls through to trying to run the group itself, and Alaja says
+  # "command 'models' has no handler defined" — which is a message about
+  # Candil's internals, shown to a user who typed a model command wrong.
   subcommand "models", "Inspect, pull and remove models" do
+    run({Models, :unknown})
+
     command "list", "Every model the store knows about" do
       run({Models, :list})
     end
