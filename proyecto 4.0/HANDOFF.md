@@ -23,12 +23,12 @@
 | Cómo viaja el trabajo | fase en `4.0-fN-algo` → PR a `4.0` → sync `main` → PR `4.0` → `main` |
 | `main` | Contiene las fases −1 a 5 (cerrado con el PR de `4.0`) |
 | Tag de partida | `4.0-contracts-frozen` |
-| Tests | **702 tests + 26 doctests**, 0 fallos |
-| Cobertura | **66.0 %** |
-| Gates | **8 de 8 en verde** — *sobre el código, no sobre el binario* |
+| Tests | **705 tests + 26 doctests**, 0 fallos — *medido 2026-10-03 en `7fc0920`, era 702 + 0 fallos que era mentira* |
+| Cobertura | **66.3 %** |
+| Gates | **8 de 8 en verde** — y por primera vez **también sobre el binario**, que ya se ejecuta en el CI |
 | Fases cerradas | −1 · 0 · 1 · 2 · 3 · 4 · **5** |
-| Siguiente | **fase 6**, Context compartido. `fases/fase-6-README.md` |
-| ⚠ Sin arreglar | `candil run` sin argumentos peta · `candil help` no lista 3 comandos · `candil version` dice 3.0.0 · el CI no ejecuta el escript |
+| Siguiente | **fase 6**, Context compartido. **`auditoria/fase-6-README.md`**, no `fases/` |
+| ⚠ Sin arreglar | *(ninguno de los cuatro de la fila anterior: arreglados y verificados el 2026-10-03)* |
 | ⚠ Sin usar | `ConfigManager` (129 l.) · `Health` (124 l.) · `Inference.Chat` (220 l.) — 473 líneas al 0% que nadie llama |
 
 ### Ramas y PRs

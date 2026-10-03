@@ -70,7 +70,6 @@ defmodule Candil.Model do
             name: nil,
             # :external — an engine we talk to but do not manage
             base_url: nil,
-            launcher: nil,
             # Where the file is, once it is on disk.
             model_dir: nil,
             filename: nil,
@@ -102,7 +101,6 @@ defmodule Candil.Model do
           provider: atom() | nil,
           name: binary() | nil,
           base_url: binary() | nil,
-          launcher: module() | nil,
           model_dir: binary() | nil,
           filename: binary() | nil,
           source: Source.t() | nil,
@@ -229,17 +227,24 @@ defmodule Candil.Model do
   end
 
   # An external model is a server somebody else runs. Candil talks HTTP to it
-  # and never spawns anything, so it needs a URL and nothing else — no engine
-  # binary, no model file, no port to bind.
+  # and never spawns anything, so it needs a URL to talk at and the engine that
+  # carries the connection: no engine binary, no model file, no port to bind.
+  #
+  # It does NOT need a launcher. The launcher belongs to the engine, and
+  # `Engine.launch/3` reads it from there. A model used to carry a `launcher`
+  # field that no code ever read and validation nonetheless *required*, which
+  # made the type unusable from the only place models come from: the schema
+  # validates no `launcher` key and `Config.Hydrate` never read one, so an
+  # external model in a TOML could not satisfy the requirement no matter how it
+  # was written. Requiring a field nothing reads, that nothing can set, is a
+  # deadlock wearing a field's clothes.
   defp validate_type_fields(errors, %{type: :external} = m) do
     errors
     |> then(fn e ->
       if is_nil(m.base_url), do: ["base_url is required for external models" | e], else: e
     end)
     |> then(fn e ->
-      if is_nil(m.launcher),
-        do: ["launcher is required for external models" | e],
-        else: e
+      if is_nil(m.engine), do: ["engine is required for external models" | e], else: e
     end)
   end
 

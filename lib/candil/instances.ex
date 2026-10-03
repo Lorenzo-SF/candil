@@ -74,6 +74,28 @@ defmodule Candil.Instances do
   end
 
   @doc """
+  Where Candil keeps its logs.
+
+  `general.log_dir` in the configuration file wins; without it the logs live
+  under the data directory, so `CANDIL_DATA_DIR` moves them too.
+
+  This was a key the schema validated, the sample TOML declared, and **no code
+  read**: `general.log_dir` passed validation and then went straight to
+  nothing, and `--fix` created `<data_dir>/logs` whatever the file said. A
+  configurable route that nothing honours is worse than a fixed one, because
+  the file is where someone goes looking for the answer.
+  """
+  @spec log_dir() :: binary()
+  def log_dir do
+    with {:ok, config} <- Candil.Config.File.load(),
+         %{"general" => %{"log_dir" => dir}} <- config do
+      Path.expand(dir)
+    else
+      _ -> Path.join(data_dir(), "logs")
+    end
+  end
+
+  @doc """
   The run directory, created if it is not there.
   """
   @spec run_dir() :: binary()

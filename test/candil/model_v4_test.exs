@@ -5,7 +5,7 @@ defmodule Candil.ModelV4Test do
   alias Candil.Source
 
   describe "type :external" do
-    test "needs a base_url and a launcher, and nothing else" do
+    test "needs a base_url and an engine, and nothing else" do
       # An external model is a server somebody else runs. Candil talks HTTP to
       # it and never spawns a process, so there is no binary, no model file
       # and no port to bind.
@@ -13,7 +13,25 @@ defmodule Candil.ModelV4Test do
                Model.validate(%Model{alias: :tgi, type: :external, engine: :box})
 
       assert "base_url is required for external models" in reasons
-      assert "launcher is required for external models" in reasons
+      refute Enum.any?(reasons, &(&1 =~ "launcher"))
+    end
+
+    test "an external model without an engine says so" do
+      assert {:error, reasons} =
+               Model.validate(%Model{alias: :tgi, type: :external, base_url: "http://x"})
+
+      assert "engine is required for external models" in reasons
+    end
+
+    test "a model has no launcher field: that lives in the engine" do
+      # `Engine.launch/3` reads `engine.launcher`. Nothing ever read
+      # `model.launcher`, the config could not set it, and validation demanded
+      # it — so an external model could not be declared in a TOML at all.
+      model_keys = %Model{alias: :m, type: :local} |> Map.from_struct() |> Map.keys()
+      engine_keys = %Candil.Engine{alias: :e} |> Map.from_struct() |> Map.keys()
+
+      refute :launcher in model_keys
+      assert :launcher in engine_keys
     end
 
     test "validates once both are present" do
@@ -21,8 +39,8 @@ defmodule Candil.ModelV4Test do
                Model.validate(%Model{
                  alias: :tgi,
                  type: :external,
+                 engine: :box,
                  base_url: "http://10.0.0.5:8080",
-                 launcher: Candil.Engine.Launcher,
                  context_size: 32_768
                })
     end
@@ -38,7 +56,7 @@ defmodule Candil.ModelV4Test do
     end
 
     test "has no local file path" do
-      external = %Model{alias: :tgi, type: :external, base_url: "http://x", launcher: M}
+      external = %Model{alias: :tgi, type: :external, engine: :box, base_url: "http://x"}
       assert Model.file_path(external) == nil
     end
   end

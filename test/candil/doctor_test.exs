@@ -3,7 +3,7 @@ defmodule Candil.DoctorTest do
 
   import ExUnit.CaptureIO
 
-  alias Candil.{Doctor, Engine, Model, Store}
+  alias Candil.{Doctor, Engine, Instances, Model, Store}
 
   setup do
     # The Store is application state that other files also write to.
@@ -223,6 +223,35 @@ defmodule Candil.DoctorTest do
       _report = Doctor.run(fix: true)
 
       assert File.dir?(dir)
+    end
+
+    test "creates the CONFIGURED log directory, not <data_dir>/logs" do
+      # `general.log_dir` used to be a key the schema validated, the sample
+      # TOML declared, and no code read. `--fix` wrote `<data_dir>/logs` and
+      # announced that path, so the file and the behaviour disagreed and only
+      # the file was believed.
+      dir = Path.join(System.tmp_dir!(), "candil-logfix-#{System.unique_integer([:positive])}")
+      logs = Path.join(Path.join(dir, "elsewhere"), "journal")
+      write_config!(dir, ~s([general]\ndata_dir = "#{dir}"\nlog_dir = "#{logs}"\n))
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      _report = Doctor.run(fix: true)
+
+      assert File.dir?(logs), "the configured log_dir was not created"
+      assert Instances.log_dir() == logs
+    end
+
+    test "the report says which directories it created" do
+      # A `--fix` that repairs a path and names a different one teaches the
+      # user to stop reading the report.
+      dir = Path.join(System.tmp_dir!(), "candil-say-#{System.unique_integer([:positive])}")
+      write_config!(dir, ~s([general]\ndata_dir = "#{dir}"\nlog_dir = "#{dir}/j"\n))
+      on_exit(fn -> File.rm_rf(dir) end)
+
+      report = Doctor.run(fix: true)
+
+      assert check(report, :config).message =~ dir
+      assert check(report, :config).message =~ Path.join(dir, "j")
     end
 
     test "lists what it could NOT fix, with the command" do
