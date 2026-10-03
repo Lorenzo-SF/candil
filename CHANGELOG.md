@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`Detector.safe_arch/0` no longer reports `:unknown` as a success.** It
+  guarded on "the `Trebejo.OS` module is loaded" and then wrapped whatever came
+  back in `{:ok, _}`. `Trebejo.OS.arch/0` has `:unknown` in its own return
+  type, so that is what it answers when it cannot read the architecture, and
+  the guard turned "I do not know" into "here is your answer, it is
+  `:unknown`". `arch_error` came out `nil`, nothing was logged, and the
+  precompiled download failed later saying nothing about why. `:unknown` is
+  now the error it looks like, and `Candil.Detector.detect/0` carries
+  `:trebejo_not_available` in `:arch_error` and logs it. This was the one red
+  gate on `main` (B6, declared closed in `HANDOFF.md` §3-quater).
+- **A model no longer carries a `launcher` field.** `Candil.Engine.launch/3`
+  reads `engine.launcher`; nothing ever read `model.launcher`, `Config.Schema`
+  validates no `launcher` key and `Config.Hydrate` never read one — and
+  `Model.validate/1` *required* it for `:external` models. So an external model
+  could not be declared in a TOML at all: the field could not be set from the
+  only place models come from, and validation demanded it anyway. `:external`
+  now requires `engine` and `base_url`, which is what the design says and what
+  hydration can actually supply (D3, `RETOMAR.md` §3.1).
+- **`candil doctor --fix` honours a configured `general.log_dir`.** The schema
+  validated the key, the sample TOML declared it, and no code read it: the
+  repair always created `<data_dir>/logs` and announced that path. New
+  `Candil.Instances.log_dir/0` resolves the configured directory and falls back
+  to `<data_dir>/logs`, and the report names the directories it actually made.
 - **`candil run` with no arguments no longer raises.** It printed a
   `FunctionClauseError` and exited 1. It now prints the usage line and points
   at `candil models list`.
@@ -21,6 +44,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   The logger level is now `:warning` in `config/config.exs` — a runtime call
   in `Candil.CLI.main/1` arrived too late, after the applications had booted.
 - **`candil version` says 4.0.0.** `mix.exs` still said `3.0.0`.
+
+### Fixed (tests)
+
+Two tests froze a contract that contradicted a stronger one in the same file,
+and only one of the pair could ever pass. Both now encode the corrected
+contract rather than the convenient half:
+
+- `Candil.DetectorTest` — *"agrees with Trebejo when Trebejo is there"*
+  asserted `{:ok, arch} = Detector.safe_arch()` unconditionally, while the
+  contract it was contradicting says `:unknown` means
+  `:trebejo_not_available`. "Trebejo is loaded" and "Trebejo knows the
+  architecture" are two different facts, and only the second can be an
+  `{:ok, _}`.
+- `Candil.ModelV4Test` — *"needs a base_url and a launcher"* and *"validates
+  once both are present"* froze the `launcher` requirement removed above.
+
+No test was deleted, skipped or weakened to make a gate pass, and the count
+went **up**: 701 → 705.
 
 ### Added
 

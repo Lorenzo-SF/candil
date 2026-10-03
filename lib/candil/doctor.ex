@@ -341,17 +341,24 @@ defmodule Candil.Doctor do
   # it only ran when the config was broken in exactly the right way — a repair
   # that depends on which check failed is a repair you cannot reason about.
   defp repair(checks) do
-    dir = Instances.data_dir()
-    _ = File.mkdir_p(Path.join(dir, "logs"))
-    _ = File.mkdir_p(dir)
-    Enum.map(checks, &announce(&1, dir))
+    data = Instances.data_dir()
+    logs = Instances.log_dir()
+    _ = File.mkdir_p(data)
+    _ = File.mkdir_p(logs)
+    Enum.map(checks, &announce(&1, created(data, logs)))
   end
 
-  defp announce(%{name: :config} = check, dir) do
-    put_new(check, "creado #{dir}")
+  # Say what was actually created. `log_dir` can point anywhere, and a `--fix`
+  # that reports `<data_dir>/logs` while writing somewhere else is a small lie
+  # in the one place the user is told what to trust.
+  defp created(data, logs) when data == logs, do: data
+  defp created(data, logs), do: "#{data} y #{logs}"
+
+  defp announce(%{name: :config} = check, created) do
+    put_new(check, "creado #{created}")
   end
 
-  defp announce(check, _dir), do: check
+  defp announce(check, _created), do: check
 
   defp put_new(check, message) do
     %{check | message: check.message <> " · " <> message}

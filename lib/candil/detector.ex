@@ -88,6 +88,15 @@ defmodule Candil.Detector do
   hiding: a missing Trebejo turning into a `:unknown` that nobody was told
   about.
 
+  A loaded Trebejo is not a Trebejo that knows. `Trebejo.OS.arch/0` returns a
+  bare atom, and `:unknown` is one of the values in that type, so it is what
+  you get when it could not read the architecture — not an error raised. The
+  guard below used to stop at "the module is there", wrap that `:unknown` in
+  `{:ok, _}`, and hand the caller a success. The reason then had nowhere to
+  travel: `arch_error` came out `nil`, nothing was logged, and the download
+  failed much later saying nothing about why. So `:unknown` is the error it
+  looks like.
+
   ## Examples
 
       iex> match?({:ok, _}, Candil.Detector.safe_arch()) or
@@ -97,7 +106,10 @@ defmodule Candil.Detector do
   @spec safe_arch() :: {:ok, atom()} | {:error, :trebejo_not_available}
   def safe_arch do
     if Code.ensure_loaded?(Trebejo.OS) and function_exported?(Trebejo.OS, :arch, 0) do
-      {:ok, Trebejo.OS.arch()}
+      case Trebejo.OS.arch() do
+        :unknown -> {:error, :trebejo_not_available}
+        arch -> {:ok, arch}
+      end
     else
       {:error, :trebejo_not_available}
     end

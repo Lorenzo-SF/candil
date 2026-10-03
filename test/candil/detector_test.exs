@@ -103,8 +103,17 @@ defmodule Candil.DetectorTest do
     end
 
     test "agrees with Trebejo when Trebejo is there" do
-      assert {:ok, arch} = Detector.safe_arch()
-      assert arch == OS.arch()
+      # "Trebejo is there" and "Trebejo knows the architecture" are two
+      # different facts and only the second can be an `{:ok, _}`: `arch/0` has
+      # `:unknown` in its own return type, and that is what it answers when it
+      # could not read it. Asserting `{:ok, _}` unconditionally made this test
+      # contradict the frozen one below, which says `:unknown` means
+      # `:trebejo_not_available`. Only one of the pair could ever pass; this
+      # one was the wrong half.
+      case OS.arch() do
+        :unknown -> assert Detector.safe_arch() == {:error, :trebejo_not_available}
+        arch -> assert {:ok, ^arch} = Detector.safe_arch()
+      end
     end
 
     test "is public, so a caller can ask before downloading anything" do
