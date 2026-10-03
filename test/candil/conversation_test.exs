@@ -27,6 +27,11 @@ defmodule Candil.ConversationTest do
       refute Code.ensure_loaded?(Candil.Conversation.Context)
 
       assert Code.ensure_loaded?(Candil.Context.TokenEstimator)
+      # `function_exported?/3` answers false for a module that is not loaded yet, so
+      # this asserts a question about load order unless the module is loaded first.
+      # `http_test.exs` says the same thing; the trap was fixed in one file and
+      # left in the others, where a change of seed is what finally showed it.
+      {:module, Candil.Context.TokenEstimator} = Code.ensure_loaded(Candil.Context.TokenEstimator)
       assert function_exported?(Candil.Context.TokenEstimator, :estimate_content, 1)
     end
 

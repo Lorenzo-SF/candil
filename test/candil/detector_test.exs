@@ -117,6 +117,11 @@ defmodule Candil.DetectorTest do
     end
 
     test "is public, so a caller can ask before downloading anything" do
+      # `function_exported?/3` answers false for a module that is not loaded yet, so
+      # this asserts a question about load order unless the module is loaded first.
+      # `http_test.exs` says the same thing; the trap was fixed in one file and
+      # left in the others, where a change of seed is what finally showed it.
+      {:module, Detector} = Code.ensure_loaded(Detector)
       assert function_exported?(Detector, :safe_arch, 0)
     end
   end
