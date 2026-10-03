@@ -94,8 +94,28 @@ mejora el resultado.
 | 10 | RAG | 📄 doc listo, sin código |
 | 11 | Consumidores, docs, `4.0.0` | 📄 doc listo, sin código |
 
-**Estado medido ahora**: 702 tests + 26 doctests, 0 fallos, 66.0% de cobertura,
-los ocho gates verdes. Rama de desarrollo: **`4.0`**.
+**Estado medido** (2026-10-02, 23:00): 702 tests + 26 doctests, 0 fallos, 66.0%
+de cobertura, los ocho gates verdes. `4.0` contiene las fases −1 a 5.
+
+⚠ **Verificado con los ocho gates, no con el binario.** Ejecutar
+`./candil` destapó tres fallos que los tests no ven: `candil run` sin
+argumentos peta con `FunctionClauseError`, `candil help` no lista `run`/`stop`/
+`status`, y `candil version` dice `3.0.0`. **Sin arreglar.** Ver §Trampas.
+
+**Huecos conocidos, con medición:**
+
+| Módulo | Líneas | Cobertura | Por qué |
+|---|---:|---:|---|
+| `Candil.ConfigManager` | 129 | 0.0% | fase 0, nadie lo llama |
+| `Candil.Health` | 124 | 0.0% | fase 0, nadie lo llama |
+| `Candil.Inference.Chat` | 220 | 0.0% | sin fase asignada |
+
+Son 473 líneas correctamente escritas que **nadie llama**. No son stubs: no
+tienen `not_implemented`. Decidir en la fase 6 si se terminan o se documentan
+como fuera de alcance.
+
+⚠ El CI **no construye ni ejecuta el escript**. `escript.build` no aparece en
+`ci.yml`. Por eso los tres fallos de arriba convivían con el CI en verde.
 
 ## Cuál hacer ahora
 
@@ -115,8 +135,8 @@ Léete `fases/fase-6-README.md` entero antes de escribir código.
 
 **Para una sesión nueva que implementa una fase:**
 
-1. `fases/README.md` ← este fichero, para el contexto
-2. `fases/fase-N-README.md` ← entero
+1. `proyecto 4.0/README.md` ← **este fichero**, para el contexto
+2. `proyecto 4.0/fases/fase-N-README.md` ← entero
 3. `HANDOFF.md` §2, para el estado medido
 4. `original/candil-4.0-final.md` **solo** la sección de esa fase
 
@@ -159,13 +179,38 @@ mix deps.unlock --check-unused
    que falta. Un hueco de entorno reportado vale más que un shim que parece
    funcionar.
 
+## Cómo viajan las ramas
+
+```
+main  ──(sync: main → 4.0)──>  4.0  ──(cierre: PR 4.0 → main)──>  main
+        ↑                          ↑
+        └──── el trabajo se acumula en 4.0 ────┘
+```
+
+- **El trabajo se hace en `4.0-fN-algo` y se integra en `4.0` por PR.**
+- **Cuando se acaba una tanda, se sincroniza:** `git fetch origin && git merge
+  origin/main` dentro de `4.0`. Así `main` no vuelve a irse tan atrás.
+- **Después se cierra:** PR de `4.0` a `main`. Con eso `main` tiene todo.
+- **Nunca se pushea directo a `4.0` ni a `main`.** Siempre PR.
+- **Nunca `git push --force`.**
+
+⚠ El fallo que ya se cometió una vez: integrar en `4.0` y **no** cerrar contra
+`main` deja `main` atrás y con un tronco paralelo que nadie mira. Si una fase
+tarda, sincroniza y cierra antes de empezar la siguiente.
+
 ## Si algo se pone raro
 
-`HANDOFF.md` §Trampas tiene la lista real, descoberta.:
-`/opt` es efímero · `nohup` no sobrevive · `System.pid/0` cambia de tipo ·
-`Process.alive?/1` es para pids Erlang, no de SO · `Enum.filter/2` no es un
-mapper · `Map.update/4` es `(map, key, default, fun)` · `mix format` puede
-reexpandir `Enum.map_join` · este Elixir rechaza `"k" => v` dentro de `[...]`.
+`HANDOFF.md` §Trampas tiene la lista real, descubierta:
+`/opt` es efímero · `nohup` no sobrevive (usa `setsid` o tarea gestionada) ·
+las deps se pierden al reiniciar y el mirror `:4000` hay que relanzarlo ·
+`System.pid/0` cambia de tipo · `Process.alive?/1` es para pids Erlang, no de SO ·
+`Enum.filter/2` no es un mapper · `Map.update/4` es `(map, key, default, fun)` ·
+`mix format` puede reexpandir `Enum.map_join` · este Elixir rechaza `"k" => v`
+dentro de `[...]`.
+
+⚠ **Ejecuta el binario, no solo los tests.** `mix escript.build && ./candil ...`
+— los ocho gates no cubren el artefacto que el usuario ejecuta, y por eso
+`candil run` sin argumentos estaba roto con los tests en verde.
 
 **Empieza por `HANDOFF.md`.** Es el documento que lleva el porqué de cada fase
 desde la 0. Si algo de lo que hay aquí contradice lo que encuentras al medir,

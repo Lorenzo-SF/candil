@@ -94,12 +94,15 @@ el particionado no funciona aunque todos los tests unitarios pasen.
 - [ ] `CHANGELOG.md` con los nombres de función reales
 - [ ] `HANDOFF.md` §2 actualizado con números medidos
 - [ ] PR contra `4.0`, CI verde
+- [ ] **cerrado a `main`**: sync `main` → `4.0` y PR `4.0` → `main`
 - [ ] Tag `candil-4.0.0-alpha.4`
 
 ## La rama
 
 ```
 git fetch origin
+# antes: sincroniza, para que 4.0 no se vaya atrasando de main
+# git checkout 4.0 && git merge origin/main && git push origin 4.0
 git checkout -b 4.0-f6-context origin/4.0
 ```
 

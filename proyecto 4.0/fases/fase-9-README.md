@@ -86,11 +86,14 @@ mix test test/candil/mcp/
 - [ ] El número de tests no ha bajado de 702
 - [ ] `CHANGELOG.md` y `HANDOFF.md` al día
 - [ ] PR contra `4.0`, CI verde
+- [ ] **cerrado a `main`**: sync `main` → `4.0` y PR `4.0` → `main`
 
 ## La rama
 
 ```
 git fetch origin
+# antes: sincroniza, para que 4.0 no se vaya atrasando de main
+# git checkout 4.0 && git merge origin/main && git push origin 4.0
 git checkout -b 4.0-f9-mcp origin/4.0
 ```
 

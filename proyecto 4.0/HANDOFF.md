@@ -19,13 +19,17 @@
 
 | | |
 |---|---|
-| Rama de trabajo | `4.0-f2-build` (base `4.0`, con `main` mergeado dentro) |
-| `main` | Intacta. No se ha tocado desde el merge. |
+| Rama de trabajo | **`4.0`**, con `main` ya mergeado dentro |
+| Cómo viaja el trabajo | fase en `4.0-fN-algo` → PR a `4.0` → sync `main` → PR `4.0` → `main` |
+| `main` | Contiene las fases −1 a 5 (cerrado con el PR de `4.0`) |
 | Tag de partida | `4.0-contracts-frozen` |
-| Tests | **623 tests + 25 doctests**, 0 fallos |
-| Cobertura | **66.8 %** (64.6 % en `main` sin la fase 2) |
-| Gates | **8 de 8 en verde** |
-| Fases cerradas | −1 contratos · −0 gates · **0 los ocho bugs** · 1 Source y TOML · **2 Build y EnginePool** |
+| Tests | **702 tests + 26 doctests**, 0 fallos |
+| Cobertura | **66.0 %** |
+| Gates | **8 de 8 en verde** — *sobre el código, no sobre el binario* |
+| Fases cerradas | −1 · 0 · 1 · 2 · 3 · 4 · **5** |
+| Siguiente | **fase 6**, Context compartido. `fases/fase-6-README.md` |
+| ⚠ Sin arreglar | `candil run` sin argumentos peta · `candil help` no lista 3 comandos · `candil version` dice 3.0.0 · el CI no ejecuta el escript |
+| ⚠ Sin usar | `ConfigManager` (129 l.) · `Health` (124 l.) · `Inference.Chat` (220 l.) — 473 líneas al 0% que nadie llama |
 
 ### Ramas y PRs
 
@@ -467,3 +471,69 @@ Del Apéndice E del documento de diseño, sin cambios:
 **Q3 es la única que ha cambiado de carácter**: el gateway ya tiene
 `Auth` escrito con `api_key` en tiempo constante, así que la pregunta ya
 tiene respuesta parcial.
+
+---
+
+## 6. Lo que se rompió hoy (2026-10-03), y es la parte importante
+
+### Los ocho gates no cubren el binario
+
+`mix test` pasa 702 tests y `candil run` **peta**. No es una contradicción:
+**nadie ejecuta `./candil`**, ni el CI ni las sesiones. `escript.build` no
+aparece en `ci.yml`.
+
+Por eso el artefacto que el usuario ejecuta estaba roto con todo en verde.
+**Antes de dar una fase por buena: `mix escript.build && ./candil doctor` y
+uno por comando.** Los gates son necesarios, no suficientes.
+
+Lo que salió:
+
+| Qué | Qué pasa |
+|---|---|
+| `candil run` sin argumentos | `FunctionClauseError` en `Lifecycle.run_model/1`, exit 1. Debería ser un mensaje de uso |
+| `candil help` | lista 4 comandos, el despacho tiene 7. `run`/`stop`/`status` son invisibles |
+| `candil version` | dice `Candil 3.0.0`; `mix.exs` sigue con `version: "3.0.0"` |
+| el escript del repo | estaba obsoleto, de antes de la fase 5. Hay que reconstruirlo |
+
+### El árbol, no los ancestros, para saber qué falta
+
+GitHub **squashea** los merges. Seis ramas tenían commits que `git
+merge-base` decía que no estaban dentro, y el trabajo **sí** estaba: en el
+commit squasheado.
+
+La comprobación que sí vale es comparar **árboles**:
+
+```bash
+git diff --name-only <rama> <otra>          # qué cambia de verdad
+git rev-parse <rama>^{tree}                  # el hash del árbol
+```
+
+Y para archivos con espacios: **always quote**. Un `for f in $(git diff
+--name-only)` parte `"proyecto 4.0/README.md"` en dos y da rutas que no
+existen.
+
+### `git add -A` se lleva el binario construido
+
+Construir el escript y hacer `git add -A` mete **3 MB de binario** en el
+commit. El repo ya tenía un `candil` trackeado de antes; hay que
+restaurarlo con `git checkout <rama> -- candil` tras cualquier merge.
+
+### El entorno se borra en cada reinicio
+
+`/opt` disappeared y con él **todas las deps de Hex** (solo sobreviven las 5
+de GitHub). Y `/root/.git-credentials` también. Recuperar:
+
+```bash
+mix local.hex --force
+mix local.rebar --force
+setsid python3 /workspace/tools/hex_mirror.py --port 4000 &   # nohup NO sobrevive
+printf 'https://x-access-token:%s@github.com\n' "$GITHUB_TOKEN" > /root/.git-credentials
+git config --global http.sslCAInfo /etc/ssl/certs/agent-identity/sandbox-gateway-ca.crt
+```
+
+⚠ **`GITHUB_TOKEN` es el válido; `GITHUB_PAT` no lo es.** Está al revés de lo
+que sugieren los nombres, y el helper `store` quiere formato **URL**, no ini.
+
+⚠ Con `repo.hex.pm` inaccesible, `mix deps.get` **no se puede recuperar** si
+el mirror no tiene los paquetes cacheados. Es un bloqueo de entorno, no un
+fallo del código.
