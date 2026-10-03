@@ -138,16 +138,43 @@ jobs:
           ./candil --help
           ./candil version
           ./candil doctor --json > /dev/null
-          # No arguments must be a usage line, not a stack trace.
-          ./candil run
-          ./candil stop
+
+          # A missing *required* argument is a usage error and the DSL answers
+          # it with exit status 1. `set -e` is what used to hide this: it turned
+          # "the usage error exits non-zero" into "the CI step failed", which is
+          # the same shape of problem the smoke test exists to catch. So the
+          # status and the message are asserted, not left to `set -e`.
+          #
+          # Only `run` has a required argument. `stop` without one means "stop
+          # everything" and `status` takes none — those are successes, and
+          # treating them as failures would be a gate that cries wolf.
+          out=$(./candil run 2>&1) && rc=0 || rc=$?
+          echo "candil run -> $rc"
+          [ "$rc" -ne 0 ] || { echo "::error::run without a model should exit non-zero"; exit 1; }
+          case "$out" in
+            *'** ('*) echo "::error::run raised instead of printing usage"; exit 1 ;;
+            *) ;;
+          esac
+          echo "$out" | grep -q 'model' \
+            || { echo "::error::run did not name the argument it wants"; exit 1; }
+
           ./candil status
 
       - name: The help must list every command the dispatch table has
         run: |
           set -eu
-          shown=$(./candil --help | grep -oE '^  [a-z]+' | tr -d ' ' | sort)
-          for cmd in $(mix run -e 'Candil.CLI.commands() |> Map.keys() |> Enum.join(" ")'); do
+          # The help is an `Alaja.Components.Table` now, so a row starts with a
+          # box-drawing character and not with two spaces. Strip the leading run
+          # of non-letters and take the first word: that is the command name.
+          #
+          # `[^a-zA-Z]` and not `[^a-z]`: the latter also eats capital letters,
+          # so the header row gave `ommand` and the usage line gave `sage` — two
+          # fake commands that a `grep -qx` would never match and nobody would
+          # notice until the check silently stopped proving anything. The
+          # invariant is unchanged: the rendered help still has to list every
+          # command the dispatch table can reach.
+          shown=$(./candil --help | sed 's/^[^a-zA-Z]*//' | grep -oE '^[a-z]+' | sort -u)
+          for cmd in $(mix run -e 'Candil.CLI.command_names() |> Enum.join(" ")'); do
             echo "$shown" | grep -qx "$cmd" \
               || { echo "::error::'$cmd' is dispatchable but missing from the help"; exit 1; }
           done

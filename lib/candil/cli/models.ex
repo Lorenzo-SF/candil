@@ -14,29 +14,15 @@ defmodule Candil.CLI.Models do
   alias Candil.{Model, Source, Store}
 
   @doc """
-  `candil models <subcommand>`.
-  """
-  @spec run([binary()]) :: :ok
-  def run([]), do: usage()
-
-  def run(["list" | _rest]), do: list()
-  def run(["ls" | _rest]), do: list()
-  def run(["info" | rest]), do: info(rest)
-  def run(["pull" | rest]), do: pull(rest)
-  def run(["remove" | rest]), do: remove(rest)
-  def run(["rm" | rest]), do: remove(rest)
-  def run([other | _rest]), do: Say.print_error("unknown models command: #{other}")
-
-  @doc """
-  The model table.
+  `candil models list`.
 
   The columns are the ones the design document's acceptance criteria name, and
   the `state` column is `downloaded` only when the file is really there.
   `Model.downloaded?/1` asks the filesystem rather than the source table,
   because a source says where a file should be, not whether it is.
   """
-  @spec list() :: :ok
-  def list do
+  @spec list(map() | keyword()) :: :ok
+  def list(_opts) do
     case Store.list_models() do
       [] ->
         Say.print_info("no models configured. Check candil.toml")
@@ -98,20 +84,27 @@ defmodule Candil.CLI.Models do
   @doc """
   `candil models info <alias>`.
   """
-  @spec info([binary()]) :: :ok
-  def info([alias_name | _rest]) do
-    case lookup(alias_name) do
-      {:ok, model} ->
-        Table.print(headers: ["field", "value"], rows: details(model), table_border: :rounded)
+  @spec info(map() | keyword()) :: :ok
+  def info(opts) do
+    case fetch_alias(opts) do
+      # The DSL makes `:alias` required, so this is only reachable from the
+      # library — and it still answers instead of raising.
+      nil ->
+        Say.print_error("usage: candil models info <alias>")
         :ok
 
-      :error ->
-        Say.print_error("no such model: #{alias_name}")
-        :ok
+      alias_name ->
+        case lookup(alias_name) do
+          {:ok, model} ->
+            Table.print(headers: ["field", "value"], rows: details(model), table_border: :rounded)
+            :ok
+
+          :error ->
+            Say.print_error("no such model: #{alias_name}")
+            :ok
+        end
     end
   end
-
-  def info([]), do: Say.print_error("usage: candil models info <alias>")
 
   defp details(%Model{} = model) do
     [
@@ -140,8 +133,10 @@ defmodule Candil.CLI.Models do
   `Source.progress/1` rather than counting bytes here, so the number on
   screen is the number the download reports.
   """
-  @spec pull([binary()]) :: :ok
-  def pull(args) do
+  @spec pull(map() | keyword() | [binary()]) :: :ok
+  def pull(opts) do
+    args = pull_args(opts)
+
     case models_to_pull(args) do
       [] ->
         Say.print_error("usage: candil models pull [alias]")
@@ -177,8 +172,19 @@ defmodule Candil.CLI.Models do
   The confirmation is not decoration. Removing a model takes a 17 GB file with
   it, and a typo should not be the reason.
   """
-  @spec remove([binary()]) :: :ok
-  def remove([alias_name | _rest]) do
+  @spec remove(map() | keyword() | nil) :: :ok
+  def remove(opts) do
+    case fetch_alias(opts) do
+      nil ->
+        Say.print_error("usage: candil models remove <alias>")
+        :ok
+
+      alias_name ->
+        remove_alias(alias_name)
+    end
+  end
+
+  defp remove_alias(alias_name) do
     case lookup(alias_name) do
       {:ok, model} ->
         file = Model.file_path(model)
@@ -200,8 +206,6 @@ defmodule Candil.CLI.Models do
     end
   end
 
-  def remove([]), do: Say.print_error("usage: candil models remove <alias>")
-
   # `--yes` is there for scripts. It is opt-in, never the default, and a
   # `remove` with no alias cannot use it: there is nothing to confirm.
   defp confirm?(question) do
@@ -217,6 +221,18 @@ defmodule Candil.CLI.Models do
 
   defp affirmative?(answer) when is_binary(answer), do: answer =~ ~r/^y/i
   defp affirmative?(_), do: false
+
+  defp fetch_alias(opts) when is_map(opts), do: Map.get(opts, :alias)
+  defp fetch_alias(opts) when is_list(opts), do: Keyword.get(opts, :alias)
+
+  defp pull_args(opts) when is_map(opts) do
+    case fetch_alias(opts) do
+      nil -> []
+      alias_name -> [alias_name]
+    end
+  end
+
+  defp pull_args(opts) when is_list(opts), do: opts
 
   defp lookup(name) do
     # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
@@ -237,9 +253,4 @@ defmodule Candil.CLI.Models do
   # an Error is its :reason. A guard on is_binary/1 can never match, because
   # the only value that reaches here is a struct.
   defp describe(%Err{reason: reason}), do: to_string(reason)
-
-  defp usage do
-    Say.print_info("usage: candil models <list|info|pull|remove> [alias]")
-    :ok
-  end
 end

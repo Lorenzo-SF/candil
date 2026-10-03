@@ -6,7 +6,7 @@ defmodule Candil.CLITest do
   import ExUnit.CaptureIO
 
   alias Candil.CLI
-  alias Candil.CLI.{Colorize, Help, Lifecycle, Ports, Preflight}
+  alias Candil.CLI.{Colorize, Escript, Help, Lifecycle, Ports, Preflight}
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
 
   doctest Candil.CLI.Version
@@ -63,17 +63,32 @@ defmodule Candil.CLITest do
       assert capture_io(fn -> CLI.main(["version"]) end) =~ "Candil "
     end
 
+    # Through `Escript.main/1`, not `CLI.main/1`: the alias table lives at the
+    # escript boundary, so this is the path the binary actually takes. Calling
+    # `CLI.main(["--version"])` instead tests a path no user can reach, and it
+    # *looks* broken — Alaja owns `--version` as a global option and prints its
+    # own, lowercase, while the `version` command is Candil's. Fixing that
+    # "disagreement" in the test would have papered over the fact that the two
+    # entries were never the same entry point.
     test "the flag spellings agree with it" do
-      expected = capture_io(fn -> CLI.main(["version"]) end)
+      expected = capture_io(fn -> Escript.main(["version"]) end)
 
       for spelling <- ["--version", "-v"] do
-        assert capture_io(fn -> CLI.main([spelling]) end) == expected
+        assert capture_io(fn -> Escript.main([spelling]) end) == expected
       end
     end
 
     test "unknown input prints the usage rather than raising" do
-      assert capture_io(fn -> CLI.main([]) end) =~ "Usage: candil"
-      assert capture_io(fn -> CLI.main(["frobnicate"]) end) =~ "Usage: candil"
+      assert capture_io(fn -> CLI.main([]) end) =~ "Command"
+
+      # On stderr, and in Alaja's words. The assertion that matters is the one
+      # that was always missing: no stack trace, and the bad token named. The
+      # exact phrasing belongs to the framework now, so pinning it here would
+      # be a test that fails on an upgrade for no good reason.
+      error = capture_io(:stderr, fn -> CLI.main(["frobnicate"]) end)
+
+      refute error =~ "** (", "an unknown command must not raise"
+      assert error =~ "frobnicate"
     end
 
     test "the lifecycle verbs are routed, not treated as models" do
@@ -84,28 +99,32 @@ defmodule Candil.CLITest do
     # The next two are here because the binary shipped broken with 702 tests
     # green: nobody ran it, and the CI did not build it either.
     test "the help lists every command the dispatch table can reach" do
-      shown = Help.commands() |> Enum.map(&elem(&1, 0)) |> MapSet.new()
-      dispatchable = CLI.commands() |> Map.keys() |> MapSet.new()
+      shown = Help.top_level_commands() |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+      dispatchable = CLI.command_names() |> MapSet.new()
 
       assert dispatchable == shown,
              "these are dispatchable but missing from the help: " <>
                inspect(MapSet.difference(dispatchable, shown))
     end
 
-    test "every command in the help has a description, not a blank line" do
-      for {name, description} <- Help.commands() do
-        assert description != "", "#{name} is listed with no description"
+    # The description now lives in the declaration, next to the flag it
+    # describes, so that is where the invariant is checked. Asserting it
+    # against a hand-rolled help string would be asserting that a copy of the
+    # declaration is a copy of the declaration.
+    test "every declared command has a description, not a blank line" do
+      for command <- CLI.__commands__() do
+        assert command.description != "", "#{command.name} is declared with no description"
       end
     end
 
-    test "`run` with no model says so instead of raising" do
-      # `candil run` is the first thing anyone types. It used to die with a
-      # FunctionClauseError, which teaches nothing about the right spelling.
-      output = capture_io(fn -> CLI.main(["run"]) end)
-
-      assert output =~ "usage: candil run"
-      assert output =~ "models list"
-    end
+    # No in-process test for this one, and that is deliberate: the DSL answers
+    # a usage error with `System.halt(1)`, which is the right thing for a binary
+    # and impossible to assert from inside the VM — the test run dies with it.
+    # The contract is checked where it is actually observable, in the CI smoke
+    # step, which runs the built escript: "candil run with no model exits
+    # non-zero, names the command and the missing argument, and prints no stack
+    # trace". A test that had to be deleted to keep the suite alive is a test
+    # that was in the wrong place.
   end
 
   describe "models list" do
@@ -231,7 +250,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> EnginePool.delete(:coder, 9999) end)
 
-      out = capture_io(fn -> Lifecycle.run(["analyst", "--port", "9999"]) end)
+      out = capture_io(fn -> Lifecycle.run_model(%{model: "analyst", port: 9999}) end)
       assert out =~ "coder"
       assert out =~ "no mata automáticamente"
     end
@@ -253,7 +272,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> EnginePool.delete(:coder, 9999) end)
 
-      capture_io(fn -> Lifecycle.run(["analyst", "--port", "9999"]) end)
+      capture_io(fn -> Lifecycle.run_model(%{model: "analyst", port: 9999}) end)
 
       assert :error = EnginePool.get(:analyst, 9999)
     end
@@ -271,7 +290,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> EnginePool.delete(:coder, 9999) end)
 
-      out = capture_io(fn -> Lifecycle.status(["--json"]) end)
+      out = capture_io(fn -> Lifecycle.status(%{json: true}) end)
       [row] = Jason.decode!(out)
       assert row["model"] == "coder"
       assert row["port"] == 9999
@@ -282,22 +301,22 @@ defmodule Candil.CLITest do
     end
 
     test "with nothing running it says so" do
-      assert capture_io(fn -> Lifecycle.status([]) end) =~ "no hay instancias"
+      assert capture_io(fn -> Lifecycle.status(%{}) end) =~ "no hay instancias"
     end
   end
 
   describe "the colouriser" do
     test "an error is red and throughput is magenta" do
-      assert Colorize.colour_for("CUDA error: no kernel image") == :red
-      assert Colorize.colour_for("eval time: 12.3 ms/token") == :magenta
+      assert Colorize.level_for("CUDA error: no kernel image") == :error
+      assert Colorize.level_for("eval time: 12.3 ms/token") == :magenta
     end
 
     test "a loaded model is green" do
-      assert Colorize.colour_for("main: server is listening on http://0.0.0.0:8080") == :green
+      assert Colorize.level_for("main: server is listening on http://0.0.0.0:8080") == :success
     end
 
     test "an OOM is red, which is the line that matters" do
-      assert Colorize.colour_for("ggml: out of memory") == :red
+      assert Colorize.level_for("ggml: out of memory") == :error
     end
 
     test "a line nothing matches is returned untouched" do
@@ -348,7 +367,7 @@ defmodule Candil.CLITest do
       model!(:coder)
       engine!()
 
-      capture_io(fn -> Lifecycle.run(["coder", "--port", "10500", "--detach"]) end)
+      capture_io(fn -> Lifecycle.run_model(%{model: "coder", port: 10_500, detach: true}) end)
 
       assert [instance] = Instances.read()
       assert instance.model == "coder"
@@ -363,7 +382,7 @@ defmodule Candil.CLITest do
       model!(:coder)
       engine!()
 
-      capture_io(fn -> Lifecycle.run(["coder", "--port", "10500", "--detach"]) end)
+      capture_io(fn -> Lifecycle.run_model(%{model: "coder", port: 10_500, detach: true}) end)
 
       assert 10_500 in Instances.ad_hoc_ports()
     end
@@ -394,14 +413,14 @@ defmodule Candil.CLITest do
       instance = Instances.build("coder", 9999, "llama_cpp", owner, true)
       :ok = Instances.put({"coder", 9999}, instance)
 
-      capture_io(fn -> Lifecycle.stop(["coder"]) end)
+      capture_io(fn -> Lifecycle.stop(%{model: "coder"}) end)
 
       refute Instances.alive?(%{pid: owner}), "the owner was signalled but is still alive"
       assert [] == Instances.read(), "the entry was not removed from instances.json"
     end
 
     test "says so when there is nothing to stop" do
-      out = capture_io(fn -> Lifecycle.stop(["nada"]) end)
+      out = capture_io(fn -> Lifecycle.stop(%{model: "nada"}) end)
       assert out =~ "no hay instancias"
     end
   end
@@ -418,7 +437,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> EnginePool.delete(:coder, 9999) end)
 
-      out = capture_io(fn -> Lifecycle.status(["--json"]) end)
+      out = capture_io(fn -> Lifecycle.status(%{json: true}) end)
       [row] = Jason.decode!(out)
 
       # There is a row, but nothing is serving on that port, so the honest

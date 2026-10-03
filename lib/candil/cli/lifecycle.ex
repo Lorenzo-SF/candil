@@ -22,42 +22,51 @@ defmodule Candil.CLI.Lifecycle do
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
 
   @doc """
-  Dispatches the lifecycle verbs.
+  `candil run <model> [flags]`, with the flags already parsed.
 
-  They share this module because they share the registry: a `stop` that did
-  not know where `run` registered would be guessing.
-  """
-  @spec run([binary()]) :: :ok
-  def run(["stop" | rest]), do: stop(rest)
-  def run(["status" | rest]), do: status(rest)
-  def run(["run" | rest]), do: run_model(rest)
-  def run(argv), do: run_model(argv)
-
-  @doc """
-  `candil run <model> [opts]`.
+  Takes the `opts` the Alaja DSL parsed rather than an `argv` list: the type
+  of `--port` is an integer by the time it arrives, and it used to be a string
+  that a hand-rolled `OptionParser` had promised was a number.
 
   Without a model name there is nothing to run, and saying so is the whole
-  answer. The first thing anyone types is `candil run`, and a
-  `FunctionClauseError` for it teaches nothing.
+  answer — the DSL makes `:model` required, so this clause is only reachable
+  from the library, and it still says something useful rather than raising.
   """
-  @spec run_model([binary()]) :: :ok
-  def run_model([]) do
-    error("usage: candil run <model> [--detach] [--port N]")
-    error("       `candil models list` para ver los modelos disponibles")
-    :ok
-  end
+  @spec run_model(map() | keyword()) :: :ok
+  def run_model(opts) do
+    case get(opts, :model) do
+      nil ->
+        error("usage: candil run <model> [--detach] [--port N]")
+        error("       `candil models list` para ver los modelos disponibles")
 
-  def run_model([name | rest]) do
-    alias_name = safe_alias(name)
-    opts = parse(rest)
+      name ->
+        alias_name = safe_alias(name)
 
-    case fetch(alias_name) do
-      {:ok, model} -> start_or_report(model, alias_name, opts)
-      :error -> error("no such model: #{name}")
+        case fetch(alias_name) do
+          {:ok, model} -> start_or_report(model, alias_name, run_opts(opts))
+          :error -> error("no such model: #{name}")
+        end
     end
 
     :ok
   end
+
+  # The internal shape `Preflight` and `Ports` already speak. Built here so
+  # those two keep asking for a keyword list and the DSL keeps asking for a
+  # map, and neither has to know about the other.
+  defp run_opts(opts) do
+    [
+      port: get(opts, :port),
+      force: get(opts, :force) == true,
+      cpu: get(opts, :cpu) == true,
+      detach: get(opts, :detach) == true,
+      yes: get(opts, :yes) == true
+    ]
+  end
+
+  defp get(opts, key) when is_map(opts), do: Map.get(opts, key)
+
+  defp get(opts, key) when is_list(opts), do: Keyword.get(opts, key)
 
   defp start_or_report(model, alias_name, opts) do
     case Preflight.run(alias_name, opts) do
@@ -129,7 +138,7 @@ defmodule Candil.CLI.Lifecycle do
         "#{name} detached (owner pid #{Instances.os_pid()}) · log: #{log_path(name, port)}"
       )
     else
-      IO.write(Colorize.line("  #{name} arrancado en :#{port}"))
+      Say.print_raw(Colorize.line("  #{name} arrancado en :#{port}") <> "\n")
     end
 
     :ok
@@ -173,11 +182,16 @@ defmodule Candil.CLI.Lifecycle do
   @doc """
   `candil stop [all|<model>]`.
   """
-  @spec stop([binary()]) :: :ok
-  def stop([]), do: stop_all()
-  def stop(["all" | _rest]), do: stop_all()
+  @spec stop(map() | keyword()) :: :ok
+  def stop(opts) when is_map(opts) or is_list(opts) do
+    case get(opts, :model) do
+      nil -> stop_all()
+      "all" -> stop_all()
+      name -> stop_one(name)
+    end
+  end
 
-  def stop([name | _rest]) do
+  def stop_one(name) do
     alias_name = safe_alias(name)
     local = EnginePool.list() |> Enum.filter(&(&1.alias == alias_name))
 
@@ -268,10 +282,12 @@ defmodule Candil.CLI.Lifecycle do
   it into `jq -r '.[0].model'`. A map would need `.models[0]` and the criteria
   are not a suggestion.
   """
-  @spec status([binary()]) :: :ok
-  def status(argv) do
-    if "--json" in argv do
-      IO.puts(Jason.encode!(Enum.map(EnginePool.list(), &json_row/1)))
+  @spec status(map() | keyword()) :: :ok
+  def status(opts) when is_map(opts) or is_list(opts) do
+    if get(opts, :json) == true do
+      # Raw, and with the newline: a `--json` consumer pipes this into jq
+      # and decoration is exactly what breaks it.
+      Say.print_raw(Jason.encode!(Enum.map(EnginePool.list(), &json_row/1)) <> "\n")
     else
       print_table(EnginePool.list())
     end
