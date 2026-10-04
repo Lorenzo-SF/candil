@@ -63,7 +63,10 @@ defmodule Candil.Engine.Server do
     base_url = "http://#{engine.host}:#{engine.port}"
 
     case LongRunning.start_link(
-           id: {:candil_engine, model.alias},
+           # El puerto va dentro del id a proposito: `Arrea.LongRunning`
+           # emite la salida del engine por telemetria con solo el `id`, y sin
+           # el puerto quien la escucha no sabe en que log escribirla.
+           id: {:candil_engine, model.alias, model.port},
            binary: binary,
            args: args,
            cd: model_dir_safe(model),
