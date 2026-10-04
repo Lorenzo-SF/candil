@@ -141,22 +141,32 @@ run() {
 # the person checking it.
 run_json() {
   local desc="$1"; shift
+  NOW_RUNNING="$desc"
   printf '\n--- %s\n' "$desc"
   printf '$ %s\n\n' "$*"
 
-  local err rc
+  # stdout a fichero, NUNCA a un sed que lea de <&0.
+  #
+  # `sed ... <&0` leia el stdin del SCRIPT, que desde una terminal es la
+  # terminal: se quedaba esperando a un Ctrl-D indefinidamente, justo despues
+  # de imprimir el JSON. El comentario de al lado decia que habia un
+  # `</dev/null` que hacia justo eso, y el codigo no lo tenia. Un comentario
+  # que describe una proteccion que no existe es peor que no tener comentario,
+  # porque el siguiente lo lee, lo da por cierto, y no lo vuelve a mirar.
+  local err out rc
   err="$(mktemp)"
-  candil_run "$@" 2>"$err"; rc=$?
-  local escapes
-  escapes=$(grep -c $'\033' || true)
+  out="$(mktemp)"
+  candil_run "$@" >"$out" 2>"$err"; rc=$?
 
-  # `</dev/null` on the sed: without it, sed reads the script's own stdin and
-  # swallows whatever was piped into this script, which is how a run that looks
-  # fine turns into a run that quietly checked nothing.
-  printf '[stdout]\n'; sed 's/\x1b\[[0-9;]*m//g' <&0
-  printf '\n[stderr]\n'; sed 's/\x1b\[[0-9;]*m//g' "$err"; rm -f "$err"
+  local escapes
+  escapes=$(grep -c $'\033' "$out" || true)
+
+  printf '[stdout]\n'; sed 's/\x1b\[[0-9;]*m//g' "$out"
+  printf '\n[stderr]\n'; sed 's/\x1b\[[0-9;]*m//g' "$err"
+  rm -f "$err" "$out"
   printf '\n[exit=%s]  [escapes ANSI en stdout: %s]\n' "$rc" "$escapes"
   RESULTS+=("${CURRENT_PHASE}|${desc}|${rc}|ansi=${escapes}")
+  NOW_RUNNING="(nada, esperando)"
   return 0
 }
 
