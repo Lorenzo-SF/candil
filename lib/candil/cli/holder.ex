@@ -90,10 +90,20 @@ defmodule Candil.CLI.Holder do
   end
 
   defp start_model(model, alias_name, port) do
-    engine = %Candil.Engine{alias: model.engine}
+    # El engine del catalogo, no uno hecho a pelo: `%Candil.Engine{alias: ...}`
+    # no tiene binary ni puerto y arrancaria contra el 8080 sin binario.
+    case Engine.for_model(model, port) do
+      {:ok, engine} ->
+        :ok = EnginePool.put(model.alias, port, nil, model, engine)
+        claim_when_healthy(model, engine, alias_name, port)
 
-    :ok = EnginePool.put(model.alias, port, nil, model, engine)
+      {:error, :not_found} ->
+        IO.puts(:stderr, "holder: el modelo #{alias_name} no tiene engine en la configuracion")
+        {:error, :no_such_model}
+    end
+  end
 
+  defp claim_when_healthy(model, engine, alias_name, port) do
     # `EnginePool.put` contesta en cuanto el PROCESO arranca, no en cuanto el
     # modelo responde: la espera de salud la hace Arrea despues y en segundo
     # plano. Reclamar aqui era escribir un ownership sobre un motor que

@@ -92,7 +92,7 @@ defmodule Candil.CLI.Lifecycle do
           # vivo, y este se va a terminar en cuanto imprima.
           detach(model, port)
         else
-          EnginePool.put(model.alias, port, nil, model, %Engine{alias: model.engine})
+          EnginePool.put(model.alias, port, nil, model, resolve_engine!(model, port))
           record(model, port, opts)
           started(model, port, opts)
         end
@@ -107,10 +107,21 @@ defmodule Candil.CLI.Lifecycle do
   # is the file. The owner is this process's OS pid, and `C19` is the whole
   # rule: kill the owner and the engine goes with it, because the engine was
   # never detached from it.
-  # El host del engine se busca en el Store: `Model.engine` es el ALIAS, no el
-  # struct, y el registro necesita el host para poder preguntar si hay alguien
-  # escuchando. Sin engine, 127.0.0.1 es lo unico que se puede asumir, porque
-  # un engine sin alias no tiene donde escuchar otra cosa.
+  # El engine REAL del catalogo, con el puerto ya puesto. Nunca un
+  # `%Engine{alias: model.engine}` pelado: ese struct no tiene binary, ni
+  # api_key, ni start_args, y su puerto es el 8080 por defecto, asi que el
+  # modelo arranca hacia otro sitio o no arranca. Ver `Engine.for_model/2`.
+  defp resolve_engine!(model, port) do
+    case Engine.for_model(model, port) do
+      {:ok, engine} ->
+        engine
+
+      {:error, :not_found} ->
+        Say.print_error("el modelo #{model.alias} no tiene ningun engine en la configuracion")
+        exit({:shutdown, 1})
+    end
+  end
+
   defp host_of(nil), do: "127.0.0.1"
 
   defp host_of(alias_name) do
@@ -190,7 +201,7 @@ defmodule Candil.CLI.Lifecycle do
     if opts[:force] do
       Say.print_warning("--force: matando '#{holder}' en :#{port}")
       stop_holder(model, port)
-      EnginePool.put(model.alias, port, nil, model, %Engine{alias: model.engine})
+      EnginePool.put(model.alias, port, nil, model, resolve_engine!(model, port))
       Say.print_success("#{model.alias} arrancado en :#{port}")
     else
       Say.print_error(":#{port} está ocupado por '#{holder}'.")

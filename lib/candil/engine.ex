@@ -32,7 +32,7 @@ defmodule Candil.Engine do
 
   @type alias :: atom()
 
-  alias Candil.{Build, Instances, Store}
+  alias Candil.{Build, Instances, Model, Store}
   alias Candil.Engine.Server
   alias Candil.{EnginePool, Installer}
 
@@ -266,6 +266,44 @@ defmodule Candil.Engine do
     guard_no_traversal!(dir, "binary_dir")
     dir
   end
+
+  @doc """
+  The engine of `model` as registered, bound to `port`.
+
+  ## Why this function exists
+
+  Three call sites used to build `%Engine{alias: model.engine}` — a struct
+  with the alias and **nothing else**: no `binary`, no `install`, no
+  `api_key`, no `start_args`, and `port: 8080`, which is the default in the
+  defstruct. Every preflight that did it answered "no binary" regardless of
+  what the catalogue said. The call sites that did it to actually *start* an
+  engine printed `arrancado en :9999` and started nothing: the binary path
+  fell back to `<data_dir>/llm/bin/llama-server` and the health check went to
+  port 8080.
+
+  None of it raised. `EnginePool.put/5` only starts a GenServer, and a
+  GenServer listening on 8080 starts perfectly. The user found it watching
+  VRAM with btop — a 27B model that never moved the 47 MB baseline. Every
+  smoke test before that had checked exit codes, and `candil run` exits 0
+  whether or not a model came up.
+
+  `preflight.ex` had already learned this lesson and carries almost the same
+  comment. It just never reached the call sites that start things.
+  """
+  @spec for_model(term(), pos_integer()) :: {:ok, t()} | {:error, :not_found}
+  def for_model(%Model{engine: nil}, _port), do: {:error, :not_found}
+
+  def for_model(%Model{engine: alias_name}, port) do
+    case Store.get_engine(alias_name) do
+      # El puerto se fija aqui y no en el llamante: el engine del catalogo no
+      # sabe que slot se le ha asignado, y `Engine.Server` consulta la salud en
+      # `engine.port`.
+      {:ok, engine} -> {:ok, %{engine | port: port}}
+      {:error, :not_found} -> {:error, :not_found}
+    end
+  end
+
+  def for_model(_model, _port), do: {:error, :not_found}
 
   @doc """
   Returns the full path to the engine binary.
