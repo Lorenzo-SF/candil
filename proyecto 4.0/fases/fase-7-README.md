@@ -1,5 +1,8 @@
 # Fase 7 — Router
 
+
+> **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
+
 > Estado: **pendiente**. Depende de la 6. Carril D.
 > Original: `../original/candil-4.0-final.md` §19 y la Fase 7 (~línea 2280).
 

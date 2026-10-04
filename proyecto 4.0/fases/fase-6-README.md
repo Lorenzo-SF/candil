@@ -1,5 +1,8 @@
 # Fase 6 — Context compartido
 
+
+> **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
+
 > Estado: **pendiente**. Depende de la 4. Carril C.
 > Original: `../original/candil-4.0-final.md` §18 y la Fase 6 (~línea 2253).
 

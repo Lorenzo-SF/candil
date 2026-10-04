@@ -1,5 +1,8 @@
 # Fase 8 — Gateway
 
+
+> **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
+
 > Estado: **pendiente**. Depende de la 7. Carril E.
 > Original: `../original/candil-4.0-final.md` §20 y la Fase 8 (~línea 2310).
 

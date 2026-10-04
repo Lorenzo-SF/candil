@@ -1,5 +1,8 @@
 # Prompt de traspaso — Fase 5, Doctor
 
+
+> **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
+
 > **La Fase 4 está CERRADA y certificada.** No la rehagas. Está en `4.0`, commit
 > `8918492`, con los cuatro jobs del CI en verde. Lo que sigue es la Fase 5,
 > que es la siguiente del plan y la que está a medias ahora mismo.

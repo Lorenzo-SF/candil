@@ -1,5 +1,8 @@
 # Fase 9 — MCP
 
+
+> **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
+
 > Estado: **pendiente**. Depende de la 8. Carril F.
 > Original: `../original/candil-4.0-final.md` §21 y la Fase 9.
 > Effort: 4 d.

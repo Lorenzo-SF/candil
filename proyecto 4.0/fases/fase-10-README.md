@@ -1,5 +1,8 @@
 # Fase 10 — RAG
 
+
+> **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
+
 > Estado: **pendiente**. Depende de la 8. Carril G.
 > Original: `../original/candil-4.0-final.md` §22 y la Fase 10.
 > Effort: 7 d. **La más larga de la ruta crítica.**

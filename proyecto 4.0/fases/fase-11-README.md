@@ -1,5 +1,8 @@
 # Fase 11 — Consumidores, docs y 4.0.0
 
+
+> **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
+
 > Estado: **pendiente**. Depende de todas. Carril H.
 > Original: `../original/candil-4.0-final.md`, Fase 11 (~línea 2730).
 > Effort: 4 d. **Fin del plan: 57-67 días.**
