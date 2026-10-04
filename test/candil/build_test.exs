@@ -200,4 +200,40 @@ defmodule Candil.BuildTest do
                Build.install(%Build{strategy: :none})
     end
   end
+
+  describe "binary_path/2 con un dir que en realidad es el binario" do
+    # Escribir `dir = "~/.local/bin/llama-server"` cuando lo que se quiere
+    # decir es `~/.local/bin` compone "/…/llama-server/llama-server", que no
+    # falla hasta que `engine install` intenta meter un fichero dentro de un
+    # fichero. El error tiene que salir antes y decir cual de las dos cosas
+    # hacer.
+    test "avisa cuando dir lleva el nombre del binario" do
+      build = %Build{
+        strategy: :source,
+        dir: "~/.local/bin/llama-server",
+        binaries: ["llama-server"]
+      }
+
+      assert_raise ArgumentError, ~r/directorio/i, fn ->
+        Build.binary_path(build, "llama-server")
+      end
+    end
+
+    test "avisa cuando dir parece un fichero" do
+      build = %Build{
+        strategy: :source,
+        dir: "/opt/llm/llama-server.exe",
+        binaries: ["llama-server"]
+      }
+
+      assert_raise ArgumentError, ~r/directorio/i, fn ->
+        Build.binary_path(build, "llama-server")
+      end
+    end
+
+    test "un directorio normal sigue funcionando" do
+      build = %Build{strategy: :source, dir: "/opt/llm/bin", binaries: ["llama-server"]}
+      assert Build.binary_path(build, "llama-server") == "/opt/llm/bin/llama-server"
+    end
+  end
 end

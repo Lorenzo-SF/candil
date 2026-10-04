@@ -152,7 +152,28 @@ defmodule Candil.Build do
   """
   @spec binary_path(t(), binary()) :: binary() | nil
   def binary_path(%__MODULE__{dir: nil}, _name), do: nil
-  def binary_path(%__MODULE__{dir: dir}, name), do: Path.join(Path.expand(dir), name)
+
+  def binary_path(%__MODULE__{dir: dir} = build, name) do
+    # `dir` es un DIRECTORIO, y el error de escribir ahi un `dir` que ya es
+    # el binario es silencioso hasta que `engine install` intenta meter un
+    # fichero dentro de un fichero: "/home/x/.local/bin/llama-server/llama-server".
+    if Path.basename(Path.expand(dir)) == name or Path.extname(dir) != "" do
+      raise ArgumentError, """
+      install.dir debe ser un DIRECTORIO, no el binario.
+
+        install.dir = #{inspect(dir)}
+        binaries    = #{inspect(build.binaries)}
+
+      Se compone como `dir <> "/" <> nombre`, asi que con estos valores el
+      binario acaba en `#{Path.join(Path.expand(dir), name)}`.
+
+      Si ya tienes el binario en `#{dir}`, no hace falta `install` en absoluto:
+      ponlo en `[engine.<nombre>] binary = "#{dir}"`, que Candil lo usa tal cual.
+      """
+    end
+
+    Path.join(Path.expand(dir), name)
+  end
 
   @doc """
   The `cmake` arguments actually passed: ours, then the user's verbatim.
