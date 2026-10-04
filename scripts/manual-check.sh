@@ -240,7 +240,27 @@ if want 3; then
   # parentesis, y el fallo aparece doscientas lineas mas abajo.
   ALIAS="${MODEL:-}"
   if [[ -z "$ALIAS" ]]; then
-    ALIAS=$("$CANDIL_BIN" models list 2>/dev/null | awk -F'|' '{gsub(/^ +| +$/, "", $2); if ($2 != "" && $2 != "alias" && $2 != "-") {print $2; exit}}')
+    # Estrategia 1: la tabla. El separador de columnas es U+2502, el guion
+    # vertical de las cajas, NO una barra ASCII. Con `awk -F'|'` no se parte
+    # NADA, $2 sale vacio en todas las lineas, y el script se conviction de que
+    # no tienes modelos mientras te enseña los siete en la tabla. Se traduce
+    # el separador antes de partir.
+    # El separador va DIRECTO como -F, y no pasa por `tr`: `tr` no sabe de
+    # UTF-8 y convierte cada uno de los TRES bytes de U+2502 en una barra, de
+    # modo que un separador se convierte en "|||" y la tabla se rompe peor que
+    # antes. awk si lo trata como un caracter.
+    ALIAS=$("$CANDIL_BIN" models list 2>/dev/null \
+      | awk -F'│' '{gsub(/^ +| +$/, "", $2); if ($2 != "" && $2 != "alias" && $2 != "-") {print $2; exit}}')
+  fi
+  if [[ -z "${ALIAS:-}" ]]; then
+    # Estrategia 2: el fichero de configuracion. No depende de como se
+    # imprima la tabla, asi que si Alaja cambia el formato un dia, esta fase
+    # sigue funcionando en vez de saltarse en silencio. Que es lo que mas
+    # molesta: un smoke que se salta lo importante sin decir por que.
+    CFG="${CANDIL_CONFIG:-$HOME/.config/candil/candil.toml}"
+    if [[ -f "$CFG" ]]; then
+      ALIAS=$(sed -n 's/^\[model\.\([^]]*\)\].*/\1/p' "$CFG" | head -1)
+    fi
   fi
 
   if [[ -n "${ALIAS:-}" ]]; then
@@ -255,6 +275,7 @@ if want 3; then
     run_json "stop" "$CANDIL_BIN" stop
   else
     printf '\nNo he detectado ningun modelo, me salto la parte de run.\n'
+    printf '(ni por la tabla ni por %s)\n' "${CANDIL_CONFIG:-$HOME/.config/candil/candil.toml}"
     printf 'Si tienes uno configurado, corre esto a mano:\n'
     printf '  %s models list\n  %s run <alias>\n  %s status\n  %s stop\n' \
       "$CANDIL_BIN" "$CANDIL_BIN" "$CANDIL_BIN" "$CANDIL_BIN"
