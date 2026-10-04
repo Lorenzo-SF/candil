@@ -142,6 +142,13 @@ defmodule Candil.CLI do
     run({Lifecycle, :status})
   end
 
+  command "init", "Write a commented candil.toml to get started" do
+    flag(:force, :boolean, default: false, help: "overwrite an existing config")
+    flag(:path, :string, help: "write here instead of the default location")
+
+    run({Candil.CLI.Init, :run})
+  end
+
   command "doctor", "Check this machine and say how to fix it" do
     flag(:fix, :boolean, default: false, help: "apply the safe fixes and re-check")
     flag(:json, :boolean, default: false, help: "machine-readable output, undecorated")

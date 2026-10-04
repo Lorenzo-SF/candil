@@ -20,7 +20,7 @@ log_dir          = "~/.candil/logs"
 default_consumer = "default"
 
 [engine.llama_cpp]
-binary    = "~/.local/bin/llama-servers"
+binary    = "~/.local/bin/llama-server"
 host      = "127.0.0.1"
 base_port = 10000
 
