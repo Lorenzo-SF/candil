@@ -28,6 +28,7 @@ defmodule Candil.CLI.Escript do
   alias Alaja.Output
   alias Candil.CLI
   alias Candil.CLI.Colorize
+  alias Candil.CLI.Holder
 
   @aliases %{
     "--version" => "version",
@@ -56,6 +57,33 @@ defmodule Candil.CLI.Escript do
   """
   @spec main([binary()]) :: no_return()
   def main(argv) do
+    # El protocolo interno de `--detach` se intercepta ANTES de Alaja, y no
+    # por Nesting: un comando aqui dentro alcanzaria a `--help`. No lo lleva
+    # porque no es un comando de usuario, y supondria estar en la ayuda.
+    case argv do
+      ["__hold", alias_name, port] -> hold(alias_name, port)
+      _ -> dispatch(argv)
+    end
+  end
+
+  # El titular se queda vivo hasta que le maten. Un fallo aqui no se propaga
+  # al que lo lanzo —el lanzador se entera por el registro, no por aqui— asi
+  # que lo unico que tiene que hacer es no volverse.
+  # Holder.start/2 solo retorna si FALLA: si arranca, se queda bloqueado
+  # esperando. La rama de exito que había aqui era código muerto, y dialyzer
+  # —con razon— avisaba de que nunca iba a entrar. Ahora se dice lo mismo con
+  # una forma que no miente sobre que hay dos finales posibles.
+  @spec hold(binary(), binary()) :: no_return()
+  defp hold(alias_name, port) do
+    case Holder.start(alias_name, String.to_integer(port)) do
+      {:error, reason} ->
+        IO.puts(:stderr, "holder: no se pudo arrancar #{alias_name}: #{inspect(reason)}")
+        System.halt(1)
+    end
+  end
+
+  @spec dispatch([binary()]) :: no_return()
+  defp dispatch(argv) do
     terminal_policy!()
     status = argv |> expand() |> CLI.main() |> exit_status()
 

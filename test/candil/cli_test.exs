@@ -6,7 +6,7 @@ defmodule Candil.CLITest do
   import ExUnit.CaptureIO
 
   alias Candil.CLI
-  alias Candil.CLI.{Colorize, Escript, Help, Lifecycle, Ports, Preflight}
+  alias Candil.CLI.{Colorize, Escript, Help, Holder, Lifecycle, Ports, Preflight}
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
 
   doctest Candil.CLI.Version
@@ -408,26 +408,73 @@ defmodule Candil.CLITest do
       :ok
     end
 
-    test "records the instance on disk, with this process as the owner" do
+    # Este test afirmaba, en un comentario, que el dueño era "el pid de este
+    # proceso, porque es lo que cuya muerte se lleva el engine detras". Eso es
+    # exactamente el bug: el pid escrito era el del escript que salia acto
+    # seguido, `alive?/1` lo poda, y el engine se iba con el. Comprobado con
+    # un escript de verdad: /proc/<pid> muerto, sin proceso, log que no existia
+    # y un registro con healthy: true.
+    test "no deja un registro si no hay nadie a quien pertenezca" do
       model!(:coder)
       engine!()
 
-      capture_io(fn -> Lifecycle.run_model(%{model: "coder", port: 10_500, detach: true}) end)
+      out =
+        capture_io(fn ->
+          Lifecycle.run_model(%{model: "coder", port: 10_500, detach: true})
+        end)
 
-      assert [instance] = Instances.read()
-      assert instance.model == "coder"
-      assert instance.port == 10_500
-      # The owner is the OS pid of THIS process, because that is the thing
-      # whose death takes the engine with it. A detached instance is never
-      # detached from its owner.
-      assert instance.owner == %{kind: :pid, pid: os_pid()}
+      # Sin escript delante no hay titular que lanzar, y un registro sin dueno
+      # es un corpse esperando: no se escribe, y no se dice que ha arrancado.
+      assert Instances.read() == []
+      refute out =~ "detached"
+    end
+
+    test "el titular escribe el registro con SU pid, y ese pid existe" do
+      model!(:coder)
+      engine!()
+
+      task = Task.async(fn -> Holder.start("coder", 10_500) end)
+
+      wait_for(fn -> match?([%{model: "coder"}], Instances.read()) end)
+
+      assert [%{model: model, port: port, pid: pid, healthy: healthy}] = Instances.read()
+      assert model == "coder"
+      assert port == 10_500
+      assert healthy
+      # Lo unico que importa: el dueño de verdad sigue vivo. Antes se
+      # comprobaba que el pid era el del proceso que hacia el `assert`, que
+      # es una verdad tautologica.
+      assert Instances.alive?(%{pid: pid})
+
+      # Aqui el pid del SO SI es el de este VM, porque un Task es un proceso
+      # de la misma VM y no un proceso del sistema operativo. No se puede
+      # comprobar en un test unitario que el titular sea otro proceso, y
+      # fingir lo contrario con un `pid != os_pid()` seria justo el tipo de
+      # prueba que pasa por buena sin comprobar el contrato. Esa parte se
+      # comprueba donde si se puede: en el escript de verdad, que es donde se
+      # |Originalmente| encontro este bug.
+      refute Task.yield(task, 50), "el titular deberia quedarse vivo"
+
+      Task.shutdown(task, :brutal_kill)
+
+      # El registro SOBREVIVE, y tiene que sobrevivir: la vividud se decide
+      # preguntando al sistema operativo por el pid del dueno, y en un test
+      # ese dueno es esta misma VM, que sigue en pie. En el escript de verdad el
+      # dueno es otro proceso y al matarlo el registro se va solo. Que aqui no
+      # se limpie es la prueba de que la comprobacion es del SO y no del
+      # proceso de Erlang que la escribio.
+      Process.sleep(50)
+      assert [%{model: "coder"}] = Instances.read()
     end
 
     test "an explicit --port is remembered for the next run" do
       model!(:coder)
       engine!()
 
-      capture_io(fn -> Lifecycle.run_model(%{model: "coder", port: 10_500, detach: true}) end)
+      # En el camino de foreground, que es donde se registra. El de detach lo
+      # hace el titular, en otro proceso, y un test unitario no puede observar
+      # eso sin lanzar un escript entero.
+      capture_io(fn -> Lifecycle.run_model(%{model: "coder", port: 10_500, detach: false}) end)
 
       assert 10_500 in Instances.ad_hoc_ports()
     end
@@ -497,6 +544,17 @@ defmodule Candil.CLITest do
       pid when is_integer(pid) -> pid
       pid when is_binary(pid) -> String.to_integer(pid)
       pid when is_list(pid) -> List.to_integer(pid)
+    end
+  end
+
+  # Un proceso que arranca un engine y luego se queda esperando no avisa
+  # cuando ha terminado de hacerlo. Esperar a la condicion es lo unico que no
+  # convierte un test en una loteria con el ancho de banda de la maquina.
+  defp wait_for(fun, tries \\ 100) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("la condicion no se cumplio en 100 intentos")
+      true -> Process.sleep(20) && wait_for(fun, tries - 1)
     end
   end
 end

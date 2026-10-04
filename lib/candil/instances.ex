@@ -119,10 +119,21 @@ defmodule Candil.Instances do
   and that is a perfectly good answer.
   """
   @spec read() :: [instance()]
-  def read do
+  def read, do: Enum.filter(all(), &alive?/1)
+
+  @doc """
+  Every record in the file, dead owners included.
+
+  `read/0` is the question ("what is running"); this is the file. They differ
+  exactly by the corpses, and the only thing that can tell one from the other
+  is someone comparing them — which is what `Candil.Instances.Reaper` does.
+  Writing the file back is the only way those corpses ever go away.
+  """
+  @spec all() :: [instance()]
+  def all do
     case File.read(path()) do
       {:ok, ""} -> []
-      {:ok, contents} -> decode(contents) |> Enum.filter(&alive?/1)
+      {:ok, contents} -> decode(contents)
       {:error, _} -> []
     end
   end

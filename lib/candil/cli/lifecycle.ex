@@ -18,7 +18,7 @@ defmodule Candil.CLI.Lifecycle do
 
   alias Alaja.Components.Table
   alias Alaja.Printer, as: Say
-  alias Candil.CLI.{Colorize, Ports, Preflight}
+  alias Candil.CLI.{Colorize, Detach, Ports, Preflight}
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
 
   @doc """
@@ -85,9 +85,16 @@ defmodule Candil.CLI.Lifecycle do
   defp claim_and_start(model, port, opts) do
     case claim_check(model, port, opts) do
       :ok ->
-        EnginePool.put(model.alias, port, nil, model, %Engine{alias: model.engine})
-        record(model, port, opts)
-        started(model, port, opts)
+        if opts[:detach] do
+          # Un detach delega en OTRO proceso, y no escribe el registro aqui:
+          # el dueno del registro tiene que ser el proceso que de verdad sigue
+          # vivo, y este se va a terminar en cuanto imprima.
+          detach(model, port)
+        else
+          EnginePool.put(model.alias, port, nil, model, %Engine{alias: model.engine})
+          record(model, port, opts)
+          started(model, port, opts)
+        end
 
       {:occupied, holder, port} ->
         occupied(model, port, holder, opts)
@@ -132,15 +139,31 @@ defmodule Candil.CLI.Lifecycle do
   # saying the process is not attached, and a log path to look at later. The
   # engine's own output goes through the same colouriser when the caller
   # supplies it as `:on_output`.
-  defp started(%Model{alias: name}, port, opts) do
-    if opts[:detach] do
-      Say.print_success(
-        "#{name} detached (owner pid #{Instances.os_pid()}) · log: #{log_path(name, port)}"
-      )
-    else
-      Say.print_raw(Colorize.line("  #{name} arrancado en :#{port}") <> "\n")
-    end
+  # No se anuncia nada hasta que el registro lo confirma. Antes se escribia el
+  # registro con el pid de este proceso, se imprimia "detached (owner pid N)" y
+  # se salia: al siguiente `candil status` el registro ya estaba podado y no
+  # habia ni proceso ni log ni nada que parar. Aqui se espera al titular.
+  defp detach(model, port) do
+    log = log_path(to_string(model.alias), port)
 
+    case Detach.spawn(to_string(model.alias), port, log: log) do
+      {:ok, pid} ->
+        Say.print_success("#{model.alias} detached (owner pid #{pid}) · log: #{log}")
+        :ok
+
+      {:error, {:holder_no_arrived, log}} ->
+        Say.print_error("#{model.alias} no ha podido quedarse en marcha. Mira el log:")
+        Say.print_error("  #{log}")
+        :error
+
+      {:error, reason} ->
+        Say.print_error("#{model.alias} no se ha podido lanzar: #{inspect(reason)}")
+        :error
+    end
+  end
+
+  defp started(%Model{alias: name}, port, _opts) do
+    Say.print_raw(Colorize.line("  #{name} arrancado en :#{port}") <> "\n")
     :ok
   end
 
@@ -284,24 +307,94 @@ defmodule Candil.CLI.Lifecycle do
   """
   @spec status(map() | keyword()) :: :ok
   def status(opts) when is_map(opts) or is_list(opts) do
+    running = running()
+
     if get(opts, :json) == true do
       # Raw, and with the newline: a `--json` consumer pipes this into jq
       # and decoration is exactly what breaks it.
-      Say.print_raw(Jason.encode!(Enum.map(EnginePool.list(), &json_row/1)) <> "\n")
+      Say.print_raw(Jason.encode!(Enum.map(running, &json_row/1)) <> "\n")
     else
-      print_table(EnginePool.list())
+      print_table(running)
     end
 
     :ok
   end
 
-  defp json_row(%{alias: a, port: p, pid: pid, started_at: started}) do
+  # Locales Y remotas, y no solo las locales.
+  #
+  # `EnginePool.list()` es la memoria de ESTE VM. Una instancia detached vive en
+  # el registro, en otro proceso, y aqui no aparece: `candil run --detach`
+  # contestaba "detached", `candil status` decia que no habia nada, y
+  # `candil stop` —que si leia las dos— no tenia nada que parar. Status y stop
+  # no podian estar mas en desacuerdo sobre que es estar corriendo.
+  defp running do
+    local =
+      Enum.map(EnginePool.list(), fn entry ->
+        %{
+          model: to_string(entry.alias),
+          port: entry.port,
+          pid: entry.pid,
+          state: state_of(entry.alias),
+          engine: engine_name(entry),
+          owner: "local",
+          uptime_ms: System.monotonic_time(:millisecond) - entry.started_at
+        }
+      end)
+
+    remote =
+      Enum.map(Instances.read(), fn instance ->
+        %{
+          model: instance.model,
+          port: instance.port,
+          # El pid del dueno es del sistema operativo y pertenece a otro
+          # proceso: es el unico identificador util de una instancia detached.
+          pid: instance.pid,
+          # `read/0` ya se ha descargado las muertas, asi que lo que queda
+          # esta vivo. "ON" y no "healthy" porque es la palabra que ya usa la
+          # columna STATE de las locales, y dos vocabularios para lo mismo
+          # obligan al que lee la tabla a saber de donde viene cada fila.
+          state: if(instance.healthy, do: "ON", else: "DOWN"),
+          engine: instance.engine,
+          owner: "detached",
+          # El registro solo sabe guardar un instante de RELOJ DE PARED, y una
+          # fila local lo tiene de reloj MONOTONO. Restarlos entre si no
+          # significa nada — salia un uptime de -39460084m, que es la clase de
+          # numero que hace dudar de la maquina en vez de del codigo—. Cada
+          # fila mide su uptime en su propio reloj y ya.
+          uptime_ms: uptime_since(instance.started_at)
+        }
+      end)
+
+    Enum.uniq_by(local ++ remote, &{&1.model, &1.port})
+  end
+
+  defp engine_name(%{engine: %Engine{alias: nil}}), do: "llama-server"
+  defp engine_name(%{engine: %Engine{alias: name}}), do: to_string(name)
+  defp engine_name(_), do: "llama-server"
+
+  # El registro serializa el arranque como ISO 8601 ("2026-10-04T19:42:39Z").
+  # Un reloj ilegible da `nil` y la celda sale "—", no cero: un cero parece un
+  # dato y un "—" parece lo que es, que es que no lo sabemos.
+  defp uptime_since(stamp) when is_binary(stamp) do
+    case DateTime.from_iso8601(stamp) do
+      {:ok, dt, _} -> DateTime.diff(DateTime.utc_now(), dt, :millisecond)
+      _ -> nil
+    end
+  end
+
+  defp uptime_since(_), do: nil
+
+  # `state` sigue siendo lo que dice el polizador de salud. La procedencia va en
+  # SU campo: un contrato que cambia de significado porque hacia falta otro
+  # dato es un contrato roto por la puerta de atras.
+  defp json_row(row) do
     %{
-      model: to_string(a),
-      port: p,
-      pid: pid && inspect(pid),
-      state: state_of(a),
-      uptime_ms: System.monotonic_time(:millisecond) - started
+      model: row.model,
+      port: row.port,
+      pid: row.pid && inspect(row.pid),
+      state: row.state,
+      owner: row.owner,
+      uptime_ms: row.uptime_ms
     }
   end
 
@@ -309,7 +402,7 @@ defmodule Candil.CLI.Lifecycle do
 
   defp print_table(instances) do
     Table.print(
-      headers: ["SLOT", "PORT", "STATE", "MODEL", "PID", "UPTIME", "ENGINE"],
+      headers: ["SLOT", "PORT", "STATE", "MODEL", "PID", "UPTIME", "ENGINE", "OWNER"],
       rows: Enum.map(instances, &row/1),
       headers_color: :cyan,
       headers_effects: [:bold],
@@ -321,15 +414,16 @@ defmodule Candil.CLI.Lifecycle do
   # difference is the whole point of the column: a process whose row exists
   # and whose server stopped answering is `DOWN`, and a table that says `ON`
   # for it sends the user to debug the wrong thing.
-  defp row(%{port: port, alias: a, pid: pid, engine: engine, started_at: started}) do
+  defp row(row) do
     [
-      slot(port),
-      to_string(port),
-      state_of(to_string(a)),
-      to_string(a),
-      pid || "-",
-      uptime(started),
-      (engine.alias && to_string(engine.alias)) || "llama-server"
+      slot(row.port),
+      to_string(row.port),
+      row.state,
+      row.model,
+      row.pid || "-",
+      (row.started_at && uptime(row.started_at)) || "-",
+      row.engine || "llama-server",
+      row.owner
     ]
   end
 
@@ -348,8 +442,11 @@ defmodule Candil.CLI.Lifecycle do
   # distinguishes a GPU instance from a CPU one in the default range.
   defp slot(port), do: if(rem(port, 100) >= 90, do: "dGPU", else: "CPU")
 
-  defp uptime(started) do
-    seconds = div(System.monotonic_time(:millisecond) - started, 1000)
+  defp uptime(nil), do: "—"
+  defp uptime(ms) when ms < 0, do: "—"
+
+  defp uptime(ms) do
+    seconds = div(ms, 1000)
     "#{div(seconds, 60)}m#{rem(seconds, 60)}s"
   end
 

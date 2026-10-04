@@ -36,6 +36,10 @@ defmodule Candil.Application do
     # configuration.
     children = [
       {Registry, keys: :unique, name: Candil.Registry},
+      # Dead instance records are pruned in memory on every read, which means
+      # nothing ever removes them from the FILE. This is the only thing that
+      # does, and it kills nothing: it only forgets what the OS already did.
+      Candil.Instances.Reaper,
       # Store first: it owns the catalogue tables that the others read.
       Candil.Store,
       Candil.Context,
