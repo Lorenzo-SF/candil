@@ -13,20 +13,43 @@ hay nada que arrancar.
 
 Hay una configuración de ejemplo en el repo, **`proyecto 4.0/candil.toml`**, con
 siete modelos ya declarados (`coder`, `analyst`, `verifier`, `designer`,
-`coder_lite`, `embed`, `gpt4o`). Dos maneras de usarla:
+`coder_lite`, `embed`, `gpt4o`). Para usarla, lo normal es copiarla a donde
+Candil la busca **por defecto**:
 
 ```bash
-# A. solo para esta sesión, sin tocar tu configuración real
-export CANDIL_CONFIG="$PWD/proyecto 4.0/candil.toml"
-candil models list
-
-# B. como configuración de verdad
 mkdir -p ~/.config/candil
 cp "proyecto 4.0/candil.toml" ~/.config/candil/candil.toml
+candil models list
+```
+
+Candil lee `~/.config/candil/candil.toml` sin que hagas nada. El `export` es
+un atajo, no un requisito, y solo hace falta si no quieres tocar tu
+configuración real:
+
+```bash
+export CANDIL_CONFIG="$PWD/proyecto 4.0/candil.toml"   # solo esta sesión
 ```
 
 **El alias que pruebes tiene que existir en ese fichero.** `gptoss_medium` no
 está; `coder` sí. Si tu configuración real tiene otros alias, usa los tuyos.
+
+### Si `models list` dice `no models configured`
+
+Casi siempre es que no hay configuración, o que la que hay **no parsea**. La
+diferencia se ve en `doctor`, y por eso conviene mirarlo primero:
+
+- `config` en `ok` → el fichero existe y se lee, pero no declara modelos.
+- `config` en `error` con `invalid_toml` → hay una línea rota. El mensaje dice
+  fichero, línea, columna y el trozo culpable; ábrelo por ahí.
+
+Y si tocaste el ejemplo para ajustarlo a tu hardware —los `cmake_args` de la
+sección `[engine.llama_cpp.install]`—, asegúrate de que sigue siendo TOML
+válido: una cadena partida a mitad de línea da un error que parece de otra
+cosa. Para volver al de fábrica:
+
+```bash
+git checkout -- "proyecto 4.0/candil.toml"
+```
 
 `candil models list` debe dar 7 filas, y las de tipo `local` saldrán como
 `missing` en la columna `state`: el fichero GGUF no está descargado todavía, y
