@@ -77,7 +77,16 @@ defmodule Candil.CLI.Escript do
   defp hold(alias_name, port) do
     case Holder.start(alias_name, String.to_integer(port)) do
       {:error, reason} ->
-        IO.puts(:stderr, "holder: no se pudo arrancar #{alias_name}: #{inspect(reason)}")
+        IO.puts(
+          :stderr,
+          "holder: #{alias_name} en :#{port} — #{Holder.explain(reason)}"
+        )
+
+        IO.puts(
+          :stderr,
+          "holder: no se reclama :#{port}. El engine puede seguir vivo: mira su log."
+        )
+
         System.halt(1)
     end
   end

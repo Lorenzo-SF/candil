@@ -429,50 +429,28 @@ defmodule Candil.CLITest do
       refute out =~ "detached"
     end
 
-    test "el titular escribe el registro con SU pid, y ese pid existe" do
+    # Este es el bug que el usuario vio en su maquina: el titular se quedaba
+    # vivo con su claim escrito, el engine no habia llegado a responder, y
+    # `status` decia detached y luego DOWN — con la GPU a 47 MB y el puerto
+    # libre. Aqui no hay engine, y por eso la puerta TIENE que estar cerrada.
+    test "el titular NO reclama un puerto si el engine no llega a responder" do
       model!(:coder)
       engine!()
 
       task = Task.async(fn -> Holder.start("coder", 10_500) end)
+      assert {:error, reason} = Task.await(task, 30_000)
+      assert reason in [:timeout, :engine_died]
 
-      wait_for(fn -> match?([%{model: "coder"}], Instances.read()) end)
-
-      assert [%{model: model, port: port, pid: pid, healthy: healthy}] = Instances.read()
-      assert model == "coder"
-      assert port == 10_500
-      assert healthy
-      # Lo unico que importa: el dueño de verdad sigue vivo. Antes se
-      # comprobaba que el pid era el del proceso que hacia el `assert`, que
-      # es una verdad tautologica.
-      assert Instances.alive?(%{pid: pid})
-
-      # Aqui el pid del SO SI es el de este VM, porque un Task es un proceso
-      # de la misma VM y no un proceso del sistema operativo. No se puede
-      # comprobar en un test unitario que el titular sea otro proceso, y
-      # fingir lo contrario con un `pid != os_pid()` seria justo el tipo de
-      # prueba que pasa por buena sin comprobar el contrato. Esa parte se
-      # comprueba donde si se puede: en el escript de verdad, que es donde se
-      # |Originalmente| encontro este bug.
-      refute Task.yield(task, 50), "el titular deberia quedarse vivo"
-
-      Task.shutdown(task, :brutal_kill)
-
-      # El registro SOBREVIVE, y tiene que sobrevivir: la vividud se decide
-      # preguntando al sistema operativo por el pid del dueno, y en un test
-      # ese dueno es esta misma VM, que sigue en pie. En el escript de verdad el
-      # dueno es otro proceso y al matarlo el registro se va solo. Que aqui no
-      # se limpie es la prueba de que la comprobacion es del SO y no del
-      # proceso de Erlang que la escribio.
-      Process.sleep(50)
-      assert [%{model: "coder"}] = Instances.read()
+      # Sin claim, `status` no inventa nada y `stop` no tiene a quien parar.
+      assert Instances.read() == []
     end
 
-    # La fila de una instancia detached llega a `row/1` con la MISMA forma que
-    # las locales, y eso no lo comprueba ningun test si todos miran `--json`:
-    # la tabla y el json son dos renderizadores de las mismas filas y solo
-    # cubrimos uno. `row/1` llego a pedir `:started_at` a una fila que ya lleva
-    # `:uptime_ms`, y revento con KeyError en `candil status` — en el camino que
-    # se ejecuta sin querer, sin --json.
+    test "el motivo de fallo se explica en castellano, no en atomos" do
+      assert Holder.explain(:timeout) =~ "no ha contestado"
+      assert Holder.explain(:engine_died) =~ "se ha caido"
+      assert Holder.explain(:no_such_model) =~ "no hay ningun modelo"
+    end
+
     # La tabla y el `--json` son dos renderizadores de las mismas filas, y con
     # los tests cubriendo solo el json, `row/1` llego a pedir `:started_at` a una
     # fila que ya lleva `:uptime_ms` y revento con KeyError en `candil status`,

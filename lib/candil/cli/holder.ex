@@ -39,17 +39,28 @@ defmodule Candil.CLI.Holder do
   C19 rule and the reason the owner is recorded at all.
   """
 
-  alias Candil.{EnginePool, Instances, Store}
+  alias Candil.{Engine, EnginePool, Instances, Store}
   require Logger
+
+  # 4 minutos. Un 30B MoE sobre disco NVMe tarda del orden de medio minuto en
+  # empezar a contestar, y el presupuesto es para el caso raro, no para el
+  # normal: si tarda mas que esto, algo va mal y el titular debe decirlo.
+  @health_budget :timer.minutes(4)
 
   @doc """
   Starts the engine for `alias` on `port`, claims it, and blocks forever.
 
-  Returns `:ok` only if the claim is in the registry when this function
-  returns — which is the whole point, and the thing the old code got wrong by
-  order: it wrote the record before anything was there to own it.
+  The claim only happens when the model actually answers. That is the whole
+  point, and it is the thing the old code got wrong in both directions: it
+  claimed before anything owned the port, and then it claimed a process that
+  had not come up.
+
+  Returns `{:error, reason}` without claiming anything if the engine never
+  becomes healthy. It does not halt: see the note by the `{:error, reason}`
+  clause.
   """
-  @spec start(binary(), pos_integer()) :: :ok | {:error, :no_such_model}
+  @spec start(binary(), pos_integer()) ::
+          :ok | {:error, :no_such_model | :timeout | :engine_died}
   def start(alias_name, port) when is_binary(alias_name) and is_integer(port) do
     with {:ok, alias_atom} <- safe_atom(alias_name),
          {:ok, model} <- fetch(alias_atom) do
@@ -83,19 +94,81 @@ defmodule Candil.CLI.Holder do
 
     :ok = EnginePool.put(model.alias, port, nil, model, engine)
 
-    instance =
-      Instances.build(
-        alias_name,
-        port,
-        to_string(model.engine),
-        Instances.os_pid(),
-        true
-      )
+    # `EnginePool.put` contesta en cuanto el PROCESO arranca, no en cuanto el
+    # modelo responde: la espera de salud la hace Arrea despues y en segundo
+    # plano. Reclamar aqui era escribir un ownership sobre un motor que
+    # todavia no existia — el mismo fallo un nivel mas abajo, con el mismo
+    # reclamo: el titular se quedaba vivo, `status` ponia detached, y luego
+    # DOWN con 47 MB de GPU y nada escuchando.
+    #
+    # El registro significa "esto esta sirviendo". Si no llega, no se escribe.
+    case await_health(model.alias, @health_budget) do
+      :ok ->
+        :ok =
+          Instances.put(
+            {alias_name, port},
+            Instances.build(
+              alias_name,
+              port,
+              to_string(model.engine),
+              Instances.os_pid(),
+              true,
+              engine.host
+            )
+          )
 
-    :ok = Instances.put({alias_name, port}, instance)
+        Logger.info("holder: #{alias_name} responde en :#{port} · pid #{Instances.os_pid()}")
+        block()
 
-    Logger.info("holder: #{alias_name} en :#{port}, owner pid #{Instances.os_pid()}")
-    block()
+      {:error, reason} ->
+        # Devuelve, NO detiene. Un `System.halt/1` aqui se lleva por delante
+        # tambien a un host que ha incrustado Candil como libreria, y a la
+        # propia suite de tests: fue exactamente lo que paso, la suite murio
+        # sin imprimir resumen y con exit 0. Detener es trabajo del limite del
+        # escript, `Candil.CLI.Escript.hold/2`, que es el unico sitio autorizado
+        # a llamar a halt.
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Turns a failure reason into the sentence a person needs.
+  """
+  @spec explain(atom()) :: binary()
+  def explain(:no_such_model), do: "no hay ningun modelo con ese alias"
+
+  def explain(:timeout),
+    do: "el proceso arranco pero el modelo no ha contestado en el tiempo previsto"
+
+  def explain(:engine_died),
+    do: "el proceso del engine se ha caido antes de responder"
+
+  # Un modelo de 17 GB tarda en cargar; uno muerto no tarda. Se comprueba el
+  # pool cada medio segundo mientras queda presupuesto, y en cuanto el GenServer
+  # desaparece se deja de esperar: `Engine.healthy?/1` ya dira false, pero
+  # esperar el presupuesto entero a algo que no va a venir solo hace tarde.
+  defp await_health(model_alias, budget) do
+    cond do
+      Engine.healthy?(model_alias) ->
+        :ok
+
+      budget <= 0 ->
+        {:error, :timeout}
+
+      engine_alive?(model_alias) ->
+        Process.sleep(500)
+        await_health(model_alias, budget - 500)
+
+      true ->
+        {:error, :engine_died}
+    end
+  end
+
+  defp engine_alive?(model_alias) do
+    case Registry.lookup(Engine.registry(), model_alias) do
+      [{pid, _}] -> Process.alive?(pid)
+      [] -> false
+    end
   end
 
   @doc """
