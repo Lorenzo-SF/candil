@@ -242,7 +242,7 @@ defmodule Candil.Doctor do
           warning(
             :config,
             "no models, no engines and no providers. Edit " <>
-              "#{CandilConfig.File.default_path()}"
+              "#{CandilConfig.File.default_path()}, o `candil init` para escribirla"
           )
         else
           ok(

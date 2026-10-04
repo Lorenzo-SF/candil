@@ -32,7 +32,7 @@ defmodule Candil.Engine do
 
   @type alias :: atom()
 
-  alias Candil.{Build, Store}
+  alias Candil.{Build, Instances, Store}
   alias Candil.Engine.Server
   alias Candil.{EnginePool, Installer}
 
@@ -249,29 +249,61 @@ defmodule Candil.Engine do
   @doc """
   Returns the effective binary directory for an engine.
 
-  Falls back to `~/.candil/llm/bin` when `binary_dir` is `nil`.
+  Falls back to `<data_dir>/llm/bin` when `binary_dir` is `nil`.
 
   Raises `ArgumentError` if the configured path contains `..` (path traversal).
   """
   @spec binary_dir(t()) :: binary()
   def binary_dir(%__MODULE__{binary_dir: nil}) do
-    Path.join([System.user_home!(), ".candil", "llm", "bin"])
+    # `general.data_dir` and not a hardcoded `~/.candil`: a user who moves
+    # data_dir to ~/llama was telling us where everything lives, and reading
+    # the binary from somewhere else means `models pull` writes where you asked
+    # and `candil run` looks somewhere else. Same mistake, two directories.
+    Path.join([Instances.data_dir(), "llm", "bin"])
   end
 
   def binary_dir(%__MODULE__{binary_dir: dir}) do
-    if String.contains?(dir, "..") do
-      raise ArgumentError, "binary_dir must not contain path traversal (..): #{inspect(dir)}"
-    end
-
+    guard_no_traversal!(dir, "binary_dir")
     dir
   end
 
   @doc """
-  Returns the full path to the `llama-server` binary for this engine.
+  Returns the full path to the engine binary.
+
+  ## `binary` wins, and it used to be ignored
+
+  `engine.binary` — the key `binary = "..."` in `[engine.<name>]` — is read
+  from the config, validated by the schema, stored in the struct, and then
+  **never looked at**: this function was `binary_dir/1 <> "llama-server"`, so
+  the configured path was reported as missing and, worse, `Engine.Server`
+  spawned *that* path instead. A config that names an absolute binary had no
+  effect on the process that got run.
+
+  Order: an explicit `binary` is the whole answer, including its filename;
+  `binary_dir` is the directory for a standard `llama-server`; and with
+  neither, the binary is looked for under `general.data_dir`.
   """
   @spec binary_path(t()) :: binary()
   def binary_path(%__MODULE__{} = engine) do
-    Path.join(binary_dir(engine), "llama-server")
+    case engine.binary do
+      nil -> Path.join(binary_dir(engine), "llama-server")
+      path -> expand_binary(path)
+    end
+  end
+
+  defp expand_binary(path) do
+    guard_no_traversal!(path, "binary")
+    # `~` is expanded because it is a TOML convenience: a config that works
+    # for `data_dir` and silently does not for `binary` is a trap.
+    Path.expand(path)
+  end
+
+  defp guard_no_traversal!(path, field) do
+    if String.contains?(path, "..") do
+      raise ArgumentError, "#{field} must not contain path traversal (..): #{inspect(path)}"
+    end
+
+    path
   end
 
   @doc """
