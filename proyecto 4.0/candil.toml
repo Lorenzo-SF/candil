@@ -20,7 +20,7 @@ log_dir          = "~/.candil/logs"
 default_consumer = "default"
 
 [engine.llama_cpp]
-binary    = "~/.local/bin/llama-servers"
+binary    = "~/.local/bin/llama-server"
 host      = "127.0.0.1"
 base_port = 10000
 
@@ -28,10 +28,10 @@ base_port = 10000
 strategy  = "source"
 repo      = "https://github.com/ggml-org/llama.cpp"
 ref       = "b4561"
-src_dir   = "~/.candil/src/llama.cpp"
-build_dir = "~/.candil/build/llama.cpp"
+src_dir   = "~/llama.cpp/"
+build_dir = "~/llama.cpp/build/bin"
 generator = "ninja"
-dir       = "~/.candil/llm/bin"
+dir       = "~/.local/bin/llama-server"
 binaries  = ["llama-server", "llama-cli"]
 # Los flags de TU hardware. Candil no añade ninguno por su cuenta y no debe
 # empezar a hacerlo: una RTX 5080 (Blackwell) necesita 120a junto con los
