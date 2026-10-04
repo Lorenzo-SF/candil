@@ -172,7 +172,16 @@ check() { # check <description> <got> <want>
   fi
 }
 
+# El script dice que version es. Se ha perdido una hora enteraDiagnosticando
+# un cuelgue con un script VIEJO en disco: el pull habia fallado por un
+# cambio local, el script de al lado era el de antes, y todo el sintoma
+# parecia un bug nuevo. Un numero que se lee de un vistazo convierte "esta
+# cosa se cuelga" en "no tengo el script que creo".
+SELF_SHA="$(git rev-parse --short HEAD 2>/dev/null || echo 'sin-repo')"
+SELF_SHA="$(git log -1 --format='%h' -- "$0" 2>/dev/null || echo "$SELF_SHA")"
+
 printf '\033[1mcandil manual check\033[0m\n'
+printf 'script  : %s @ %s\n' "$(basename "$0")" "$SELF_SHA"
 printf 'binario: %s\n' "$CANDIL_BIN"
 candil_run "$CANDIL_BIN" version 2>&1 | head -1 | sed 's/^/version: /'
 printf 'cwd    : %s\n' "$PWD"
