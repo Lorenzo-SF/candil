@@ -28,6 +28,7 @@ defmodule Candil.MixProject do
       # verified.
       escript: [main_module: Candil.CLI.Escript],
       test_coverage: [tool: ExCoveralls],
+      aliases: aliases(),
       dialyzer: dialyzer_config()
     ]
   end
@@ -100,6 +101,60 @@ defmodule Candil.MixProject do
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:benchee, "~> 1.3", only: :dev, runtime: false}
     ]
+  end
+
+  defp aliases do
+    [
+      gen: ["deps.get", "compile", "batamanta", "install"],
+      install: fn _ ->
+        dest_dir = Path.expand("~/.local/bin")
+        File.mkdir_p!(dest_dir)
+        config = Mix.Project.config()
+        app_name = Atom.to_string(config[:app])
+
+        source_path = Path.expand("candil")
+        dest_path = Path.join(dest_dir, app_name)
+
+        if File.exists?(source_path) do
+          install_binary(source_path, dest_path)
+        else
+          Mix.shell().error("[ERROR] No se encontro el binario: #{source_path}")
+          Mix.shell().info("   Ejecutaste 'mix batamanta' primero?")
+        end
+      end
+    ]
+  end
+
+  defp install_binary(source_path, dest_path) do
+    unlink_if_symlink(dest_path)
+
+    case File.cp(source_path, dest_path) do
+      :ok ->
+        File.chmod!(dest_path, 0o755)
+        size = File.stat!(dest_path).size
+
+        if size == 0 do
+          Mix.raise("[ERROR] El binario instalado en #{dest_path} quedo vacio (0 bytes)")
+        end
+
+        Mix.shell().info("  Batamanta instalado en #{dest_path} (#{size} bytes)")
+
+      {:error, reason} ->
+        Mix.shell().error("[ERROR] No se pudo copiar alaja: #{inspect(reason)}")
+    end
+  end
+
+  # Sustituye un symlink del destino por un fichero real. `File.cp/2`
+  # escribe *a través* de un symlink, así que sin esto el destino
+  # heredado puede seguir apuntando al build (o a cualquier otro sitio)
+  # en vez de contener la copia recién instalada.
+  defp unlink_if_symlink(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :symlink}} -> File.rm(path)
+      {:ok, _stat} -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> Mix.raise("[ERROR] No se pudo inspeccionar #{path}: #{inspect(reason)}")
+    end
   end
 
   defp docs do
