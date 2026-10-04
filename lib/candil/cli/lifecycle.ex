@@ -421,7 +421,7 @@ defmodule Candil.CLI.Lifecycle do
       row.state,
       row.model,
       row.pid || "-",
-      (row.started_at && uptime(row.started_at)) || "-",
+      uptime(row.uptime_ms),
       row.engine || "llama-server",
       row.owner
     ]

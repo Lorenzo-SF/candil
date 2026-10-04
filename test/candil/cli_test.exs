@@ -467,6 +467,44 @@ defmodule Candil.CLITest do
       assert [%{model: "coder"}] = Instances.read()
     end
 
+    # La fila de una instancia detached llega a `row/1` con la MISMA forma que
+    # las locales, y eso no lo comprueba ningun test si todos miran `--json`:
+    # la tabla y el json son dos renderizadores de las mismas filas y solo
+    # cubrimos uno. `row/1` llego a pedir `:started_at` a una fila que ya lleva
+    # `:uptime_ms`, y revento con KeyError en `candil status` — en el camino que
+    # se ejecuta sin querer, sin --json.
+    # La tabla y el `--json` son dos renderizadores de las mismas filas, y con
+    # los tests cubriendo solo el json, `row/1` llego a pedir `:started_at` a una
+    # fila que ya lleva `:uptime_ms` y revento con KeyError en `candil status`,
+    # justo en el camino que se ejecuta sin querer. Ningun test lo vio porque
+    # ninguno miraba la tabla.
+    test "status sin --json sabe pintar una instancia que solo esta en el registro" do
+      dir = Path.join(System.tmp_dir!(), "candil-detached-#{System.unique_integer([:positive])}")
+      previous = System.get_env("CANDIL_DATA_DIR")
+      System.put_env("CANDIL_DATA_DIR", dir)
+      on_exit(fn -> if previous, do: System.put_env("CANDIL_DATA_DIR", previous) end)
+
+      # Sin motor local: si lo hubiera, `running/0` lo pondria delante por
+      # `{model, port}` y no se veria la fila remota en absoluto. Que la local
+      # gane tambien es lo correcto, asi que esto no es un rodeo: es como se
+      # ve de verdad una instancia detached, que esta en otro proceso.
+      instance =
+        Instances.build("coder", 10_600, "llama_cpp", Instances.os_pid(), true)
+
+      :ok = Instances.put({"coder", 10_600}, instance)
+
+      out = capture_io(fn -> Lifecycle.status(%{json: false}) end)
+
+      assert out =~ "coder"
+      assert out =~ "detached"
+      assert out =~ "10600"
+      assert out =~ "ON"
+      # El uptime de una fila remota sale del ISO 8601 del registro, contra el
+      # reloj de pared. Si eso se mezclara con el monotono de las locales,
+      # saldria negativo; aqui se comprueba que hay un numero, no un "—".
+      refute out =~ "—"
+    end
+
     test "an explicit --port is remembered for the next run" do
       model!(:coder)
       engine!()
