@@ -439,7 +439,9 @@ defmodule Candil.CLITest do
 
       task = Task.async(fn -> Holder.start("coder", 10_500) end)
       assert {:error, reason} = Task.await(task, 30_000)
-      assert reason in [:timeout, :engine_died]
+      # El motivo va incluido cuando el proceso estaba en el registro: un
+      # "se ha caido" sin el por que es el sintoma, no el diagnostico.
+      assert reason == :timeout or match?({:engine_died, _}, reason)
 
       # Sin claim, `status` no inventa nada y `stop` no tiene a quien parar.
       assert Instances.read() == []

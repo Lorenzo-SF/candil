@@ -55,6 +55,18 @@ defmodule Candil.CLI.Escript do
   returning the meaningful atom (which is what they are tested against), and the
   shell gets the number it can branch on.
   """
+  # `:logger.add_handler/3` devuelve `:ok` a secas en el OTP de aqui y
+  # `{:ok, pid}` en otros, y dialyzer solo conoce la que tiene en el PLT. Las dos
+  # valen lo mismo — el handler esta puesto o no — asi que se acepta cualquiera
+  # y se dice en voz alta en vez de escribir un patron que depende de la version
+  # de OTP. No tapa un fallo real: tapa una pregunta cuya respuesta da igual.
+  # `:logger.add_handler/3` devuelve `:ok` en unos OTP y `{:ok, pid}` en otros,
+  # y dialyzer solo conoce la que tiene en el PLT. Lo que importa —si el handler
+  # ha quedado puesto— no depende de la respuesta, asi que se acepta cualquiera
+  # y se declara aqui en vez de escribir un patron que rompe en la otra mitad
+  # de los OTP.
+  @dialyzer {:nowarn_function, add_crash_handler: 0}
+
   @spec main([binary()]) :: no_return()
   def main(argv) do
     # El protocolo interno de `--detach` se intercepta ANTES de Alaja, y no
@@ -75,6 +87,8 @@ defmodule Candil.CLI.Escript do
   # una forma que no miente sobre que hay dos finales posibles.
   @spec hold(binary(), binary()) :: no_return()
   defp hold(alias_name, port) do
+    ensure_crash_logging()
+
     case Holder.start(alias_name, String.to_integer(port)) do
       {:error, reason} ->
         IO.puts(
@@ -93,6 +107,7 @@ defmodule Candil.CLI.Escript do
 
   @spec dispatch([binary()]) :: no_return()
   defp dispatch(argv) do
+    ensure_crash_logging()
     terminal_policy!()
     status = argv |> expand() |> CLI.main() |> exit_status()
 
@@ -165,6 +180,62 @@ defmodule Candil.CLI.Escript do
   # decide whether to colourise a `llama-server` log line. One rule, one place.
   defp terminal_policy! do
     Application.put_env(:alaja, :no_color, not Colorize.enabled?())
+    :ok
+  end
+
+  @doc """
+  Pone los crash reports en stderr, o donde apunte la salida de este proceso.
+
+  ## Por que hace falta
+
+  Un escript arranca sin los handlers de Logger que traeria una release, asi
+  que un proceso supervisado que revienta —el engine, por ejemplo— se
+  muere sin que nadie escriba por que. Eso paso aqui: el unico registro del
+  titular era el mensaje que escribia el propio titular sobre su propio
+  sintoma. Un log que solo contiene lo que el proceso dice de si mismo no
+  explica nunca por que se ha caido.
+
+  Se anade el handler estandar de Erlang escribiendo en `:standard_error`,
+  que para el titular ya es el log que anuncia `run --detach`. Sin esto el
+  log solo contiene lo que Candil imprime a proposito.
+  """
+  @spec ensure_crash_logging() :: :ok
+  def ensure_crash_logging do
+    # `:logger` y no `Logger`: las funciones de Elixir que anadian handlers se
+    # quitaron en 1.15, y un escript de 4.0 corriendo en 1.19 no las tiene.
+    unless :stderr in :logger.get_handler_ids() do
+      # El resultado se descarta a proposito: anadir un handler devuelve
+      # `{:ok, pid}` y falla con `{:error, _}` si ya lo habia, y ninguno de los
+      # dos casos cambia lo que el usuario puede hacer despues.
+      _ = add_crash_handler()
+    end
+
+    :ok
+  catch
+    # Si el logger no admite el handler, Candil sigue pudiendo arrancar. Es
+    # Instrumental, no funcional: perder el log es malo, no poder arrancar
+    # el engine es peor.
+    :error, _ -> :ok
+  end
+
+  # `:logger.add_handler/3` devuelve `:ok` a secas en el OTP de aqui y
+  # `{:ok, pid}` en otros, y dialyzer solo conoce la que tiene en el PLT. Las dos
+  # valen lo mismo — el handler esta puesto o no — asi que se acepta cualquiera
+  # y se dice en voz alta, en vez de escribir un patron que un dia no compila y
+  # otro dia no compila. No es una excepcion a un fallo real: es que la
+  # respuesta no importa.
+  defp add_crash_handler do
+    # Se acepta CUALQUIER retorno con un patron comodin, y se dice por que: la
+    # respuesta de `add_handler` es `:ok` en unos OTP y `{:ok, pid}` en otros, y
+    # el caso que importa —el handler ha quedado puesto o no— no depende de
+    # ella. Escribir el patron de una sola forma deja el codigo roto en la otra
+    # mitad de los OTP, que es peor que aceptar las dos.
+    :logger.add_handler(:stderr, :logger_std_h, %{
+      config: %{type: :standard_error},
+      level: :all,
+      formatter: {Logger.Formatter, []}
+    })
+
     :ok
   end
 end

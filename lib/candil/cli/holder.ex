@@ -150,6 +150,9 @@ defmodule Candil.CLI.Holder do
   def explain(:timeout),
     do: "el proceso arranco pero el modelo no ha contestado en el tiempo previsto"
 
+  def explain({:engine_died, reason}),
+    do: "el proceso del engine se ha caido antes de responder — #{reason}"
+
   def explain(:engine_died),
     do: "el proceso del engine se ha caido antes de responder"
 
@@ -170,7 +173,27 @@ defmodule Candil.CLI.Holder do
         await_health(model_alias, budget - 500)
 
       true ->
-        {:error, :engine_died}
+        # El motivo de la muerte es lo unico que explica el fallo, asi que se
+        # vigila al proceso en vez de conformarse con "se ha caido".
+        {:error, {:engine_died, await_death(model_alias)}}
+    end
+  end
+
+  # Una vuelta de mas al GenServer del engine, esperando su DOWN. Es el unico
+  # sitio donde el motivo real de la muerte esta disponible.
+  defp await_death(model_alias) do
+    case Registry.lookup(Engine.registry(), model_alias) do
+      [{pid, _}] ->
+        ref = Process.monitor(pid)
+
+        receive do
+          {:DOWN, ^ref, :process, ^pid, reason} -> inspect(reason)
+        after
+          200 -> "(sin razon: el proceso ya no estaba)"
+        end
+
+      [] ->
+        "(ya no estaba en el registro)"
     end
   end
 

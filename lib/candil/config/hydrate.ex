@@ -176,11 +176,57 @@ defmodule Candil.Config.Hydrate do
       |> maybe_put(:base_url, spec["base_url"])
       |> maybe_put(:model_dir, spec["model_dir"])
       |> maybe_put(:filename, spec["filename"])
+      |> then(&derive_file_location(&1, spec))
       |> maybe_put(:source, source(spec["source"]))
       |> maybe_put(:draft, source(spec["draft"]))
       |> maybe_put(:enabled, spec["enabled"])
 
     validate(Model, struct(Model, attrs))
+  end
+
+  # `model_dir` y `filename` SIEMPRE vienen del `[model.X.source]`, que es donde
+  # el toml los declara — `file` y `dest` — y no de unas claves `model_dir` y
+  # `filename` que ningun toml escrito por una persona tiene.
+  #
+  # Sin esto, `Candil.Engine.Server` hacia `Path.join(nil, nil)` y el GenServer
+  # del engine se caia en su `init/1`. El sintoma era desconcertante porque
+  # `candil models info` SI teach la ruta —la sacaba del source— mientras el
+  # arranque no la tenia: una pantalla que dice una cosa y un arranque que
+  # hace otra, con `doctor` diciendo "6/6 descargados" entre las dos.
+  #
+  # Un `model_dir` explicito gana, porque quien lo escribe sabe algo que el
+  # source no dice.
+  defp derive_file_location(model, spec) do
+    # `Map.get/3` y no `model.model_dir`: un modelo remoto hidratado llega
+    # aqui sin esas claves, y leerlas con punto revienta. Que se note ahora y
+    # no con el engine ya en marcha.
+    if is_binary(Map.get(model, :model_dir)) and is_binary(Map.get(model, :filename)) do
+      model
+    else
+      # `Map.put` y no `%{model | ...}`: el mapa hidratado no siempre trae las
+      # claves, y la sintaxis de struct update levanta KeyError si faltan. Un
+      # modelo remoto sin source llega aqui sin `filename`, y ahi no hay nada
+      # que derivar tampoco.
+      case spec["source"] do
+        %{"dest" => dest} = src when is_binary(dest) ->
+          model
+          |> Map.put(:model_dir, dest)
+          |> Map.put(:filename, src["dest_name"] || src["file"])
+
+        %{"path" => path} when is_binary(path) ->
+          # `Path.dirname/1` y `Path.basename/1`, no partir la lista a mano:
+          # `Enum.split(-1)` devuelve una TUPLA, y desempaquetarla como lista da
+          # un MatchError en el arranque de un modelo.
+          expanded = Path.expand(path)
+
+          model
+          |> Map.put(:model_dir, Path.dirname(expanded))
+          |> Map.put(:filename, Path.basename(expanded))
+
+        _ ->
+          model
+      end
+    end
   end
 
   defp provider(name, spec) do
