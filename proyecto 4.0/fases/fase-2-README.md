@@ -1,5 +1,8 @@
 # Prompt para implementar la Fase 2 de Candil 4.0
 
+
+> **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
+
 Copia el bloque de abajo entero en la sesión nueva. Está escrito para que no
 tenga que descubrir nada: qué leer, qué ya está hecho, qué hacer, y cómo se
 comprueba.

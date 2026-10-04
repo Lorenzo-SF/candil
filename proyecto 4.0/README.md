@@ -2,6 +2,12 @@
 
 > Este directorio es el mapa. Si acabas de abrir una sesión nueva y no sabes por
 > dónde empezar, empieza por aquí, y luego por el README de la fase siguiente.
+>
+> **Si lo que quieres es probar, no leer: [`PRUEBAS-MANUALES.md`](PRUEBAS-MANUALES.md).**
+> Qué comandos correr, qué tiene que salir en cada uno, y un script
+> (`scripts/manual-check.sh`) que hace las cuatro fases y te da un resumen. Sin
+> configuración no hay nada que arrancar, así que empieza por el §0 de ese
+> documento.
 
 ## Qué se está construyendo
 
