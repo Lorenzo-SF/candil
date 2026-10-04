@@ -20,6 +20,7 @@ defmodule Candil.CLI.Lifecycle do
   alias Alaja.Printer, as: Say
   alias Candil.CLI.{Colorize, Detach, Ports, Preflight}
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
+  alias Candil.Instances.Probe, as: Probe
 
   @doc """
   `candil run <model> [flags]`, with the flags already parsed.
@@ -106,6 +107,19 @@ defmodule Candil.CLI.Lifecycle do
   # is the file. The owner is this process's OS pid, and `C19` is the whole
   # rule: kill the owner and the engine goes with it, because the engine was
   # never detached from it.
+  # El host del engine se busca en el Store: `Model.engine` es el ALIAS, no el
+  # struct, y el registro necesita el host para poder preguntar si hay alguien
+  # escuchando. Sin engine, 127.0.0.1 es lo unico que se puede asumir, porque
+  # un engine sin alias no tiene donde escuchar otra cosa.
+  defp host_of(nil), do: "127.0.0.1"
+
+  defp host_of(alias_name) do
+    case Store.get_engine(alias_name) do
+      {:ok, %Engine{host: host}} -> to_string(host)
+      _ -> "127.0.0.1"
+    end
+  end
+
   defp record(%Model{alias: name, engine: engine}, port, opts) do
     if opts[:port], do: Instances.claim_ad_hoc(port)
 
@@ -115,7 +129,8 @@ defmodule Candil.CLI.Lifecycle do
         port,
         engine && to_string(engine),
         Instances.os_pid(),
-        true
+        true,
+        host_of(engine)
       )
 
     :ok = Instances.put({to_string(name), port}, instance)
@@ -341,46 +356,56 @@ defmodule Candil.CLI.Lifecycle do
         }
       end)
 
+    # El registro serializa el arranque como ISO 8601 ("2026-10-04T19:42:39Z").
+    # Un reloj ilegible da `nil` y la celda sale "—", no cero: un cero parece un
+    # dato y un "—" parece lo que es, que es que no lo sabemos.
     remote =
       Enum.map(Instances.read(), fn instance ->
         %{
-          model: instance.model,
-          port: instance.port,
+          model: Map.get(instance, :model),
+          port: Map.get(instance, :port),
           # El pid del dueno es del sistema operativo y pertenece a otro
           # proceso: es el unico identificador util de una instancia detached.
-          pid: instance.pid,
-          # `read/0` ya se ha descargado las muertas, asi que lo que queda
-          # esta vivo. "ON" y no "healthy" porque es la palabra que ya usa la
-          # columna STATE de las locales, y dos vocabularios para lo mismo
-          # obligan al que lee la tabla a saber de donde viene cada fila.
-          state: if(instance.healthy, do: "ON", else: "DOWN"),
-          engine: instance.engine,
+          pid: Map.get(instance, :pid),
+          engine: Map.get(instance, :engine),
           owner: "detached",
+          state: nil,
+          # `Map.get/3` y no `instance.host`: un registro escrito por una
+          # version anterior de Candil no tiene la clave, y `instance.host`
+          # sobre un mapa descodificado de JSON es un KeyError esperando a que
+          # alguien actualice de la version de ayer. Un registro del mundo real
+          # se lee con get, nunca con punto.
+          host: Map.get(instance, :host) || "127.0.0.1",
           # El registro solo sabe guardar un instante de RELOJ DE PARED, y una
           # fila local lo tiene de reloj MONOTONO. Restarlos entre si no
           # significa nada — salia un uptime de -39460084m, que es la clase de
-          # numero que hace dudar de la maquina en vez de del codigo—. Cada
-          # fila mide su uptime en su propio reloj y ya.
-          uptime_ms: uptime_since(instance.started_at)
+          # numero que hace dudar de la maquina en vez del codigo—. Cada fila
+          # mide su uptime en su propio reloj y ya.
+          uptime_ms: uptime_since(Map.get(instance, :started_at))
         }
       end)
 
-    Enum.uniq_by(local ++ remote, &{&1.model, &1.port})
+    local ++ probe(remote)
+  end
+
+  # STATE de una instancia detached se PREGUNTA, no se recuerda.
+  #
+  # El registro guarda `healthy: true` del momento en que arranco, y eso solo
+  # significa "el proceso dueno existia". Con suerte. El usuario lo vio con una
+  # herramienta que no es Candil: `candil status` decia ON y `ropero status`
+  # decia que el puerto estaba libre. Los dos tenian razon sobre preguntas
+  # distintas, y solo uno contestaba a la que dice la columna. Una columna
+  # STATE en una tabla de modelos significa "esta sirviendo", y un proceso
+  # vivo que no escucha es justo lo que tiene que salir como DOWN: ocupa GPU,
+  # ocupa puerto y no contesta a nadie.
+  defp probe(remote) do
+    states = Probe.states(remote)
+    Enum.map(remote, &%{&1 | state: Map.get(states, &1.port, "DOWN")})
   end
 
   defp engine_name(%{engine: %Engine{alias: nil}}), do: "llama-server"
   defp engine_name(%{engine: %Engine{alias: name}}), do: to_string(name)
   defp engine_name(_), do: "llama-server"
-
-  # El registro serializa el arranque como ISO 8601 ("2026-10-04T19:42:39Z").
-  # Un reloj ilegible da `nil` y la celda sale "—", no cero: un cero parece un
-  # dato y un "—" parece lo que es, que es que no lo sabemos.
-  defp uptime_since(stamp) when is_binary(stamp) do
-    case DateTime.from_iso8601(stamp) do
-      {:ok, dt, _} -> DateTime.diff(DateTime.utc_now(), dt, :millisecond)
-      _ -> nil
-    end
-  end
 
   defp uptime_since(_), do: nil
 

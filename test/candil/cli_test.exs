@@ -498,11 +498,12 @@ defmodule Candil.CLITest do
       assert out =~ "coder"
       assert out =~ "detached"
       assert out =~ "10600"
-      assert out =~ "ON"
-      # El uptime de una fila remota sale del ISO 8601 del registro, contra el
-      # reloj de pared. Si eso se mezclara con el monotono de las locales,
-      # saldria negativo; aqui se comprueba que hay un numero, no un "—".
-      refute out =~ "—"
+      # Y DOWN, no ON. El dueno de este registro esta vivo —es el propio test—
+      # pero no hay nadie escuchando en el puerto, que es lo que decia la
+      # columna. Antes salia ON porque el registro traia un `healthy: true`
+      # del momento del arranque y nunca se volvia a mirar. Un proceso vivo
+      # que no sirve ocupa GPU y ocupa puerto: tiene que verse como DOWN.
+      assert out =~ "DOWN"
     end
 
     test "an explicit --port is remembered for the next run" do

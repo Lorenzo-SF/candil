@@ -40,7 +40,12 @@ defmodule Candil.Instances do
   """
   @type owner :: %{kind: :pid, pid: pos_integer()}
 
+  # `host` es opcional a proposito: hay registros en disco escritos antes de que
+  # existiera, y un `Map.get(instance, :host) || "127.0.0.1"` en la lectura es
+  # lo que evita que un `status` de la version nueva reviente con un
+  # KeyError por el `instances.json` de la version de ayer.
   @type instance :: %{
+          optional(:host) => binary(),
           model: binary(),
           port: pos_integer(),
           engine: binary() | nil,
@@ -277,9 +282,9 @@ defmodule Candil.Instances do
   @doc """
   Builds an instance record from a running engine.
   """
-  @spec build(binary(), pos_integer(), binary() | nil, pos_integer() | nil, boolean()) ::
+  @spec build(binary(), pos_integer(), binary() | nil, pos_integer() | nil, boolean(), binary()) ::
           instance()
-  def build(model, port, engine, os_pid, healthy) do
+  def build(model, port, engine, os_pid, healthy, host \\ "127.0.0.1") do
     # `System.pid/0` answers a charlist on some OTP versions and an integer on
     # others, and Jason encodes a charlist as a JSON *string*. A pid written as
     # `"9742"` fails every `is_integer/1` check on the way back in, so the
@@ -289,6 +294,10 @@ defmodule Candil.Instances do
     %{
       model: to_string(model),
       port: port,
+      # El host va en el registro porque es lo unico que permite preguntar si
+      # hay alguien escuchando. Sin el, un `status` desde otro proceso solo
+      # puede decir "el dueno existe", que no es lo mismo que "sirve".
+      host: to_string(host),
       engine: engine && to_string(engine),
       pid: os_pid,
       owner: %{kind: :pid, pid: os_pid || 0},
