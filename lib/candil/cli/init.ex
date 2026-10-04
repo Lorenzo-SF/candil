@@ -60,8 +60,11 @@ defmodule Candil.CLI.Init do
         Say.print("  1. edita el fichero y descomenta un [model.<alias>] con su [.source]")
         Say.print("  2. candil models pull <alias>")
         Say.print("")
-        Say.print("Si solo querias ver como queda todo antes de escribir, ya esta:")
-        Say.print("  less #{path}")
+        Say.print("")
+        Say.print("El resto de comandos leen siempre #{ConfigFile.default_path()},")
+        Say.print("que es donde se guarda por defecto. --path solo decide donde")
+        Say.print("escribe ESTE fichero, no mueve la configuracion:")
+        Say.print("  CANDIL_CONFIG=#{path} candil models list")
         :ok
 
       {:error, reason} ->

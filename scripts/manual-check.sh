@@ -58,6 +58,24 @@ phase() { # phase <n> <title>
   CURRENT_LABEL="$2"
 }
 
+# candil_run <command...> — la unica forma de llamar a candil en este script.
+#
+# POR QUE EXISTE: este script se pega en un chat, y un smoke que se cuelga es
+# un smoke que no llega a nadie. Con la salida de `models list --help` se
+# quedaba esperando a un TTY y habia que matarlo con Ctrl-C: todo lo que venia
+# detras se perdia, que es justo lo contrario de lo que sirve este fichero.
+#
+# Tres cortafuegos, porque hay tres maneras de colgarse:
+#   timeout   -> algo espera algo que no llega
+#   </dev/null-> algo pregunta por stdin y nadie contesta
+#   PAGER=cat -> un paginador --less---- esperando a que pulses una tecla
+#
+# Un timeout se reporta como exit 124, que se ve en el resumen. Preferible a
+# un script que se queda quieto sin decir por que.
+candil_run() {
+  timeout "${CANDIL_TIMEOUT:-30}" env PAGER=cat LESS=cat GIT_PAGER=cat "$@" < /dev/null
+}
+
 # run <description> <command...>
 # Runs it, shows stdout+stderr, records the exit status.
 run() {
@@ -66,7 +84,7 @@ run() {
   printf '$ %s\n\n' "$*"
 
   local out rc
-  out="$("$@" 2>&1)"; rc=$?
+  out="$(candil_run "$@" 2>&1)"; rc=$?
 
   printf '%s\n' "$out" | sed 's/\x1b\[[0-9;]*m//g'
   printf '\n[exit=%s]\n' "$rc"
@@ -84,7 +102,7 @@ run_json() {
 
   local err rc
   err="$(mktemp)"
-  "$@" 2>"$err"; rc=$?
+  candil_run "$@" 2>"$err"; rc=$?
   local escapes
   escapes=$(grep -c $'\033' || true)
 
@@ -112,7 +130,7 @@ check() { # check <description> <got> <want>
 
 printf '\033[1mcandil manual check\033[0m\n'
 printf 'binario: %s\n' "$CANDIL_BIN"
-"$CANDIL_BIN" version 2>&1 | head -1 | sed 's/^/version: /'
+candil_run "$CANDIL_BIN" version 2>&1 | head -1 | sed 's/^/version: /'
 printf 'cwd    : %s\n' "$PWD"
 printf 'atencion: esto corre doctor --fix en la fase 2, que crea data_dir y log_dir.\n'
 
@@ -128,7 +146,7 @@ if want 1; then
   run "sin argumentos (debe listar los 7 comandos)" "$CANDIL_BIN"
 
   printf '\n--- los cuatro flags que el help no mencionaba antes\n'
-  "$CANDIL_BIN" run --help 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
+  candil_run "$CANDIL_BIN" run --help 2>&1 | sed 's/\x1b\[[0-9;]*m//g'
   printf '\n[mirar: --detach -d · --port -p · --force -f · --cpu · --yes -y]\n'
   RESULTS+=("1|flags de run visibles en su help|0|mirar a ojo")
 
