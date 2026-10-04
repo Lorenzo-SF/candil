@@ -42,6 +42,43 @@ PHASES="$*"
 CURRENT_PHASE=0
 CURRENT_LABEL=""
 
+# ── el log ────────────────────────────────────────────────────────────────
+#
+# La queja original era "no puedo dartelo": el script se colgaba, se.cancelaba
+# con Ctrl-C y lo unico que se llevaba por delante era lo que ya habia
+# spooteado por el terminal, que se puede perder al copiar. Ademas todo lo
+# que va despues del cuelgue —que es justo lo que hay que mirar— no existia.
+#
+# Asi que ademas de imprimir, se escribe. Y si lo matan a mitad, el log dice
+# EN QUE IBA y el resumen de lo que llego a completarse.
+LOG_FILE="${LOG_FILE:-manual-check.log}"
+: > "$LOG_FILE"
+
+# Lo que va ahora, para que una muerte envie un "aqui estaba" en vez de un
+# "se ha parado".
+NOW_RUNNING="(nada)"
+
+# exec > >(tee -a "$LOG_FILE") 2>&1  deja stdout y stderr en el log. Con exec
+# no hace falta acordarse de redirigir en cada sitio, y lo que se ve y lo que
+# se guarda no pueden separarse sin querer.
+exec > >(tee -a "$LOG_FILE") 2>&1
+
+cleanup() {
+  local rc=$?
+  if (( rc != 0 )); then
+    printf '\n\033[1;33m[interrumpido]\033[0m iba por: %s\n' "$NOW_RUNNING"
+    printf 'Lo que llego a completarse:\n'
+    for r in "${RESULTS[@]:-}"; do
+      [[ -n "$r" ]] && printf '  %s\n' "$r"
+    done
+  fi
+  printf '\nLog completo en: %s (%s comprobaciones)\n' \
+    "$LOG_FILE" "$((${#RESULTS[@]}))"
+  exit $rc
+}
+trap cleanup EXIT
+trap 'printf "\n[Ctrl-C]\n"; exit 130' INT
+
 want() { # want <phase>
   [[ -z "$PHASES" ]] && return 0
   for p in $PHASES; do [[ "$p" == "$1" ]] && return 0; done
@@ -66,20 +103,26 @@ phase() { # phase <n> <title>
 # detras se perdia, que es justo lo contrario de lo que sirve este fichero.
 #
 # Tres cortafuegos, porque hay tres maneras de colgarse:
-#   timeout   -> algo espera algo que no llega
-#   </dev/null-> algo pregunta por stdin y nadie contesta
-#   PAGER=cat -> un paginador --less---- esperando a que pulses una tecla
+#   timeout -k -> algo espera algo que no llega
+#   </dev/null -> algo pregunta por stdin y nadie contesta
+#   PAGER=cat  -> un paginador --less---- esperando a que pulses una tecla
 #
-# Un timeout se reporta como exit 124, que se ve en el resumen. Preferible a
-# un script que se queda quieto sin decir por que.
+# EL -K NO ES COSMETICO, y costaria un cuelgue entero encontrarlo. `timeout 30`
+# manda SIGTERM y, si el proceso no se muere, se queda ESPERANDO a que se
+# muera para siempre: no es un plazo, es una peticion. Detras de un escript hay
+# un BEAM entero, y hay procesos que se tragan el TERM —comprobado con un
+# `trap` de shell: 300s de espera en vez de 30. `-k 5` manda SIGKILL cinco
+# segundos despues, que no se puede ignorar. 124 = timeout, 137 = hubo que
+# matarlo a la fuerza; los dos salen en el resumen.
 candil_run() {
-  timeout "${CANDIL_TIMEOUT:-30}" env PAGER=cat LESS=cat GIT_PAGER=cat "$@" < /dev/null
+  timeout -k 5 "${CANDIL_TIMEOUT:-30}" env PAGER=cat LESS=cat GIT_PAGER=cat "$@" < /dev/null
 }
 
 # run <description> <command...>
 # Runs it, shows stdout+stderr, records the exit status.
 run() {
   local desc="$1"; shift
+  NOW_RUNNING="$desc"
   printf '\n--- %s\n' "$desc"
   printf '$ %s\n\n' "$*"
 
@@ -89,6 +132,7 @@ run() {
   printf '%s\n' "$out" | sed 's/\x1b\[[0-9;]*m//g'
   printf '\n[exit=%s]\n' "$rc"
   RESULTS+=("${CURRENT_PHASE}|${desc}|${rc}|")
+  NOW_RUNNING="(nada, esperando)"
   return 0
 }
 
