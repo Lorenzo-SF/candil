@@ -7,29 +7,27 @@
 
 ---
 
-> **Actualizado 2026-10-05.** La tabla de ficheros refleja el estado de hoy.
-> Las fases 0 a 5 están cerradas y mergeadas en `main` (PR #30). La **6 cerró
-> hoy** — D8, §3.4+D4 y §3.6, con el criterio de cierre pasando y 786 tests +
-> 27 doctests en verde. **La siguiente es la 7, el Router.** Los bloqueantes
-> A1 (revisión de MCP) y A2 (dos versiones del RAG) de las fases 9 y 10 siguen
-> abiertos y son decisiones, no trabajo.
+> **Actualizado 2026-10-06.** Las fases 0 a 6 están cerradas. La 7 (Router) es
+> la siguiente. Los tres bloqueantes que quedaban —A1 (revisión de MCP), A2
+> (las dos versiones del RAG) y A5 (el `stop` de Arrea)— están **cerrados y
+> escritos** en los README de sus fases. Las fases 9 y 10 ya no esperan una
+> decisión: esperan código.
 >
 > Y hay un documento nuevo que conviene leer antes de tocar el arranque:
 > [`2026-10-05-bugs-de-arranque.md`](2026-10-05-bugs-de-arranque.md). `candil
 > run` no arrancaba ningún modelo, en ningún camino, desde hacía meses, y
 > ningún smoke lo vio porque **todos comprobaban exit codes**.
 
-## ⚠ Lo primero: lo que bloquea
+## Lo primero
 
 | | Qué | Dónde |
 |---|---|---|
-| **A1** | La fase 9 implementa `2025-11-25`, que ya es **Legacy**. La revisión `Current` es `2026-07-28` y **eliminó el handshake `initialize`**, que es lo que la fase 9 llama "obligatorio". | `fase-9-README.md` §0 |
-| **A2** | La fase 10 tiene **dos versiones incompatibles**: SQLite FTS5 + chunking por función, frente a memoria + chunker configurable. Ocho divergencias. | `fase-10-README.md` §0 |
+| ~~**A1**~~ | ~~MCP `2025-11-25`~~ — **DECIDIDO 2026-10-06: `2026-07-28`**, la Current, sin handshake. | cerrado |
+| ~~**A2**~~ | ~~Dos RAG incompatibles~~ — **DECIDIDO 2026-10-06: SQLite FTS5**, chunking por función, embeddings por hash de texto, e **índice incremental** con `--watch` vía `Trebejo.File.watch/3`. | cerrado |
 | **A4** | "Cerrado a `main`" estaba en 6 documentos, contradiciendo la única disciplina del repo. | los 6 README, eliminada |
 | **A5** | ~~`LongRunning.stop/1` de Arrea devuelve `:ok` sin matar el proceso del SO~~ — **resuelto** en `Lorenzo-SF/arrea`, rama `fix/long-running-stops-the-os-process`, y el test que lo cubria ya pasa. | cerrado |
 
-**A5 era el único bloqueante de código que quedaba.** Los otros dos, A1 y A2,
-son de las fases 9 y 10 y no se resuelven escribiendo: son decisiones.
+**Los tres bloqueantes están cerrados.** A5 con el PR de Arrea, A1 y A2 con las decisiones del dueño del 2026-10-06.
 
 **A2 es el más grave**: un agente que lee el README y otro que lee el prompt
 producen software distinto, y el que mergea primero bloquea al otro.

@@ -10,49 +10,45 @@
 
 ---
 
-## 🛑 0. BLOQUEANTE — lee esto antes de nada
+## ✅ 0. DECIDIDO (2026-10-06) — revisión `2026-07-28`, la Current
 
-**Esta fase no debería empezar hasta que decidas qué revisión del protocolo
-implementa Candil.**
-
-Verificado hoy contra `modelcontextprotocol.io/specification/versioning`:
+**Opción A. decided por el dueño.** Se reescribe el §3.1 entero: es un día
+más ahora y no es tirar la fase en la migración.
 
 | Revisión | Estado | Handshake `initialize` |
 |---|---|---|
 | `2024-11-05` | Legacy | sí |
 | `2025-03-26` | Legacy | sí |
 | `2025-06-18` | Legacy | sí |
-| `2025-11-25` | **Legacy** (handshake-based) | sí |
-| **`2026-07-28`** | **Current** | **eliminado** |
+| `2025-11-25` | Legacy | sí |
+| **`2026-07-28`** | **Current — la elegida** | **eliminado** |
 
-El documento de esta fase dice, en tres sitios, que la revisión es `2025-11-25`
-y que el handshake `initialize` es **obligatorio**. En la revisión `Current`
-(`2026-07-28`) el handshake está **eliminado**: MCP es stateless, cada request
-lleva la versión en `_meta` (`io.modelcontextprotocol/protocolVersion`), hay un
-RPC nuevo `server/discover`, y los fallos de versión devuelven
-`UnsupportedProtocolVersionError`.
+Comprobado otra vez contra `modelcontextprotocol.io/specification/2026-07-28/changelog`
+y el anuncio del 28 de julio de 2026, no solo contra la tabla de arriba:
 
-**Opciones, y la recomendación:**
+- `initialize`/`notifications/initialized` **eliminado** (SEP-2575).
+- `Mcp-Session-Id` y la sesion a nivel de protocolo **eliminados** (SEP-2567).
+- Cada peticion lleva version, info de cliente y capacidades en `_meta`
+  (`io.modelcontextprotocol/protocolVersion`, `…/clientCapabilities`,
+  `…/clientInfo`), y el servidor las suyas en cada resultado
+  (`…/serverInfo`).
+- `server/discover` es **obligatorio** para los servidores: anuncia revisiones
+  soportadas, capacidades e identidad.
+- Un desajuste de version devuelve `UnsupportedProtocolVersionError`.
+- `resources/subscribe`/`unsubscribe` se sustituyen por `subscriptions/listen`,
+  un unico POST largo para notificaciones servidor-a-cliente.
+- Los cuatro SDK de primer nivel ya hablan `2026-07-28`.
 
-- **Opción A — `2026-07-28` (Current).** ✅ **Recomendada.** Es la correcta hoy y
-  lo que un cliente moderno espera. Coste: **un día más**, y reescribir el §3.1
-  entero. Ahorro: no tirar la fase cuando se migre.
-- **Opción B — `2025-11-25` (Legacy), tal como está escrito.** Funciona con
-  clientes que aún usan handshake. Es trabajo que se tira en la migración.
-- **Opción C — `2026-07-28` con fallback de `2025-11-25`**, que es lo que hacen los
-  SDK oficiales. Más trabajo, y el fallback es justo la parte que nadie usa.
+**Lo que NO cambia con esta decision:** la sesion de `Candil.Context` es
+**por consumidor**, que es el particionado interno de Candil y no tiene nada
+que ver con la sesion de MCP. `Mcp-Session-Id` se va; el contexto
+particionado se queda. Que una cosa se llame igual que la otra y vanish: es
+la confusion mas probable de esta fase.
 
-**Con la A**, `@supported_versions` lleva las cinco revisiones y `server/discover`
-está implementado. **Con la B**, este documento vale tal cual.
-
-**Lo que sí está bien y no hay que tocar, porque sigue siendo cierto a día de
-hoy:**
-
-- El batching JSON-RPC se eliminó en `2025-06-18` (PR #416, confirmado en el
-  changelog oficial). Un array de requests es un **error**, no algo que se
-  procese request a request.
-- El header `MCP-Protocol-Version` pasó a ser obligatorio en `2025-06-18`
-  (PR #548). Sin él se asume `2025-03-26` por retrocompatibilidad.
+**Lo que hay que escribir en el §3.1:** sin handshake, sin `Mcp-Session-Id`, con
+`server/discover` implementado, con `_meta` en cada peticion y con
+`UnsupportedProtocolVersionError` cuando las versiones no casen. Los
+`@supported_versions` llevan la revision actual.
 
 ---
 

@@ -10,55 +10,57 @@
 
 ---
 
-## 🛑 0. BLOQUEANTE — lee esto antes de nada
+## ✅ 0. DECIDIDO (2026-10-06) — SQLite FTS5, y el índice es incremental
 
-**Hay dos versiones de esta fase y se contradicen en ocho cosas.** Un agente que
-lea una y otro que lea la otra producen **software distinto**, y el que mergee
-primero bloquea al otro. Hay que elegir una y borrar la otra.
+**Opción del README, descartada la del plan.** decided por el dueño.
 
-| | Este README | `candil-4.0-final.md` §22 y `PROMPT-VENTANA-PARALELA` |
-|---|---|---|
-| **Almacén** | **SQLite FTS5** | `Index` en **memoria**, Postgres opt-in |
-| **Chunking** | **por función** | sentence · paragraph · **fixed** (512) |
-| **Módulos nuevos** | `RAG.Chunk` `RAG.Store` `RAG.Embedder` `RAG.Hybrid` `RAG.Ranker` | `rag/{chunker,chunk,document,index,retrieval,rerank,embedder}.ex` |
-| **API** | `RAG.retrieve/2` | `create_index/2` `index/3` `search/3` `embedder/1` |
-| **Estado real** | "`RAG` **solo**, como módulo vacío" | "struct, `@type` y `@spec` **congelados** en la −1, cinco funciones stub" |
-| **Effort** | **7 d** | **5 d** |
-| **Depende de** | la **8** | la **9** (el gantt pone F10 después de F9) |
-| **Métricas** | `cachear embeddings por hash` | Rerank opt-in, sin mención de caché |
+Se conserva de este README: SQLite FTS5 dentro del binario, chunking por
+funcion, y embeddings cacheados por hash del texto. Se conserva del plan lo
+que no choca: `Index` como modulo aparte con implementaciones intercambiables,
+para que Postgres entre en la v5 sin tocar esta fase. La API cambia, y con eso
+caen los `@spec` congelados en la −1: es el precio de esta decision y hay que
+aceptarlo escrito, no dejarlo como sorpresa a mitad de la fase.
 
-**Lo que sí está bien en este README y merece survive**, aunque no esté en el
-plan:
+**Un RAG que necesita un servicio mas no se despliega.** Candil es un binario;
+el indice tambien.
 
-- **SQLite FTS5 dentro del binario**: un RAG que necesita un servicio más no se
-  despliega. El argumento es bueno.
-- **Chunking por función**: un fragmento que parte una función por la mitad es
-  inútil para citar. También es un buen argumento.
-- **Cachear embeddings por hash del texto**: sin eso, cada reindexado vuelve a
-  pagar el modelo.
+### El indice NO es un snapshot: es incremental por hash
 
-**Lo que sí está bien en el plan y este README pierde:**
+Preguntado y respondido el 2026-10-06, porque no estaba en ningun README y es
+la decision que mas condiciona el resto.
 
-- Los structs y `@spec` **congelados en la fase −1**. Cambiar la API tira ese
-  trabajo.
-- `Index` como módulo aparte, con `memory` y `postgres` como implementaciones.
-  Eso permite que el Postgres entre en v5 sin tocar la fase 10.
-- El chunker configurable en tres modos.
+La clave es la que el propio README pedia en su capa de verificacion:
 
-**Decisión que necesito de ti:**
+    ¿la clave de la cache es el hash del TEXTO, y no el indice del chunk?
+    Con el indice, reindexar invalida la cache entera.
 
-- **El del README** (SQLite + función) es técnicamente más fuerte, pero no está
-  en el plan, no tiene structs congelados, y cambia la API.
-- **El del plan** (memoria + configurables) es lo que está escrito y auditado, y
-  hereda los contratos de la −1.
+Con hash de contenido, el indice sabe **que texto ha visto y cual no**, y eso
+es lo que hace incremental el reindexado. Con el indice del chunk no lo sabe,
+y cada pasada vuelve a pagar el modelo entero.
 
-Mi inclinación: **el del plan como base, más las tres ideas buenas de este
-README** — la caché de embeddings por hash, el argumento de FTS5 como opción de
-v5, y el chunking por función como **un modo más** del chunker ( `:function` junto
-a `:sentence`, `:paragraph`, `:fixed`). Eso conserva los contratos congelados y
-no pierde nada de las dos versiones.
+| | |
+|---|---|
+| **Al arrancar** | compara hash por hash, procesa **solo lo nuevo o lo cambiado** |
+| **Durante el trabajo** | `index/3` explicito, o `sync/0` que compara `mtime + hash` de lo que hay marcado |
+| **Al borrar** | el hash ya no esta, y la fila se va |
+| **Los que no cambian** | no se vuelven a tocar. Un `touch` sin cambio de contenido no paga nada |
 
-Pero es decisión tuya, y hasta que la tomes **esta fase no arranca**.
+### `--watch` se implementa con `Trebejo.File.watch/3`
+
+No hay que escribirlo. `Apero.File.Watcher` es un GenServer puro de OTP, y
+`Trebejo.File.watch(dirs, callback, opts)` lo levanta bajo
+`Arrea.WorkerSupervisor`, que Candil **ya tiene como dependencia**. Trae
+`debounce_ms` (100 por defecto), que es justo lo que hace falta: un editor
+guarda tres veces seguidas y no hay que pagar tres passes.
+
+El callback recibe lotes de `{ruta, eventos}` ya debounced, que es la unidad
+que consume el sync incremental.
+
+**Por que el watcher es opt-in y no el camino por defecto:** un proceso
+vigilando el disco es un proceso mas que se puede quedar colgado o que se
+despierta por cambios que no importan. El sync al arrancar y cuando se pida
+hace el mismo trabajo con cero procesos de mas. `--watch` es para quien
+trabaja en el vault en serio.
 
 ---
 
