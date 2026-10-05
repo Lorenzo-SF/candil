@@ -31,15 +31,15 @@
 | PR abierto | **#31** — fase 6, D8, a la espera de revisión |
 | Tests | **786 tests + 27 doctests**, 0 fallos — medido 2026-10-05, todo en verde por primera vez en la fase 6 |
 | Gates | format, compile `--warnings-as-errors`, credo strict, test, dialyzer (**0 errores**), docs, hex audit, escript — los 8 en verde |
-| Fases cerradas | **−1 · 0 · 1 · 2 · 3 · 4 · 5** — mergeadas en `main` |
-| Fase en curso | **6 — Context compartido**, D8 hecho en `f6-context` |
+| Fases cerradas | **−1 · 0 · 1 · 2 · 3 · 4 · 5 · 6** |
+| Fase siguiente | **7 — Router**. La 6 cerró el 2026-10-05 con D8, §3.4+D4 y §3.6 |
 
 ### Fases 0 a 5: cerradas
 
 Las cinco están en `main` (PR #30, mergeado y squashado en `211cc3b`). La 5
 cerró con los ocho bugs de la auditoría.
 
-### Fase 6: qué está hecho y qué falta
+### Fase 6: CERRADA (2026-10-05)
 
 **Hecho y verificado** (en `f6-context`, PR #31):
 
@@ -100,8 +100,8 @@ codes, y `candil run` sale 0 haya modelo o no**.
 | Tests | **705 tests + 26 doctests**, 0 fallos — *medido 2026-10-03 en `7fc0920`, era 702 + 0 fallos que era mentira* |
 | Cobertura | **66.3 %** |
 | Gates | **8 de 8 en verde** — y por primera vez **también sobre el binario**, que ya se ejecuta en el CI |
-| Fases cerradas | −1 · 0 · 1 · 2 · 3 · 4 · **5** |
-| Siguiente | **fase 6**, Context compartido. **`auditoria/fase-6-README.md`**, no `fases/` |
+| Fases cerradas | −1 · 0 · 1 · 2 · 3 · 4 · **5** — *estado del 2 de octubre; el de hoy está en la §0* |
+| Siguiente | ~~fase 6~~, Context compartido — *cerrada el 5 de octubre; hoy es la 7* |
 | ⚠ Sin arreglar | *(ninguno de los cuatro de la fila anterior: arreglados y verificados el 2026-10-03)* |
 | ⚠ Sin usar | `ConfigManager` (129 l.) · `Health` (124 l.) · `Inference.Chat` (220 l.) — 473 líneas al 0% que nadie llama |
 

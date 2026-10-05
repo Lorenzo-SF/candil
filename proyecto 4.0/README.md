@@ -93,8 +93,8 @@ mejora el resultado.
 | 3 | CLI, `Config.Hydrate` | ✅ integrada |
 | 4 | Instancias, `--detach`, `stop`, `status` | ✅ integrada |
 | 5 | **Doctor**, `--fix`, `--json`, precios a `priv/` | ✅ integrada |
-| 6 | Context compartido | 📄 doc listo, sin código |
-| 7 | Router | 📄 doc listo, sin código |
+| 6 | Context compartido | ✅ **cerrada** (D8 · §3.4+D4 · §3.6) |
+| 7 | Router | 🔶 **siguiente** |
 | 8 | Gateway OpenAI‑compatible | 📄 doc listo, sin código |
 | 9 | MCP servidor y cliente | 📄 doc listo, sin código |
 | 10 | RAG | 📄 doc listo, sin código |
