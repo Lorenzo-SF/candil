@@ -67,7 +67,7 @@ defmodule Candil.Engine.Server do
            # El puerto va dentro del id a proposito: `Arrea.LongRunning`
            # emite la salida del engine por telemetria con solo el `id`, y sin
            # el puerto quien la escucha no sabe en que log escribirla.
-           id: id_for(model),
+           id: id_for(engine),
            binary: binary,
            args: args,
            cd: model_dir_safe(model),
@@ -108,19 +108,25 @@ defmodule Candil.Engine.Server do
   def handle_info(_msg, state), do: {:noreply, state}
 
   @doc false
-  # El id de Arrea, en UN sitio. Estaba escrito a mano en dos puntos y se
-  # desincronizaron cuando se le metio el puerto para que el log del engine
-  # supiera donde escribir: `init/1` arranco con el nuevo y `terminate/2` seguia
-  # buscando el viejo, de modo que el proceso del SO se quedaba vivo sin que
-  # nadie lo detuviera. Un id repetido a mano es un id que se desincroniza.
+  # El id de Arrea, en UN sitio, y con el puerto del ENGINE y no el del modelo.
+  #
+  # Son distintos y no siempre iguales: `Model.port` es el que escribió el
+  # toml, y `engine.port` es el que ha resuelto la CLI para este slot —con
+  # `--port 9990` o con el reparto de puertos son distintos—. El proceso se
+  # liga a `engine.port`, que es con el que se construye `base_url` y el `--port`
+  # del argv, asi que el id tiene que llevar ESE. Con `Model.port` el id
+  # decia 9999 mientras el engine escuchaba en 9990, `terminate/2` iba a parar
+  # un id que no existia, y el proceso se quedaba vivo sin que `candil stop`
+  # lo alcanzara. Los dosCoincidían con `coder` y por eso no se veia.
   def id_for(%{alias: alias_name, port: port}), do: {:candil_engine, alias_name, port}
 
   @impl GenServer
-  def terminate(_reason, %{model: model}) do
+  def terminate(_reason, %{engine: engine}) do
     # Explicit cleanup so the OS process goes away when Candil asks it
     # to. If we got here because the link already died (port crashed),
     # this returns {:error, :not_found} harmlessly.
-    _ = LongRunning.stop(id_for(model))
+    # El id sale del ENGINE, no del modelo: ver `id_for/1`.
+    _ = LongRunning.stop(id_for(engine))
     :ok
   end
 
