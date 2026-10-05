@@ -29,8 +29,8 @@
 |---|---|
 | Rama de trabajo | **`f6-context`**, con `main` ya mergeado (PR #30) |
 | PR abierto | **#31** — fase 6, D8, a la espera de revisión |
-| Tests | **786 tests + 27 doctests**, 0 fallos — medido hoy |
-| Gates | format, compile `--warnings-as-errors`, credo strict, test, dialyzer (0 errores), docs, hex audit, escript |
+| Tests | **786 tests + 27 doctests**, 0 fallos — medido 2026-10-05, todo en verde por primera vez en la fase 6 |
+| Gates | format, compile `--warnings-as-errors`, credo strict, test, dialyzer (**0 errores**), docs, hex audit, escript — los 8 en verde |
 | Fases cerradas | **−1 · 0 · 1 · 2 · 3 · 4 · 5** — mergeadas en `main` |
 | Fase en curso | **6 — Context compartido**, D8 hecho en `f6-context` |
 

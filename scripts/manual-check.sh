@@ -229,6 +229,91 @@ if want 1; then
     "$CANDIL_BIN" doctor
 fi
 
+# ── ¿ha arrancado DE VERDAD? ───────────────────────────────────────────────
+#
+# Por que esto existe y por que mira la VRAM. Durante meses
+# `candil run <modelo>` imprimia "arrancado en :9999", salia con codigo 0 y no
+# arrancaba NADA: `EnginePool.put/5` contestaba :ok sin hacer nada y la CLI
+# nunca llegaba a llamar a `Engine.start/2`. Todos los smokes miraban exit
+# codes, y `candil run` sale 0 haya modelo o no — un codigo de salida no es una
+# comprobacion de que algo funcione.
+#
+# Un modelo cargado mueve la VRAM de golpe. Si no se mueve, no ha arrancado,
+# por muy bonito que sea el codigo de salida. Y si el puerto no escucha, tampoco.
+# Las dos cosas se miran, porque fallan por motivos distintos.
+
+# Megabytes de VRAM usados ahora mismo. Vacio si no hay NVIDIA o no hay
+# `nvidia-smi`: entonces el smoke lo dice y salta ESTA comprobacion, en vez de
+# darla por buena.
+vram_used_mb() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 1
+  local line
+  line=$(nvidia-smi --query-gpu=memory.used --format=csv,noheader,nounits 2>/dev/null | head -1)
+  [[ "$line" =~ ^[0-9]+$ ]] || return 1
+  printf '%s' "$line"
+}
+
+# Hay algo escuchando en ese puerto. `ss` no esta en todas partes; se cae a
+# /proc/net/tcp, que siempre lo esta en Linux.
+port_listening() {
+  local port="$1"
+  if command -v ss >/dev/null 2>&1; then
+    ss -ltn "sport = :$port" 2>/dev/null | tail -n +2 | grep -q . && return 0
+    return 1
+  fi
+  local hex
+  printf -v hex '%04X' "$port" 2>/dev/null
+  grep -qiE ":[[:space:]]*${hex} " /proc/net/tcp 2>/dev/null && return 0
+  grep -qiE ":[[:space:]]*${hex} " /proc/net/tcp6 2>/dev/null && return 0
+  return 1
+}
+
+# La comprobacion de verdad. Imprime lo que ha visto y decide.
+#
+# `vram_before` es lo que habia ANTES del arranque. Sin esa cifra no se puede
+# decir "ha subido": decir "hay 14000 MB" no demuestra nada, porque puede que ya
+# los hubiera.
+check_real_launch() {
+  local alias="$1" port="$2" before="$3"
+  local after listening state vram_note
+
+  if listening=$(port_listening "$port"); then :; fi
+
+  if [[ "$listening" == "0" ]]; then
+    listening="si"
+  else
+    listening="no"
+  fi
+
+  if after=$(vram_used_mb); then
+    if [[ -n "$before" && "$after" -gt "$before" ]]; then
+      vram_note="+$((after - before)) MB (de $before a $after)"
+    else
+      vram_note="sin cambio (de ${before:-?} a $after)"
+    fi
+  else
+    vram_note="no disponible (sin nvidia-smi)"
+  fi
+
+  state=$("$CANDIL_BIN" status 2>/dev/null | grep -c "$alias" || true)
+
+  printf '  puerto %-6s %s\n' "$port" "$listening"
+  printf '  vram             %s\n' "$vram_note"
+  printf '  status dice      %s mencion(es) de %s\n' "$state" "$alias"
+
+  # La condicion de cierre: el puerto escucha Y la VRAM ha subido. Con las dos
+  # cosas, un codigo de salida 0 deja de ser la unica prueba.
+  if [[ "$listening" == "si" && "$vram_note" == +* ]]; then
+    printf '  VEREDICTO         HA ARRANCADO\n'
+    RESULTS+=("3|$alias arranca de verdad (puerto + vram)|0|")
+    return 0
+  fi
+
+  printf '  VEREDICTO         NO HA ARRANCADO, aunque el exit code fuera 0\n'
+  RESULTS+=("3|$alias arranca de verdad (puerto + vram)|1|puerto=$listening vram=$vram_note")
+  return 1
+}
+
 # ── FASE 3 · flows reales ───────────────────────────────────────────────────
 if want 3; then
   phase 3 "flows reales (solo si tienes modelos)"
@@ -263,16 +348,39 @@ if want 3; then
     fi
   fi
 
+  MODEL_PORT="${MODEL_PORT:-$("$CANDIL_BIN" models list 2>/dev/null \
+    | awk -F'│' -v a="$ALIAS" '$2 ~ a {gsub(/^ +| +$/, "", $4); print $4; exit}')}"
+  MODEL_PORT="${MODEL_PORT:-9999}"
+
   if [[ -n "${ALIAS:-}" ]]; then
     printf '\n(modelo detectado: %s)\n' "$ALIAS"
     run "models info $ALIAS" "$CANDIL_BIN" models info "$ALIAS"
     run "status antes de arrancar" "$CANDIL_BIN" status
-    run "run $ALIAS (foreground; ctrl-c si se queda)" "$CANDIL_BIN" run "$ALIAS"
-    run "status" "$CANDIL_BIN" status
-    run "stop" "$CANDIL_BIN" stop
-    run "run --detach" "$CANDIL_BIN" run "$ALIAS" --detach
+    # La VRAM de ANTES. Sin esta cifra, "ahora hay 14000 MB" no demuestra nada:
+    # puede que ya los hubiera. Y `run --detach` se mide con `check_real_launch`,
+    # no con su exit code — que es exactamente lo que dejo pasar al bug de los
+    # meses.
+    VRAM_BEFORE="$(vram_used_mb || true)"
+
+    run "run $ALIAS --detach" "$CANDIL_BIN" run "$ALIAS" --detach
     run "status con el engine detached" "$CANDIL_BIN" status
+
+    NOW_RUNNING="$ALIAS arranca de verdad"
+    printf '\n--- %s: puerto + vram, NO el exit code\n' "$ALIAS"
+    printf '$ (el modelo deberia subir la VRAM y dejar el puerto escuchando)\n\n'
+    check_real_launch "$ALIAS" "$MODEL_PORT" "$VRAM_BEFORE" || true
+
     run_json "stop" "$CANDIL_BIN" stop
+    printf '\n--- y tras el stop, el puerto tiene que quedar libre\n'
+    printf '$ (si sigue escuchando, algo se ha quedado sin dueño)\n\n'
+    if port_listening "$MODEL_PORT"; then
+      printf '  VEREDICTO         SIGUE ESCUCHANDO tras el stop — huerfano\n'
+      RESULTS+=("3|$ALIAS se para de verdad|1|el puerto sigue escuchando")
+    else
+      printf '  VEREDICTO         el puerto queda libre\n'
+      RESULTS+=("3|$ALIAS se para de verdad|0|")
+    fi
+    NOW_RUNNING="(nada, esperando)"
   else
     printf '\nNo he detectado ningun modelo, me salto la parte de run.\n'
     printf '(ni por la tabla ni por %s)\n' "${CANDIL_CONFIG:-$HOME/.config/candil/candil.toml}"

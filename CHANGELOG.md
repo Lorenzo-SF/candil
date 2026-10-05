@@ -7,13 +7,68 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **`candil run` arrancaba un engine de mentira y lo anunciaba como si fuera
+  real.** `EnginePool.put/5` solo guarda un mapa en el estado del pool y
+  contesta `:ok`; la que levanta de verdad el `Candil.Engine.Server` es
+  `Candil.Engine.start/2`, y la CLI no la llamaba. `candil run <modelo` imprimía
+  «arrancado en :9999», salía con 0 y no arrancaba nada. Duró meses: **todos los
+  smokes miraban exit codes**, y `candil run` sale 0 haya modelo o no.
+- **`--detach` decía «detached» sin nada detrás.** El claim lo escribía el
+  proceso que iba a morir y `Engine.Server` levantaba el motor con
+  `%Engine{alias: model.engine}`, un struct sin `binary` ni puerto y con el
+  8080 de defecto.
+- **`STATE` en `candil status` releía un `healthy: true` del arranque** sin
+  volver a preguntar. Ahora hace un `:gen_tcp.connect` al host y puerto del
+  registro. Lo detectó `ropero status`, no Candil.
+- **`--cpu` no hacía nada**: se parseaba y no se leía en ningún sitio. Y
+  `--n-gpu-layers` era un flag escondido dentro de `model_args`, que no se
+  puede manipular de forma fiable. Ahora es el campo `gpu_layers` de
+  `[model.X]`, como `context_size`, y `Hydrate` saca el flag de `model_args`
+  **siempre**, para que no haya dos sitios con el mismo número.
+- **La salida del engine no llegaba a ningún sitio.** `Arrea.LongRunning` la
+  entrega por telemetría y nadie estaba suscrito: un `llama-server` que se
+  negaba a arrancar lo decía en una línea que se iba a la basura. Ahora
+  `Candil.Engine.Log` la escribe en el log que `run --detach` anuncia.
+- **`Candil.Holder` paraba la máquina virtual.** `System.halt(0)` desde un
+  módulo de biblioteca se llevaba por delante también a ExUnit: `mix test`
+  salía con 0 **sin imprimir el resumen**. `hold/1` devuelve ahora el motivo y
+  solo el límite del escript decide cómo termina el proceso.
+- **La salida del launcher no tenía registro.** Ya no hay `candil` ni `Arrea`
+  (51 MB) en el índice, y las reglas de `.gitignore` van ancladas.
+
+### Added
+
+- **`candil init`** escribe un `candil.toml` plantilla, generado desde el
+  schema. Existía porque «no models configured, check candil.toml» no dice
+  dónde está el fichero, ni que no existe, ni cómo se arregla. No pisa nada
+  sin `--force`.
+- **`scripts/migrate-gpu-layers.py`** saca `--n-gpu-layers` de `model_args` y
+  lo deja como campo. Copia antes de escribir y **no escribe nada** si el
+  resultado no parsea como TOML.
+- **`Candil.Instances.Reaper`** limpia los registros de instancias muertas del
+  fichero cada cinco minutos. No mata nada: `read/0` ya filtraba en memoria,
+  pero nunca escribía la lista podada, y el fichero crecía sin parar.
+- **`gpu_layers`** en `[model.X]`, y `--cpu` lo pone a 0.
+
 ### Changed
 
-- **`Candil.Conversation` is deprecated in writing (D8).** The moduledoc carries
-  the notice: it keeps the history in the calling process, which is the thing
+- **`Candil.Conversation` is deprecated (D8).** The moduledoc carries the notice:
+  it keeps the history in the calling process, which is the thing
   `Candil.Context` exists to fix, and it goes in 4.1.0. The replacement,
-  `chat_with_context/4`, is **written and blocked** — see
-  `proyecto 4.0/auditoria/bloqueos/`.
+  **`Candil.chat_with_context/4`, exists y funciona** desde el 2026-10-05 — el
+  criterio de cierre de la fase 6 pasa: dos consumidores con la misma
+  `session_id` no se ven. Bloqueado ya no está.
+- **`Candil.Context.Builder.build/3` recorta por política, y el error dice qué
+  no cabe.** Antes `take_while_within` tiraba los turnos más antiguos en
+  silencio: un contexto recortado parece uno entero, y descubrirlo es en
+  producción. `:strict` (por defecto) devuelve
+  `{:error, {:context_exceeded, :no_room_to_truncate}}` en vez de trimming;
+  `:compact` recorta; `:summarize` pide un resumen y **no degrada** a `:strict`
+  ni a `:compact` si no lo hay. El `reason` distingue `:budget_exhausted`,
+  `:no_room_for_system` y `:no_room_to_truncate`, que son tres arreglos
+  distintos. La forma del **éxito no cambia**: sigue siendo `{:ok, messages}`.
 - **`Candil.Conversation.TokenEstimator` is now a facade.** The implementation
   moved to `Candil.Context.TokenEstimator`, which `Candil.Context` needs;
   duplicating the heuristics is the thing D8 was written to prevent. The old
