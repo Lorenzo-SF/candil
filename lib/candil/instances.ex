@@ -93,6 +93,26 @@ defmodule Candil.Instances do
   """
   @spec log_dir() :: binary()
   def log_dir do
+    # `CANDIL_DATA_DIR` manda, y antes que el fichero. Sin esto, un test con
+    # `CANDIL_DATA_DIR` puesto seguia escribiendo en el log REAL de quien lo
+    # lanza: `data_dir/0` respeta la variable desde el principio y `log_dir/0`
+    # no, de modo que los logs de test y los de la sesion se mezclaban en el
+    # mismo fichero. Dos sitios que dicen donde esta el mismo sitio tienen que
+    # mirar lo mismo.
+    case System.get_env("CANDIL_LOG_DIR") do
+      nil -> configured_log_dir()
+      dir -> Path.expand(dir)
+    end
+  end
+
+  # El `log_dir` del toml gana SIEMPRE, y eso no es negociable: `doctor --fix`
+  # promete crear el directorio que el usuario ha configurado, no uno derivado.
+  # Lo que se anade es `CANDIL_LOG_DIR` como override explicito, para el caso
+  # —un test— en el que hace falta mirar a otro sitio sin tocar la
+  # configuracion de nadie. `CANDIL_DATA_DIR` NO lo sobrepasa, porque
+  # `data_dir` y `log_dir` son dos directorios distintos y mover uno no mueve
+  # el otro.
+  defp configured_log_dir do
     with {:ok, config} <- Candil.Config.File.load(),
          %{"general" => %{"log_dir" => dir}} <- config do
       Path.expand(dir)

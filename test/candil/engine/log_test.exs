@@ -18,8 +18,30 @@ defmodule Candil.Engine.LogTest do
     dir = Path.join(System.tmp_dir!(), "candil-log-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     previous = System.get_env("CANDIL_DATA_DIR")
+    previous_log = System.get_env("CANDIL_LOG_DIR")
+
     System.put_env("CANDIL_DATA_DIR", dir)
-    on_exit(fn -> if previous, do: System.put_env("CANDIL_DATA_DIR", previous) end)
+    # `CANDIL_LOG_DIR`, NO `CANDIL_DATA_DIR`: el `log_dir` del toml gana
+    # siempre —`doctor --fix` lo promete— asi que un test que solo PONGA
+    # `CANDIL_DATA_DIR` sigue escribiendo en el log real de quien lanza la
+    # suite. Que es exactamente lo que paso: el test se leyo a si mismo las
+    # lineas del titular de una ejecucion anterior.
+    System.put_env("CANDIL_LOG_DIR", Path.join(dir, "logs"))
+
+    on_exit(fn ->
+      if previous,
+        do: System.put_env("CANDIL_DATA_DIR", previous),
+        else: System.delete_env("CANDIL_DATA_DIR")
+
+      if previous_log,
+        do: System.put_env("CANDIL_LOG_DIR", previous_log),
+        else: System.delete_env("CANDIL_LOG_DIR")
+    end)
+
+    # El log se vacia antes de cada test. Sin esto, el fichero se ANADE y el
+    # test lee lo que dejo la ejecucion anterior —que fue como se acabo
+    # escribiendo en el log real de la maquina que lanza la suite.
+    File.rm_rf(Path.join(dir, "logs"))
     {:ok, dir: dir}
   end
 
@@ -80,6 +102,18 @@ defmodule Candil.Engine.LogTest do
 
     assert File.read!(log_path("coder", 9999)) == "a\n"
     assert File.read!(log_path("coder", 9998)) == "b\n"
+  end
+
+  test "un exit con codigo se registra, que es la salida NORMAL de un binario que no arranca" do
+    id = {:candil_engine, :coder, 9999}
+
+    Log.handle_event([:arrea, :long_running, :stopped], %{id: id, exit_code: 1}, nil, self())
+
+    # `:stopped` y no `:crashed`: Arrea emite `crashed` solo para un
+    # `{:EXIT, port, reason}`. Un binario que se niega a arrancar sale con
+    # codigo, y ese camino no se registraba.
+    text = File.read!(log_path("coder", 9999))
+    assert text =~ "codigo 1"
   end
 
   test "un id que no es nuestro no rompe nada" do

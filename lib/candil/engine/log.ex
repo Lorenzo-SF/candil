@@ -49,9 +49,15 @@ defmodule Candil.Engine.Log do
     :error, _ -> :ok
   end
 
+  # LOS CUATRO, y no solo los dos que se subsided al principio. Un engine que
+  # sale con codigo de error es un `{:exit_status, code}`, y Arrea emite
+  # `:stopped` para eso — NO `:crashed`, que es solo para el `{:EXIT, port,
+  # reason}`. Suscribirse a `data` y `crashed` y creerse que se ve todo es
+  # justamente el fallo que hacia que el log saliera vacio.
   defp events do
     [
       [:arrea, :long_running, :data],
+      [:arrea, :long_running, :stopped],
       [:arrea, :long_running, :crashed]
     ]
   end
@@ -62,7 +68,16 @@ defmodule Candil.Engine.Log do
   end
 
   def handle_event([:arrea, :long_running, :crashed], %{reason: reason, id: id}, _config, _pid) do
-    write(slot(id), "\n[candil] el engine se ha caido: #{inspect(reason)}\n")
+    write(slot(id), "\n[candil] el proceso ha muerto: #{inspect(reason)}\n")
+  end
+
+  def handle_event([:arrea, :long_running, :stopped], %{id: id} = metadata, _config, _pid) do
+    # Un exit con codigo es la salida MAS NORMAL de un binario que se niega a
+    # arrancar, y es la que no se estaba registrando. `exit_code: 1` sin mas
+    # contexto parece poco, pero va pegado a lo que el engine haya impreso
+    # antes, que es donde esta el motivo de verdad.
+    code = Map.get(metadata, :exit_code)
+    write(slot(id), "\n[candil] el engine ha salido con codigo #{inspect(code)}\n")
   end
 
   def handle_event(_event, _measurements, _config, _pid), do: :ok
