@@ -143,7 +143,7 @@ defmodule Candil.CLI.Holder do
           )
 
         Logger.info("holder: #{alias_name} responde en :#{port} · pid #{Instances.os_pid()}")
-        block()
+        block(Engine.Server.id_for(model, engine))
 
       {:error, reason} ->
         # Devuelve, NO detiene. Un `System.halt/1` aqui se lleva por delante
@@ -226,19 +226,32 @@ defmodule Candil.CLI.Holder do
   Never returns. Stops cleanly on SIGTERM/SIGINT so `stop` and `candil stop`
   can take the engine down with the owner instead of orphaning it.
   """
-  @spec block() :: no_return()
-  def block do
-    # Trapping exits means a supervisor shutdown reaches here as a message
-    # rather than killing the VM outright, which is what lets the engine's own
-    # shutdown run. The escript's own SIGTERM handling is the outer backstop.
+  @spec block(term()) :: no_return()
+  def block(id) do
+    # Atrapar salidas es para poder ORDENAR la muerte del engine antes de la
+    # propia, no solo para enterarse de ella.
     Process.flag(:trap_exit, true)
-    hold()
+    hold(id)
   end
 
-  defp hold do
+  # El titular es el dueño del proceso, y la regla C19 es que matar al dueño
+  # se lleva el engine. Sin apagar el engine explícitamente, al morir el VM el
+  # `llama-server` —que es un proceso del SISTEMA OPERATIVO, no de Erlang— se
+  # queda huerfano y reparteado a init: vivo, con la GPU cogida, y sin nadie a
+  # quien preguntarle. Se vio justo asi, con `ropero` diciendo ON y `candil
+  # status` diciendo que no habia nada.
+  #
+  # Se apaga y luego se sale con codigo 0: si el engine se cae por su cuenta, el
+  # titular no ha fallado — ha hecho su trabajo, y el log ya lo dice.
+  defp hold(id) do
     receive do
-      {:EXIT, _pid, reason} -> exit(reason)
-      _ -> hold()
+      {:EXIT, _pid, _reason} ->
+        Arrea.LongRunning.stop(id)
+        exit(0)
+
+      :stop ->
+        Arrea.LongRunning.stop(id)
+        exit(0)
     end
   end
 end

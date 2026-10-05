@@ -5,8 +5,8 @@ defmodule Candil.Engine.Server do
   The OS process itself is owned by `Arrea.LongRunning`, which gives us
   for free:
 
-    * Registration in `Arrea.Registry` under `id_for/1`, which carries the
-      model alias and the port
+    * Registration in `Arrea.Registry` under `id_for/2`: the MODEL alias and the
+      port the engine actually bound to
       so other apps can `Arrea.LongRunning.state(id)` / `health(id)` /
       `stop(id)` without going through Candil.
     * Telemetry events on `[:arrea, :long_running, ...]` for started /
@@ -67,7 +67,7 @@ defmodule Candil.Engine.Server do
            # El puerto va dentro del id a proposito: `Arrea.LongRunning`
            # emite la salida del engine por telemetria con solo el `id`, y sin
            # el puerto quien la escucha no sabe en que log escribirla.
-           id: id_for(engine),
+           id: id_for(model, engine),
            binary: binary,
            args: args,
            cd: model_dir_safe(model),
@@ -108,25 +108,30 @@ defmodule Candil.Engine.Server do
   def handle_info(_msg, state), do: {:noreply, state}
 
   @doc false
-  # El id de Arrea, en UN sitio, y con el puerto del ENGINE y no el del modelo.
+  # El id de Arrea, en UN sitio, y con cada campo de donde le toca: el ALIAS
+  # del modelo y el PUERTO del engine.
   #
-  # Son distintos y no siempre iguales: `Model.port` es el que escribió el
-  # toml, y `engine.port` es el que ha resuelto la CLI para este slot —con
-  # `--port 9990` o con el reparto de puertos son distintos—. El proceso se
-  # liga a `engine.port`, que es con el que se construye `base_url` y el `--port`
-  # del argv, asi que el id tiene que llevar ESE. Con `Model.port` el id
-  # decia 9999 mientras el engine escuchaba en 9990, `terminate/2` iba a parar
-  # un id que no existia, y el proceso se quedaba vivo sin que `candil stop`
-  # lo alcanzara. Los dosCoincidían con `coder` y por eso no se veia.
-  def id_for(%{alias: alias_name, port: port}), do: {:candil_engine, alias_name, port}
+  # No son el mismo campo. El modelo se llama `analyst` y su engine se llama
+  # `llama_cpp`; el engine escucha en el puerto que ha resuelto la CLI para el
+  # slot. Con el alias del engine, el log del motor se llamaba
+  # `llama_cpp-9990.log` —un fichero por engine, no por modelo, con un nombre
+  # que no le corresponde a nadie— mientras el titular anunciaba
+  # `analyst-9990.log` y escribia ahi. Dos nombres para el mismo log, y el que
+  # se anuncia no es el que se escribe.
+  #
+  # Con `Model.port` en vez de `engine.port` el id decia 9999 mientras el
+  # proceso escuchaba en 9990, `terminate/2` iba a parar un id que no existia, y
+  # el proceso se quedaba vivo sin que `candil stop` lo alcanzara. Con `coder`
+  # los tres coincidian y no se notaba.
+  def id_for(%{alias: model_alias}, %{port: port}), do: {:candil_engine, model_alias, port}
 
   @impl GenServer
-  def terminate(_reason, %{engine: engine}) do
+  def terminate(_reason, %{model: model, engine: engine}) do
     # Explicit cleanup so the OS process goes away when Candil asks it
     # to. If we got here because the link already died (port crashed),
     # this returns {:error, :not_found} harmlessly.
-    # El id sale del ENGINE, no del modelo: ver `id_for/1`.
-    _ = LongRunning.stop(id_for(engine))
+    # El id sale del MODELO y del ENGINE, cada uno de donde le toca: ver `id_for/2`.
+    _ = LongRunning.stop(id_for(model, engine))
     :ok
   end
 
