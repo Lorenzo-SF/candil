@@ -39,7 +39,8 @@ defmodule Candil.CLI.Holder do
   C19 rule and the reason the owner is recorded at all.
   """
 
-  alias Candil.{Engine, Instances, Store}
+  alias Arrea.LongRunning
+  alias Candil.{Engine, Engine.Server, Instances, Store}
   require Logger
 
   # 4 minutos. Un 30B MoE sobre disco NVMe tarda del orden de medio minuto en
@@ -70,10 +71,11 @@ defmodule Candil.CLI.Holder do
           :ok | {:error, :no_such_model | :timeout | :engine_died | {:engine_refused, term()}}
   def start(alias_name, port, opts \\ []) when is_binary(alias_name) and is_integer(port) do
     budget = Keyword.get(opts, :health_budget, @health_budget)
+    cpu? = Keyword.get(opts, :cpu, false)
 
     with {:ok, alias_atom} <- safe_atom(alias_name),
          {:ok, model} <- fetch(alias_atom) do
-      start_model(model, alias_name, port, budget)
+      start_model(model, alias_name, port, budget, cpu?)
     end
   end
 
@@ -98,10 +100,10 @@ defmodule Candil.CLI.Holder do
     ArgumentError -> {:error, :no_such_model}
   end
 
-  defp start_model(model, alias_name, port, budget) do
+  defp start_model(model, alias_name, port, budget, cpu?) do
     # El engine del catalogo, no uno hecho a pelo: `%Candil.Engine{alias: ...}`
     # no tiene binary ni puerto y arrancaria contra el 8080 sin binario.
-    case Engine.for_model(model, port) do
+    case Engine.for_model(model, port, cpu?) do
       {:ok, engine} ->
         # `Engine.start/2` y no `EnginePool.put/5`, igual que en la ruta
         # normal: el pool no arranca nada, solo se apunta. Y `Engine.start/2`
@@ -143,7 +145,7 @@ defmodule Candil.CLI.Holder do
           )
 
         Logger.info("holder: #{alias_name} responde en :#{port} · pid #{Instances.os_pid()}")
-        block(Engine.Server.id_for(model, engine))
+        block(Server.id_for(model, engine))
 
       {:error, reason} ->
         # Devuelve, NO detiene. Un `System.halt/1` aqui se lleva por delante
@@ -243,14 +245,18 @@ defmodule Candil.CLI.Holder do
   #
   # Se apaga y luego se sale con codigo 0: si el engine se cae por su cuenta, el
   # titular no ha fallado — ha hecho su trabajo, y el log ya lo dice.
+  # Un `receive` sin `after` no termina nunca, y dialyzer lo ve como una
+  # funcion que solo acaba lanzando. Se declara que devuelve lo que sea, que
+  # es verdad: de este `receive` no se sale con un valor.
+  @spec hold(term()) :: no_return()
   defp hold(id) do
     receive do
       {:EXIT, _pid, _reason} ->
-        Arrea.LongRunning.stop(id)
+        LongRunning.stop(id)
         exit(0)
 
       :stop ->
-        Arrea.LongRunning.stop(id)
+        LongRunning.stop(id)
         exit(0)
     end
   end

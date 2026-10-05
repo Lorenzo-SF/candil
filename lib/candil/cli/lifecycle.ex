@@ -109,7 +109,7 @@ defmodule Candil.CLI.Lifecycle do
           #
           # `Engine.start/2` tambien registra la instancia en el pool por su
           # cuenta, asi que esta llamada sustituye a la de antes, no se suma.
-          case Engine.start(resolve_engine!(model, port), model) do
+          case Engine.start(resolve_engine!(model, port, opts), model) do
             {:ok, _pid} ->
               record(model, port, opts)
               started(model, port, opts)
@@ -137,8 +137,8 @@ defmodule Candil.CLI.Lifecycle do
   # `%Engine{alias: model.engine}` pelado: ese struct no tiene binary, ni
   # api_key, ni start_args, y su puerto es el 8080 por defecto, asi que el
   # modelo arranca hacia otro sitio o no arranca. Ver `Engine.for_model/2`.
-  defp resolve_engine!(model, port) do
-    case Engine.for_model(model, port) do
+  defp resolve_engine!(model, port, opts) do
+    case Engine.for_model(model, port, get(opts, :cpu) == true) do
       {:ok, engine} ->
         engine
 
@@ -229,7 +229,7 @@ defmodule Candil.CLI.Lifecycle do
       stop_holder(model, port)
       # Tambien aqui: `EnginePool.put/5` no arranca nada, asi que el mensaje de
       # "arrancado" era falso en el camino de `--force` igual que en el normal.
-      case Engine.start(resolve_engine!(model, port), model) do
+      case Engine.start(resolve_engine!(model, port, opts), model) do
         {:ok, _pid} -> Say.print_success("#{model.alias} arrancado en :#{port}")
         {:error, reason} -> Say.print_error("no se ha podido arrancar #{model.alias}: #{reason}")
       end

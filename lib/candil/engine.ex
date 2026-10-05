@@ -54,6 +54,11 @@ defmodule Candil.Engine do
             api_key: nil,
             auth_headers: [],
             start_args: [],
+            # `--cpu`: pone las capas a 0 y quita los flags de dispositivo. No
+            # es un `start_args` mas porque hay que REESCRIBIR los que el
+            # modelo trae en su `model_args`, y ahi solo se puede llegar desde
+            # aqui.
+            cpu: false,
             launcher: nil
 
   @type version :: :latest | binary()
@@ -290,20 +295,22 @@ defmodule Candil.Engine do
   `preflight.ex` had already learned this lesson and carries almost the same
   comment. It just never reached the call sites that start things.
   """
-  @spec for_model(term(), pos_integer()) :: {:ok, t()} | {:error, :not_found}
-  def for_model(%Model{engine: nil}, _port), do: {:error, :not_found}
+  @spec for_model(term(), pos_integer(), boolean()) :: {:ok, t()} | {:error, :not_found}
+  def for_model(model, port, cpu \\ false)
 
-  def for_model(%Model{engine: alias_name}, port) do
+  def for_model(%Model{engine: nil}, _port, _cpu), do: {:error, :not_found}
+
+  def for_model(%Model{engine: alias_name}, port, cpu) do
     case Store.get_engine(alias_name) do
       # El puerto se fija aqui y no en el llamante: el engine del catalogo no
       # sabe que slot se le ha asignado, y `Engine.Server` consulta la salud en
       # `engine.port`.
-      {:ok, engine} -> {:ok, %{engine | port: port}}
+      {:ok, engine} -> {:ok, %{engine | port: port, cpu: cpu}}
       {:error, :not_found} -> {:error, :not_found}
     end
   end
 
-  def for_model(_model, _port), do: {:error, :not_found}
+  def for_model(_model, _port, _cpu), do: {:error, :not_found}
 
   @doc """
   Returns the full path to the engine binary.

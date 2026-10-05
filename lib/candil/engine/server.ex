@@ -36,11 +36,13 @@ defmodule Candil.Engine.Server do
 
   use GenServer
 
+  require Logger
+
   alias Candil.Engine
 
   alias Arrea.LongRunning
 
-  alias Candil.Engine.HealthPoller
+  alias Candil.Engine.{HealthPoller, Server.Args}
 
   @type state :: %{
           engine: Engine.t(),
@@ -136,6 +138,9 @@ defmodule Candil.Engine.Server do
   end
 
   defp build_args(%Engine{start_args: engine_args, host: host, port: port} = engine, model) do
+    {model_args, cpu_report} = Args.for_cpu(model_args(model), engine.cpu)
+    announce_cpu_overrides(model, cpu_report)
+
     if String.contains?(model.model_dir, "..") or String.contains?(model.filename, "..") do
       raise ArgumentError, "model path must not contain path traversal (..)"
     end
@@ -157,7 +162,50 @@ defmodule Candil.Engine.Server do
         to_string(model.alias)
       ] ++ api_key_args(engine)
 
-    base ++ model_args(model) ++ engine_args
+    base ++ model_args ++ engine_args
+  end
+
+  # ── `--cpu`: lo que de verdad significa ir a CPU ──────────────────────────
+  #
+  # Sin esto, `--cpu` era un flag que se parseaba, se validaba y no se leia en
+  # ningun sitio. El modelo se lanzaba con SUS `model_args`, incluidos los de
+  # GPU, y con `--n-gpu-layers 99` de la config lo que pasaba era:
+  #
+  #     failed to fit params to free device memory:
+  #       n_gpu_layers already set by user to 99, abort
+  #     allocating 12005.90 MiB on device 0: cudaMalloc failed: out of memory
+  #
+  # Es decir:Candil decia "lo voy a poner en CPU" mientras el modelo intentaba
+  # subir 12 GB a una GPU que ya tenia 14 GB cogidos. Y llama-server decia,
+  # en su propia linea de aviso, que si NO le fijaras el numero se habria
+  # ajustado solo. El flag del usuario le quitaba justo la capacidad de
+  # adaptarse.
+  #
+  # Asi que `--cpu` pone `--n-gpu-layers 0` —no "lo que quepa", sino CPU, que
+  # es lo que significa el flag— y quita los flags que solo tienen sentido en
+  # GPU. El resto de la configuracion del modelo se respeta: muestreo, cache y
+  # eso valen igual en CPU.
+  #
+  # Y AVISA de lo que ha pisado, porque modificar la configuracion de alguien
+  # en silencio es la forma de perder su confianza el dia que algo va mal.
+  defp announce_cpu_overrides(model, {forced, unknown}) do
+    if forced != [] do
+      Logger.warning(
+        "--cpu en #{model.alias}: #{Enum.join(forced, ", ")} puestos a CPU. " <>
+          "El toml los pedia en GPU y hay otra cosa en la tarjeta."
+      )
+    end
+
+    # Lo que huele a GPU y no conozco se DICE. Una regla que hace la mitad del
+    # trabajo en silencio es peor que una que dice cual no hace.
+    if unknown != [] do
+      Logger.warning(
+        "--cpu en #{model.alias}: no conozco #{Enum.join(unknown, ", ")} y huele a GPU. " <>
+          "Pasan tal cual. Dime que significan y los anado a la regla."
+      )
+    end
+
+    :ok
   end
 
   # `--api-key` is only added when the engine configures one, so a server
