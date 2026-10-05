@@ -42,7 +42,7 @@ defmodule Candil.Engine.Server do
 
   alias Arrea.LongRunning
 
-  alias Candil.Engine.{HealthPoller, Server.Args}
+  alias Candil.Engine.HealthPoller
 
   @type state :: %{
           engine: Engine.t(),
@@ -109,6 +109,26 @@ defmodule Candil.Engine.Server do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
+  # Como ropero: un 27B en CPU va limitado por hilos, y sin esto tienes un
+  # modelo que tecnicamente esta en CPU y tarda cuatro veces mas.
+  defp threads_args(%Engine{cpu: true}), do: ["--threads", Integer.to_string(cpu_count())]
+  defp threads_args(%Engine{}), do: []
+
+  defp cpu_count do
+    case System.cmd("nproc", []) do
+      {out, 0} ->
+        case Integer.parse(String.trim(out)) do
+          {n, _} when n > 0 -> n
+          _ -> 8
+        end
+
+      _ ->
+        System.schedulers_online()
+    end
+  rescue
+    _kind -> System.schedulers_online()
+  end
+
   @doc false
   # El id de Arrea, en UN sitio, y con cada campo de donde le toca: el ALIAS
   # del modelo y el PUERTO del engine.
@@ -138,8 +158,11 @@ defmodule Candil.Engine.Server do
   end
 
   defp build_args(%Engine{start_args: engine_args, host: host, port: port} = engine, model) do
-    {model_args, appended} = Args.for_cpu(model_args(model), engine.cpu)
-    announce_cpu_overrides(model, appended)
+    # `--n-gpu-layers` sale SIEMPRE del campo `gpu_layers` del modelo, nunca
+    # de `model_args`: `Hydrate` ya ha sacado el flag de ahi, asi que hay una
+    # sola fuente de verdad y `--cpu` no tiene nada que reescribir.
+    model_args = model_args(model) ++ ["--n-gpu-layers", to_string(layers(model, engine))]
+    announce_cpu_overrides(model, engine)
 
     if String.contains?(model.model_dir, "..") or String.contains?(model.filename, "..") do
       raise ArgumentError, "model path must not contain path traversal (..)"
@@ -162,7 +185,7 @@ defmodule Candil.Engine.Server do
         to_string(model.alias)
       ] ++ api_key_args(engine)
 
-    base ++ model_args ++ engine_args
+    base ++ model_args ++ threads_args(engine) ++ engine_args
   end
 
   # ── `--cpu`: lo que de verdad significa ir a CPU ──────────────────────────
@@ -188,19 +211,22 @@ defmodule Candil.Engine.Server do
   #
   # Y AVISA de lo que ha pisado, porque modificar la configuracion de alguien
   # en silencio es la forma de perder su confianza el dia que algo va mal.
-  # Los flags del modelo se dejan como estan y los de CPU se anaden AL FINAL,
-  # que es como gana ropero: llama-server se queda con la ULTIMA aparicion de
-  # un flag repetido, asi que lo que se pone al final es lo que manda.
-  defp announce_cpu_overrides(model, appended) do
-    if appended != [] do
+  # Con `--cpu` el campo del modelo vale 0 y ya esta. Y se dice CUAL ERA, para
+  # que no parezca que el modelo no tenia GPU: un 99 puesto a 0 sin explicar de
+  # donde salio el 99 deja al usuario pensando que se lo hainventado Candil.
+  defp layers(model, engine) do
+    if engine.cpu do
       Logger.warning(
-        "--cpu en #{model.alias}: añadido #{Enum.join(appended, " ")} al final. " <>
-          "El toml puede seguir pidiendo GPU en sus propios flags; los de CPU van detrás y ganan."
+        "--cpu en #{model.alias}: #{model.gpu_layers} capas a la GPU → 0 (CPU entera)"
       )
-    end
 
-    :ok
+      0
+    else
+      model.gpu_layers
+    end
   end
+
+  defp announce_cpu_overrides(_model, _engine), do: :ok
 
   # `--api-key` is only added when the engine configures one, so a server
   # started without it behaves exactly as before. The flag has to be on the

@@ -115,6 +115,14 @@ defmodule Candil.Config.Template do
     #   usage        = ["chat", "code"]
     #   tags         = ["gpu", "moe", "code"]
     #
+    #   # Cuantas capas van a la GPU. -1 = "las que quepan" (lo que hace
+    #   # llama-server cuando no le fijas nada), 0 = CPU entera. `candil run
+    #   # --cpu` pone este campo a 0; si lo que quieres es apagar la GPU un
+    #   # rato, esto. No lo pongas tambien dentro de `model_args`: allí Candil
+    #   # lo saca y lo pasa aquí, porque dos sitios para el mismo número es
+    #   # como llama-server se queja de "already set by user".
+    #   gpu_layers   = -1
+    #
     #   # Los flags que se pasan a llama-server.
     #   #
     #   # OJO: un flag y su valor son DOS elementos. Se pasa la lista al argv

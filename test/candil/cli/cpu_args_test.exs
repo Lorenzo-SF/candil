@@ -55,8 +55,60 @@ defmodule Candil.CLITest.CpuArgsTest do
     refute has_flag?(argv, "--threads")
   end
 
-  # Arranca `candil run <model>` de verdad contra un binario que escribe lo que
-  # recibe, y devuelve ese argv.
+  # ── la migración: el flag escondido pasa a ser campo ────────────────────
+
+  @tag timeout: 120_000
+  test "un --n-gpu-layers escondido en model_args se muda al campo" do
+    # El toml del usuario tiene el flag DENTRO de model_args, y mientras este
+    # ahi `--cpu` no lo puede tocar. Hydrate lo saca de ahi.
+    hydrated_model(spec(%{"model_args" => ["--n-gpu-layers", "99", "--temp", "0.7"]}))
+
+    # `hydrate/1` devuelve la lista de ALIAS registrados, no los structs. Lo que
+    # se comprueba es lo mismo que leeria el engine: el Store.
+    {:ok, found} = Store.get_model(:m)
+
+    assert found.gpu_layers == 99
+    refute "--n-gpu-layers" in found.model_args
+    assert found.model_args == ["--temp", "0.7"]
+  end
+
+  @tag timeout: 120_000
+  test "un gpu_layers explicito gana sobre el flag en model_args" do
+    hydrated_model(
+      spec(%{
+        "gpu_layers" => 20,
+        "model_args" => ["--n-gpu-layers", "99", "--temp", "0.7"]
+      })
+    )
+
+    {:ok, found} = Store.get_model(:m)
+
+    # El campo manda, y el flag sobrante se quita igualmente: dos fuentes de
+    # verdad para el mismo numero es justo como se cuela un "already set by
+    # user" que nadie sabe de donde sale.
+    assert found.gpu_layers == 20
+    refute "--n-gpu-layers" in found.model_args
+  end
+
+  @tag timeout: 120_000
+  test "sin gpu_layers y sin flag, sale el -1 de llama-server" do
+    hydrated_model(spec(%{"model_args" => ["--temp", "0.7"]}))
+
+    {:ok, found} = Store.get_model(:m)
+    assert found.gpu_layers == -1
+  end
+
+  defp spec(extra) do
+    Map.merge(
+      %{"engine" => "e", "source" => %{"kind" => "local", "path" => "/tmp/m.gguf"}},
+      extra
+    )
+  end
+
+  defp hydrated_model(model_spec) do
+    Candil.Config.Hydrate.hydrate(%{"model" => %{"m" => model_spec}})
+  end
+
   defp run_and_capture_argv(tmp_dir, mode) do
     argv_file = Path.join(tmp_dir, "argv-#{mode}.json")
     binary = Path.join(tmp_dir, "engine-#{mode}")
@@ -86,7 +138,10 @@ defmodule Candil.CLITest.CpuArgsTest do
       model_dir: tmp_dir,
       filename: "m.gguf",
       # El 99 es lo que hay en el toml del usuario, y es el que se cuela.
-      model_args: ["--n-gpu-layers", "99", "--temp", "0.7"]
+      model_args: ["--temp", "0.7"],
+      # Lo que hay en tu toml HOY, dentro de model_args. Hydrate lo saca de
+      # ahi y lo deja en el campo, para que `--cpu` pueda tocarlo.
+      gpu_layers: 99
     })
 
     opts =

@@ -79,6 +79,21 @@ defmodule Candil.Model do
             source: nil,
             draft: nil,
             context_size: 4096,
+            # Cuantas capas van a la GPU. Un CAMPO, no un flag suelto dentro
+            # de `model_args`, y por dos razones que las dos duelen.
+            #
+            # Una: `candil run --cpu` tiene que poder apagarlo. Con el valor
+            # escondido en una lista de strings no hay forma de tocarlo sin
+            # reescribir un argv, y reescribir un argv exige saber que flags
+            # llevan valor —cosa que no se sabe— asi que se acababa adivinando.
+            #
+            # Dos: la fuente de verdad son dos. Si esta aqui y tambien en
+            # `model_args`, el `--cpu` pone una cosa y el engine lee otra, y
+            # quien lee es llama-server. `build_args/2` quita el flag de
+            # `model_args` y emite este campo, asi que hay una sola.
+            #
+            # -1 es el "quepa lo que quepa" de llama-server. 0 es CPU entera.
+            gpu_layers: -1,
             # The port belongs to the model, not to the engine. One engine
             # serves many models, and the same model can run twice at once on
             # a GPU slot and a CPU slot.
@@ -109,6 +124,7 @@ defmodule Candil.Model do
           port: model_port(),
           usage: [usage()],
           model_args: [binary()],
+          gpu_layers: integer(),
           tags: [binary() | atom()],
           checksum_sha256: binary() | nil,
           enabled: boolean()
