@@ -92,9 +92,35 @@ defmodule Candil.CLI.Lifecycle do
           # vivo, y este se va a terminar en cuanto imprima.
           detach(model, port)
         else
-          EnginePool.put(model.alias, port, nil, model, resolve_engine!(model, port))
-          record(model, port, opts)
-          started(model, port, opts)
+          # `Candil.Engine.start/2` y no `EnginePool.put/5`.
+          #
+          # `EnginePool.put/5` NO ARRANCA NADA: su `handle_call` guarda un mapa
+          # en el estado del pool y contesta `:ok`. La funcion que de verdad
+          # levanta el `Candil.Engine.Server` bajo `Candil.EngineSupervisor`
+          # es `Engine.start/2`, y hasta ahora solo la llamaban
+          # `Candil.Engine.Launcher` y `Candil.LLM`. La CLI no.
+          #
+          # O sea que `candil run` no ha arrancado un modelo NUNCA, en
+          # NINGUN camino, y no fallaba: imprimia "arrancado en :9999" y
+          # salia con 0 sin haberlaunchado nada. Ni VRAM, ni log del engine,
+          # ni crash report — porque no habia proceso que se casara, ni
+          # proceso que muriera, ni proceso que imprimiera. Todo lo que se ha
+          # diagnosticado esta noche era el sintoma de esto.
+          #
+          # `Engine.start/2` tambien registra la instancia en el pool por su
+          # cuenta, asi que esta llamada sustituye a la de antes, no se suma.
+          case Engine.start(resolve_engine!(model, port), model) do
+            {:ok, _pid} ->
+              record(model, port, opts)
+              started(model, port, opts)
+
+            {:error, reason} ->
+              # Aqui se puede fallar de verdad —binario que no esta, engine que
+              # no arranca— y el mensaje lo dice. Que es lo que `started/3`
+              # hacia: decir que habia algo donde no habia nada.
+              Say.print_error("no se ha podido arrancar #{model.alias}: #{reason}")
+              :error
+          end
         end
 
       {:occupied, holder, port} ->
@@ -201,8 +227,12 @@ defmodule Candil.CLI.Lifecycle do
     if opts[:force] do
       Say.print_warning("--force: matando '#{holder}' en :#{port}")
       stop_holder(model, port)
-      EnginePool.put(model.alias, port, nil, model, resolve_engine!(model, port))
-      Say.print_success("#{model.alias} arrancado en :#{port}")
+      # Tambien aqui: `EnginePool.put/5` no arranca nada, asi que el mensaje de
+      # "arrancado" era falso en el camino de `--force` igual que en el normal.
+      case Engine.start(resolve_engine!(model, port), model) do
+        {:ok, _pid} -> Say.print_success("#{model.alias} arrancado en :#{port}")
+        {:error, reason} -> Say.print_error("no se ha podido arrancar #{model.alias}: #{reason}")
+      end
     else
       Say.print_error(":#{port} está ocupado por '#{holder}'.")
       Say.print("  candil no mata automáticamente. Usa:")

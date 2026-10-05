@@ -5,7 +5,8 @@ defmodule Candil.Engine.Server do
   The OS process itself is owned by `Arrea.LongRunning`, which gives us
   for free:
 
-    * Registration in `Arrea.Registry` under `{:candil_engine, model.alias}`
+    * Registration in `Arrea.Registry` under `id_for/1`, which carries the
+      model alias and the port
       so other apps can `Arrea.LongRunning.state(id)` / `health(id)` /
       `stop(id)` without going through Candil.
     * Telemetry events on `[:arrea, :long_running, ...]` for started /
@@ -66,7 +67,7 @@ defmodule Candil.Engine.Server do
            # El puerto va dentro del id a proposito: `Arrea.LongRunning`
            # emite la salida del engine por telemetria con solo el `id`, y sin
            # el puerto quien la escucha no sabe en que log escribirla.
-           id: {:candil_engine, model.alias, model.port},
+           id: id_for(model),
            binary: binary,
            args: args,
            cd: model_dir_safe(model),
@@ -106,12 +107,20 @@ defmodule Candil.Engine.Server do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
+  @doc false
+  # El id de Arrea, en UN sitio. Estaba escrito a mano en dos puntos y se
+  # desincronizaron cuando se le metio el puerto para que el log del engine
+  # supiera donde escribir: `init/1` arranco con el nuevo y `terminate/2` seguia
+  # buscando el viejo, de modo que el proceso del SO se quedaba vivo sin que
+  # nadie lo detuviera. Un id repetido a mano es un id que se desincroniza.
+  def id_for(%{alias: alias_name, port: port}), do: {:candil_engine, alias_name, port}
+
   @impl GenServer
   def terminate(_reason, %{model: model}) do
     # Explicit cleanup so the OS process goes away when Candil asks it
     # to. If we got here because the link already died (port crashed),
     # this returns {:error, :not_found} harmlessly.
-    _ = LongRunning.stop({:candil_engine, model.alias})
+    _ = LongRunning.stop(id_for(model))
     :ok
   end
 

@@ -477,18 +477,28 @@ defmodule Candil.Engine do
   Returns `true` if the engine serving `model_alias` is running and responding
   to the `/health` endpoint.
   """
-  @spec healthy?(atom()) :: boolean()
-  def healthy?(model_alias) when is_atom(model_alias) do
+  @spec healthy?(atom(), timeout()) :: boolean()
+  def healthy?(model_alias, timeout \\ 5_000) when is_atom(model_alias) do
     case Registry.lookup(registry(), model_alias) do
-      [{pid, _}] ->
-        case GenServer.call(pid, :health, 5_000) do
-          :ok -> true
-          _ -> false
-        end
-
-      [] ->
-        false
+      [{pid, _}] -> health_call(pid, timeout)
+      [] -> false
     end
+  end
+
+  # El timeout se puede bajar porque se llama en bucle esperando a que un
+  # modelo levante. Con cinco segundos por intento, un engine que no responde
+  # cuesta cinco segundos en cada vuelta y el bucle entero se va a su
+  # presupuesto sin haber comprobado nada nuevo.
+  #
+  # El `catch` es por el timeout, no por paranoia: un GenServer que no contesta
+  # hace que `GenServer.call/3` SALGA, y una salida no es un `false`. Sin
+  # atraparla, preguntar la salud de un engine que se ha quedado colgado tumba
+  # a quien pregunta —que es el titular, a la espera de un presupuesto
+  # entero—.
+  defp health_call(pid, timeout) do
+    GenServer.call(pid, :health, timeout) == :ok
+  catch
+    :exit, _reason -> false
   end
 
   @doc """

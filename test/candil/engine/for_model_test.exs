@@ -17,8 +17,12 @@ defmodule Candil.Engine.ForModelTest do
   alias Candil.{Engine, Model, Store}
 
   setup do
-    # El Store es global, y un alias fijo se pisa entre tests. Cada uno borra
-    # el suyo al terminar en vez de fiar del orden de ejecucion.
+    # `async: false` y no `true`: el Store es GLOBAL, y `cli_test.exs` registra
+    # un engine llamado tambien `:llama_cpp`. Con los dos ficheros en paralelo,
+    # el test que espera "no hay ningun engine en el catalogo" se encuentra el
+    # de otro y falla sin que nadie haya escrito mal una linea. Un Store
+    # compartido obliga a no compartir los alias, y un alias compartido obliga
+    # a no compartir el fichero.
     on_exit(fn -> Store.deregister_engine(:llama_cpp) end)
     :ok
   end

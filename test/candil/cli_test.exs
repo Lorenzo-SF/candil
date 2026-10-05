@@ -43,7 +43,12 @@ defmodule Candil.CLITest do
 
   defp engine! do
     binary = Path.join(System.tmp_dir!(), "candil-cli-llama-server")
-    unless File.exists?(binary), do: File.write!(binary, "#!/bin/sh\n")
+    # Un `sh` VACIO se queda leyendo stdin para siempre, y Arrea lo
+    # LINCKEA: el engine de este test no muere nunca y el titular se queda
+    # esperando a un presupuesto entero. Un binario de mentira que hace lo que
+    # uno de verdad hace cuando se niega a arrancar —salir— es lo que
+    # reproduce el caso.
+    unless File.exists?(binary), do: File.write!(binary, "#!/bin/sh\nexit 1\n")
     File.chmod!(binary, 0o755)
     Store.register_engine(%Candil.Engine{alias: :e, binary: binary})
   end
@@ -437,11 +442,57 @@ defmodule Candil.CLITest do
       model!(:coder)
       engine!()
 
-      task = Task.async(fn -> Holder.start("coder", 10_500) end)
-      assert {:error, reason} = Task.await(task, 30_000)
+      # `spawn` a pelo y no `Task.async`: el binario de este test sale enseguida
+      # con codigo 0, Arrea lo LINCKEA, y un Task enlaza tambien al que lo
+      # lanza. El `{:exit_status, 0}` llega entonces al proceso de test y
+      # revienta antes del assert, con un fallo que no dice nada de lo que
+      # comprueba. Un proceso sin enlaces devuelve lo que quiera por mensaje.
+      parent = self()
+
+      spawn(fn ->
+        # Trampa de salidas OBLIGATORIA en este proceso. Arrea LINCKEA al
+        # engine, el binario de mentira sale con codigo 1, y un proceso que
+        # no atrapa salidas muere con el. El `catch` de abajo solo rescata
+        # `exit/1` llamado a proposito: una muerte por enlace no pasa por el.
+        # Y `spawn` sin enlaces solo evita que muera el TEST, no el titular.
+        Process.flag(:trap_exit, true)
+
+        # 6s de presupuesto: el engine de mentira sale con codigo 0, pero el
+        # GenServer se queda polling salud un rato antes de caer, y con el
+        # presupuesto de 4 minutos un test unitario tardaria 4 minutos en
+        # comprobar lo mismo.
+        #
+        # El `catch` no es por robustez: `spawn` NO ENLAZA, asi que si el
+        # titular sale en vez de devolver, no hay quien se entere y el test se
+        # queda esperando hasta el `after`. Informar de una salida es
+        # justamente lo que distingue "el titular fallo" de "el titular no
+        # fallo, solo tardo".
+        outcome =
+          try do
+            Holder.start("coder", 10_500, health_budget: 6_000)
+          catch
+            kind, reason -> {:salio, kind, reason}
+          end
+
+        send(parent, {:holder_result, outcome})
+      end)
+
+      result =
+        receive do
+          {:holder_result, returned} -> returned
+        after
+          20_000 -> flunk("el titular no devolvio nada en 20s")
+        end
+
+      assert {:error, reason} = result
+
       # El motivo va incluido cuando el proceso estaba en el registro: un
-      # "se ha caido" sin el por que es el sintoma, no el diagnostico.
-      assert reason == :timeout or match?({:engine_died, _}, reason)
+      # "se ha caido" sin el por que es el sintoma, no el diagnostico. Y
+      # `engine_refused` es el caso bueno: el engine dijo que no, en vez de
+      # morirse en silencio.
+      assert match?({:engine_died, _}, reason) or match?({:engine_refused, _}, reason) or
+               reason == :timeout,
+             "motivo inesperado: #{inspect(reason)}"
 
       # Sin claim, `status` no inventa nada y `stop` no tiene a quien parar.
       assert Instances.read() == []
@@ -487,6 +538,14 @@ defmodule Candil.CLITest do
     end
 
     test "an explicit --port is remembered for the next run" do
+      # El engine arranca DE VERDAD ahora —eso es lo que se arradio— y el
+      # binario de mentira sale con codigo 1. Arrea lo enlaza, el enlace mata
+      # al proceso de test y el fallo sale como `{:exit_status, 1}`, que no
+      # dice nada de un puerto ad-hoc. Con la trampa, la salida llega como
+      # mensaje y el test comprueba lo que dice comprobar.
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
       model!(:coder)
       engine!()
 

@@ -39,13 +39,20 @@ defmodule Candil.CLI.Holder do
   C19 rule and the reason the owner is recorded at all.
   """
 
-  alias Candil.{Engine, EnginePool, Instances, Store}
+  alias Candil.{Engine, Instances, Store}
   require Logger
 
   # 4 minutos. Un 30B MoE sobre disco NVMe tarda del orden de medio minuto en
   # empezar a contestar, y el presupuesto es para el caso raro, no para el
   # normal: si tarda mas que esto, algo va mal y el titular debe decirlo.
   @health_budget :timer.minutes(4)
+
+  # Cada vuelta del bucle consulta con este timeout, no con el de 5s por
+  # defecto de `Engine.healthy?/1`. Con 5s por vuelta, un engine que no
+  # responde se come el presupuesto entero en dos iteraciones sin comprobar
+  # nada nuevo, que es un timeout que no es un timeout: es un cuelgue con
+  # contador.
+  @health_call_timeout 500
 
   @doc """
   Starts the engine for `alias` on `port`, claims it, and blocks forever.
@@ -59,12 +66,14 @@ defmodule Candil.CLI.Holder do
   becomes healthy. It does not halt: see the note by the `{:error, reason}`
   clause.
   """
-  @spec start(binary(), pos_integer()) ::
-          :ok | {:error, :no_such_model | :timeout | :engine_died}
-  def start(alias_name, port) when is_binary(alias_name) and is_integer(port) do
+  @spec start(binary(), pos_integer(), keyword()) ::
+          :ok | {:error, :no_such_model | :timeout | :engine_died | {:engine_refused, term()}}
+  def start(alias_name, port, opts \\ []) when is_binary(alias_name) and is_integer(port) do
+    budget = Keyword.get(opts, :health_budget, @health_budget)
+
     with {:ok, alias_atom} <- safe_atom(alias_name),
          {:ok, model} <- fetch(alias_atom) do
-      start_model(model, alias_name, port)
+      start_model(model, alias_name, port, budget)
     end
   end
 
@@ -89,13 +98,19 @@ defmodule Candil.CLI.Holder do
     ArgumentError -> {:error, :no_such_model}
   end
 
-  defp start_model(model, alias_name, port) do
+  defp start_model(model, alias_name, port, budget) do
     # El engine del catalogo, no uno hecho a pelo: `%Candil.Engine{alias: ...}`
     # no tiene binary ni puerto y arrancaria contra el 8080 sin binario.
     case Engine.for_model(model, port) do
       {:ok, engine} ->
-        :ok = EnginePool.put(model.alias, port, nil, model, engine)
-        claim_when_healthy(model, engine, alias_name, port)
+        # `Engine.start/2` y no `EnginePool.put/5`, igual que en la ruta
+        # normal: el pool no arranca nada, solo se apunta. Y `Engine.start/2`
+        # se niega con un motivo si el binario no esta, en vez de devolver `:ok`
+        # sin haber hecho nada.
+        case Engine.start(engine, model) do
+          {:ok, _pid} -> claim_when_healthy(model, engine, alias_name, port, budget)
+          {:error, reason} -> {:error, {:engine_refused, reason}}
+        end
 
       {:error, :not_found} ->
         IO.puts(:stderr, "holder: el modelo #{alias_name} no tiene engine en la configuracion")
@@ -103,7 +118,7 @@ defmodule Candil.CLI.Holder do
     end
   end
 
-  defp claim_when_healthy(model, engine, alias_name, port) do
+  defp claim_when_healthy(model, engine, alias_name, port, budget) do
     # `EnginePool.put` contesta en cuanto el PROCESO arranca, no en cuanto el
     # modelo responde: la espera de salud la hace Arrea despues y en segundo
     # plano. Reclamar aqui era escribir un ownership sobre un motor que
@@ -112,7 +127,7 @@ defmodule Candil.CLI.Holder do
     # DOWN con 47 MB de GPU y nada escuchando.
     #
     # El registro significa "esto esta sirviendo". Si no llega, no se escribe.
-    case await_health(model.alias, @health_budget) do
+    case await_health(model.alias, budget) do
       :ok ->
         :ok =
           Instances.put(
@@ -145,6 +160,9 @@ defmodule Candil.CLI.Holder do
   Turns a failure reason into the sentence a person needs.
   """
   @spec explain(atom()) :: binary()
+  def explain({:engine_refused, reason}),
+    do: "el engine se ha negado a arrancar: #{reason}"
+
   def explain(:no_such_model), do: "no hay ningun modelo con ese alias"
 
   def explain(:timeout),
@@ -162,7 +180,7 @@ defmodule Candil.CLI.Holder do
   # esperar el presupuesto entero a algo que no va a venir solo hace tarde.
   defp await_health(model_alias, budget) do
     cond do
-      Engine.healthy?(model_alias) ->
+      Engine.healthy?(model_alias, @health_call_timeout) ->
         :ok
 
       budget <= 0 ->
