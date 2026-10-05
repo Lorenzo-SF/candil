@@ -13,8 +13,7 @@ defmodule Candil.Conversation do
   > same VM each get their own, and the two cannot be shared, summarised or
   > moved between models. The replacement is a `chat_with_context/4` on the
   > `Candil` module, which stores the history in ETS partitioned by consumer.
-  > It is written and currently **blocked**; the reason and the patch are in
-  > `proyecto 4.0/auditoria/bloqueos/`. Removed in 4.1.0.
+  > Removed in 4.1.0.
   >
   > It stays in 4.0 because there are consumers outside this ecosystem, and
   > `Candil.Agent` is one of them inside it.

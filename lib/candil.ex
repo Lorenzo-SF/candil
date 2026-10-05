@@ -38,6 +38,7 @@ defmodule Candil do
       Candil.Store.register_provider(provider)
   """
 
+  alias Candil.Context
   alias Candil.Inference
   alias Candil.Llm
 
@@ -119,6 +120,31 @@ defmodule Candil do
 
   """
   defdelegate chat(model, provider, messages, opts), to: Llm
+
+  @doc """
+  Chats against a model using the shared, consumer-partitioned context.
+
+  The replacement for `Candil.Conversation`, which kept its history in the
+  calling process. Here the history lives in ETS under `{consumer, session_id}`,
+  so two consumers in the same VM never see each other's turns, not even with
+  the same `session_id`.
+
+  ## Options
+
+    * `:consumer` — required. Which consumer this conversation belongs to.
+    * `:context_size` — the model's window.
+    * `:system_prompt`, `:margin_tokens` — context building.
+    * the rest go to `chat/3`.
+
+  ## Examples
+
+      iex> Candil.chat_with_context(:coder, "s1", [%{role: "user", content: "hola"}], consumer: :posadero)
+      {:error, :not_started}
+
+  """
+  defdelegate chat_with_context(model_alias, session_id, messages, opts),
+    to: Context,
+    as: :chat
 
   @doc """
   Runs an embeddings request against a **local** model.

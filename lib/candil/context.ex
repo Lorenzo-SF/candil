@@ -25,7 +25,8 @@ defmodule Candil.Context do
 
   use GenServer
 
-  alias Candil.Context.Session
+  alias Candil.Context.{Builder, Session}
+  alias Candil.Inference
 
   @table :candil_context_sessions
 
@@ -102,6 +103,82 @@ defmodule Candil.Context do
       {:error, :not_found} ->
         {:error, :not_found}
     end
+  end
+
+  @doc """
+  Chats against a model with the session's history, and records the exchange.
+
+  The session is keyed by `{consumer, session_id}`, so the history a consumer
+  sends is not the history another one sees — not even with the same
+  `session_id`. That partitioning is the whole point of this module, and it is
+  invisible in the return value, which is why it is worth a function of its own
+  instead of three calls a caller has to remember to make in the right order.
+
+  ## Options
+
+    * `:consumer` — required. Which consumer this conversation belongs to.
+    * `:context_size` — the model's window. Travels with the model, not with
+      the conversation: the same session can be routed to a 4k model and then
+      to a 131k one.
+    * `:system_prompt`, `:margin_tokens` — passed through to the builder.
+    * anything else goes to `Candil.chat/3`.
+
+  Returns what `Candil.Inference.chat_local/3` returns. The new messages are
+  recorded before the call, so a model that dies mid-request does not lose the
+  question; the assistant's reply is only recorded once it exists whole, never
+  in chunks.
+
+  It calls `Inference` and not the `Candil` facade on purpose. `Candil` delegates
+  `chat_with_context/4` here, so going back through it closes a cycle between
+  the two modules, and dialyzer answers a call inside a cycle with the most
+  pessimistic typing it can justify — which here meant deciding that the model
+  could never answer, and that the whole success branch was dead code. The
+  facade is a pass-through; calling the layer underneath breaks the cycle and
+  says the same thing.
+  """
+  @spec chat(atom(), String.t(), [Inference.message()], keyword()) ::
+          {:ok, Inference.response()} | {:error, term()}
+  def chat(model_alias, session_id, messages, opts \\ []) do
+    consumer = Keyword.fetch!(opts, :consumer)
+    build_opts = Keyword.take(opts, [:context_size, :system_prompt, :margin_tokens])
+    call_opts = Keyword.drop(opts, [:consumer, :context_size, :system_prompt, :margin_tokens])
+
+    with {:ok, session} <- create(consumer, session_id),
+         :ok <- record(consumer, session_id, messages),
+         {:ok, built} <- Builder.build(session, messages, build_opts),
+         {:ok, response} <- Inference.chat_local(model_alias, built, call_opts) do
+      _ = append_message(consumer, session_id, "assistant", content_of(response))
+      {:ok, response}
+    end
+  end
+
+  defp record(consumer, session_id, messages) do
+    Enum.reduce_while(messages, :ok, fn message, :ok ->
+      role = to_string(Map.get(message, :role) || Map.get(message, "role"))
+      content = to_string(Map.get(message, :content) || Map.get(message, "content") || "")
+
+      case append_message(consumer, session_id, role, content) do
+        :ok -> {:cont, :ok}
+        error -> {:halt, error}
+      end
+    end)
+  end
+
+  # The response shape is the backend's, not ours: a string, or a struct with
+  # `:content`. Guessing wrong here would write "nil" into somebody's history
+  # and call it a conversation.
+  defp content_of(%{content: content}) when is_binary(content), do: content
+  defp content_of(response) when is_binary(response), do: response
+  defp content_of(%{"content" => content}) when is_binary(content), do: content
+
+  defp content_of(response) do
+    content =
+      case response do
+        %{choices: [%{message: %{content: c}}]} -> c
+        _ -> nil
+      end
+
+    to_string(content || "")
   end
 
   @doc """

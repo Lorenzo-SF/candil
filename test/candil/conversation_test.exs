@@ -11,13 +11,12 @@ defmodule Candil.ConversationTest do
       assert doc =~ "4.1.0"
     end
 
-    test "the replacement is named, and it is NOT there yet" do
-      # D8 says `Conversation` is replaced by `Candil.chat_with_context/4`.
-      # That function is written and blocked (see
-      # `proyecto 4.0/auditoria/bloqueos/`), so asserting it exists would be
-      # asserting a wish. This records the truth instead: the doc names a
-      # replacement that is not built yet, and that is the debt to pay.
-      refute Code.ensure_loaded?(Candil) && function_exported?(Candil, :chat_with_context, 4)
+    test "el reemplazo existe, y es el que el modulo nombra" do
+      # Este test afirmaba que `chat_with_context/4` NO existia, y hacia falta:
+      # era el marcador de "bloqueado" (§3.6). Con el parche integrado, el
+      # nombre del doc y la realidad coinciden, y eso es lo que se comprueba.
+      assert Code.ensure_loaded?(Candil)
+      assert function_exported?(Candil, :chat_with_context, 4)
     end
 
     test "Conversation.Context is gone, and the estimator moved rather than was copied" do
