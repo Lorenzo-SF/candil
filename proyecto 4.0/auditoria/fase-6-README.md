@@ -3,8 +3,15 @@
 > Estado: **en curso** (2026-10-05). D8 implementado en `f6-context`, PR #31
 > a la espera de revisión. La 4 y la 5 están cerradas.
 >
-> **Lo que falta**: §3.4/D4, que es lo siguiente natural, e integrar el
-> parche de §3.6, que ya no bloquea —dialyzer da 0 errores.
+> **§3.4 y D4 cerradas** (2026-10-05): el `reason` del Builder duplica la causa
+> —`:budget_exhausted`, `:no_room_for_system`, `:no_room_to_truncate`— y el
+> recorte de historial paso a ser una POLITICA (`:strict` por defecto,
+> `:compact`, `:summarize`) en vez de algo que pasaba en silencio. `:strict` ya
+> no recorta nunca; devuelve error. Y `:summarize` no degrada a `:strict` ni a
+> `:compact` cuando el resumen no llega.
+>
+> **Lo que queda**: §3.6, que ya no bloquea —dialyzer da 0 errores— y solo
+> queda integrar.
 >
 > Antes de tocar el arranque, lee
 > [`2026-10-05-bugs-de-arranque.md`](../auditoria/2026-10-05-bugs-de-arranque.md).

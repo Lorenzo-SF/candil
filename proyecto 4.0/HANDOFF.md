@@ -29,7 +29,7 @@
 |---|---|
 | Rama de trabajo | **`f6-context`**, con `main` ya mergeado (PR #30) |
 | PR abierto | **#31** — fase 6, D8, a la espera de revisión |
-| Tests | **779 tests + 27 doctests**, 0 fallos — medido hoy |
+| Tests | **786 tests + 27 doctests**, 0 fallos — medido hoy |
 | Gates | format, compile `--warnings-as-errors`, credo strict, test, dialyzer (0 errores), docs, hex audit, escript |
 | Fases cerradas | **−1 · 0 · 1 · 2 · 3 · 4 · 5** — mergeadas en `main` |
 | Fase en curso | **6 — Context compartido**, D8 hecho en `f6-context` |
@@ -61,10 +61,13 @@ cerró con los ocho bugs de la auditoría.
   lo pone a 0. Un valor escondido dentro de `model_args` no se puede
   manipular, y `--cpu` necesitaba manipularlo.
 
+**§3.4 y D4: cerradas hoy.** El `reason` del Builder duplica la causa, el
+recorte de historial es una política y `:strict` no recorta nunca. Ver
+`test/candil/context/builder_policy_test.exs`.
+
 **Falta:**
 
-1. **§3.4 / D4** — lo siguiente natural de la 6.
-2. **§3.6 `chat_with_context/4`** — el parche está en
+1. **§3.6 `chat_with_context/4`** — el parche está en
    `auditoria/bloqueos/3.6-chat_with_context.patch` y **hoy no bloquea**:
    dialyzer da 0 errores. Queda integrarlo.
 3. **El PR de Arrea** — `LongRunning.stop/1` devuelve `:ok` sin matar el
