@@ -8,6 +8,35 @@
 # ropero sigue vivo y no se toca (C16). Este fichero no es una migración: es
 # la misma configuración, escrita donde Candil pueda leerla.
 #
+# ── ESTA TABLA ES LA FUENTE DE VERDAD ─────────────────────────────────────
+#
+# Antes de tocar un flag, mira el script del que viene el modelo. Los niveles
+# de gpt-oss están en un script COMÚN a los tres, y cada nivel tiene sus
+# números:
+#
+#   ropero.d/_gptoss_common.sh
+#     low     size-n 6   size-m 16   --spec-draft-n-min 1  --spec-draft-n-max 2
+#     medium  size-n 12  size-m 48   --spec-draft-n-min 1  --spec-draft-n-max 3
+#     high    size-n 8   size-m 32   --spec-draft-n-min 1  --spec-draft-n-max 4
+#
+# ┌─────────────┬──────────────────────────┬──────────┬───────┬────────┐
+# │ modelo      │ script de ropero         │ puerto   │ ctx   │ nivel  │
+# ├─────────────┼──────────────────────────┼──────────┼───────┼────────┤
+# │ coder       │ ropero.d/qwencoder.sh    │ 9999     │ 131072│   —    │
+# │ analyst     │ ropero.d/qwen.sh         │ 9999     │ 131072│   —    │
+# │ verifier    │ ropero.d/gptoss_high.sh  │ 9998     │ 131072│ high   │
+# │ designer    │ ropero.d/gptoss_medium.sh│ 9998     │ 131072│ medium │
+# │ coder_lite  │ ropero.d/devstral.sh     │ 9999     │ 131072│   —    │
+# │ embed       │ ropero.d/embed.sh        │ 9990     │   8192│   —    │
+# └─────────────┴──────────────────────────┴──────────┴───────┴────────┘
+#
+# Esta tabla se puso aqui porque los dos modelos de gpt-oss se translateson con
+# los números de `low` y con un flag INVENTADO, `--spec-ngram-n-min`, en vez de
+# `--spec-draft-n-min`. `llama-server` no reconoce un argumento que no existe
+# y sale con codigo 1 sin decir cual, y el sintoma —VRAM quieta, exit 1— es
+# el mismo que "no cabe en la tarjeta", que es como se estuvo horas buscando el
+# bug donde no estaba. Un flag inventado se parece a un problema de memoria.
+#
 # AJUSTA ESTO ANTES DE USARLO:
 #   · `~/.candil` por debajo, si tienes los modelos en otro sitio (C17)
 #   · la ruta de `--model-draft` en `model.analyst`: tiene que ser ABSOLUTA.
@@ -173,9 +202,9 @@ model_args   = ["--n-gpu-layers","99", "--temp","0.8", "--top-k","40",
                 "--keep","8192", "--cache-type-k","q8_0",
                 "--cache-type-v","q8_0", "--jinja", "--kv-unified",
                 "--load-mode","auto", "--spec-type","ngram-simple",
-                "--spec-ngram-simple-size-n","6",
-                "--spec-ngram-simple-size-m","16",
-                "--spec-ngram-n-min","1", "--spec-ngram-n-max","2"]
+                "--spec-ngram-simple-size-n","8",
+                "--spec-ngram-simple-size-m","32",
+                "--spec-draft-n-min","1", "--spec-draft-n-max","4"]
 [model.verifier.source]
 kind = "huggingface"
 repo = "bartowski/openai_gpt-oss-20b-GGUF-MXFP4-Experimental"
@@ -200,9 +229,9 @@ model_args   = ["--n-gpu-layers","99", "--temp","0.8", "--top-k","40",
                 "--keep","8192", "--cache-type-k","q8_0",
                 "--cache-type-v","q8_0", "--jinja", "--kv-unified",
                 "--load-mode","auto", "--spec-type","ngram-simple",
-                "--spec-ngram-simple-size-n","6",
-                "--spec-ngram-simple-size-m","16",
-                "--spec-ngram-n-min","1", "--spec-ngram-n-max","2"]
+                "--spec-ngram-simple-size-n","12",
+                "--spec-ngram-simple-size-m","48",
+                "--spec-draft-n-min","1", "--spec-draft-n-max","3"]
 [model.designer.source]
 kind = "huggingface"
 repo = "bartowski/openai_gpt-oss-20b-GGUF-MXFP4-Experimental"
