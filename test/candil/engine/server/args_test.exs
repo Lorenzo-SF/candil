@@ -1,130 +1,104 @@
 defmodule Candil.Engine.Server.ArgsTest do
   @moduledoc """
-  `--cpu` tiene que poner el modelo en CPU, y no solo decirlo.
+  `--cpu` tiene que funcionar, y tiene que funcionar como ropero.
 
-  Antes no hacia nada: se parseaba, se validaba, salia en el help, y el modelo
-  se lanzaba con sus `model_args` intactos. Con `--n-gpu-layers 99` en el
-  toml y otra cosa ya cogiendo la tarjeta, el resultado en la maquina del
-  usuario fue:
+  Ropero lo llevaba haciendo bien, y su `start_model` lo explica en un
+  comentario: los flags de CPU van **al final** del comando, porque
+  llama-server se queda con la **última** aparición de un flag repetido. Eso
+  es todo el truco, y es por eso que aquí no se reescribe el argv del modelo:
+  reescribirlo exige saber qué flags de llama.cpp llevan valor, y esa tabla no
+  está en ninguna parte.
 
-      failed to fit params to free device memory:
-        n_gpu_layers already set by user to 99, abort
-      allocating 12005.90 MiB on device 0: cudaMalloc failed: out of memory
-      error loading model: unable to allocate CUDA0 buffer
-
-  O sea: Candil decia "esto va a CPU" mientras el modelo intentaba subir 12 GB a
-  una GPU con 1 GB libres.
+  Cuatro versiones de este módulo lo intentaron por la vía difícil y las
+  cuatro estaban mal: un argv no es una lista de parejas —`--no-kv-offload` es
+  un elemento y `--cache-type-k q8_0` son dos— y adivinarlo produjo un valor
+  sin su flag delante, un argv invertido, un bucle infinito y uno rotado.
   """
   use ExUnit.Case, async: true
 
   alias Candil.Engine.Server.Args
 
   describe "sin --cpu" do
-    test "no toca nada, ni siquiera el numero de capas" do
+    test "no toca nada, ni un elemento" do
       args = ["--n-gpu-layers", "99", "--temp", "0.7"]
-      assert Args.for_cpu(args, false) == {args, {[], []}}
+      assert Args.for_cpu(args, false) == {args, []}
     end
   end
 
   describe "con --cpu" do
-    test "pone las capas a 0 en vez de quitarlas" do
-      # Quitarlo NO seria lo mismo: sin numero, llama-server ajusta lo que
-      # quepa, y "lo que quepa" no es "CPU". Con 99 explicito lo que hay es
-      # "intentalo todo, y si no cabe avisa".
-      {args, {forced, _unknown}} = Args.for_cpu(["--n-gpu-layers", "99", "--temp", "0.7"], true)
+    test "añade --n-gpu-layers 0 al FINAL" do
+      # Al final, no en su sitio: llama-server gana el último. Reescribir el
+      # 99 del modelo en su sitio tambien funcionaria, pero exige saber qué
+      # flags llevan valor para no descuadrar el resto. Añadir no necesita
+      # saber nada.
+      {args, _appended} = Args.for_cpu(["--n-gpu-layers", "99", "--temp", "0.7"], true)
 
-      assert args == ["--n-gpu-layers", "0", "--temp", "0.7"]
-      assert forced == ["--n-gpu-layers"]
+      # Lo que se añade son 4 elementos: el flag de capas y el de hilos.
+      assert ["--n-gpu-layers", "0", "--threads", nproc()] == Enum.slice(args, -4, 4)
     end
 
-    test "el orden del argv no se toca: flag, valor, flag, valor" do
-      {args, _} = Args.for_cpu(["--n-gpu-layers", "99", "--temp", "0.7", "--top-k", "20"], true)
-
-      assert args == ["--n-gpu-layers", "0", "--temp", "0.7", "--top-k", "20"]
-    end
-
-    test "NO re-empareja: un interruptor no come el flag que va detras" do
-      # El fallo de las tres primeras versiones. Con
-      # ["--no-kv-offload", "--cache-type-k", "q8_0"] agrupar de dos en dos
-      # empareja "--no-kv-offload" con "--cache-type-k" y "q8_0" se queda sin
-      # su flag. Aqui cada bandera se reconoce por su NOMBRE y no hay
-      # emparejamiento, asi que no se puede desplazar nada.
-      {args, {forced, _unknown}} =
-        Args.for_cpu(["--no-kv-offload", "--cache-type-k", "q8_0", "--temp", "0.7"], true)
-
-      assert args == ["--cache-type-k", "q8_0", "--temp", "0.7"]
-      assert forced == ["--no-kv-offload"]
-    end
-
-    test "un interruptor conocido no recibe un valor inventado" do
-      # "--no-kv-offload 0" salia de mirar la regla por su "offload" antes que
-      # la lista de interruptores: un valor puesto a un flag que no lleva.
-      {args, _} = Args.for_cpu(["--no-kv-offload", "--temp", "0.7"], true)
-
-      assert args == ["--temp", "0.7"]
-    end
-
-    test "los selectores de dispositivo se van con su valor" do
-      {args, {forced, _unknown}} = Args.for_cpu(["--device", "CUDA0", "--temp", "0.6"], true)
-
-      assert args == ["--temp", "0.6"]
-      assert forced == ["--device"]
-    end
-
-    test "cualquier flag de capas va a 0, este donde este" do
-      # Sin ancla al final: `--n-gpu-layers-draft` lleva "layers" por el medio,
-      # y con el `$` se colaba entero — modelo a CPU y draft con la tarjeta.
-      {args, {forced, _unknown}} =
-        Args.for_cpu(["--n-gpu-layers-draft", "-1", "--mmproj-offload", "1"], true)
-
-      assert args == ["--n-gpu-layers-draft", "0", "--mmproj-offload", "0"]
-      assert forced == ["--n-gpu-layers-draft", "--mmproj-offload"]
-    end
-
-    test "lo que huele a GPU y no se conoce, se DICE" do
-      # Nada puede saber todos los flags de un programa que no es nuestro. Lo
-      # que no se reconoce y huele a GPU pasa tal cual y se reporta: una regla
-      # que hace la mitad del trabajo en silencio es peor que una que dice
-      # cual no hace.
-      {args, {_forced, unknown}} = Args.for_cpu(["--cuda-streams", "2", "--temp", "0.7"], true)
-
-      assert args == ["--cuda-streams", "2", "--temp", "0.7"]
-      assert unknown == ["--cuda-streams"]
-    end
-
-    test "el muestreo y la cache no se tocan: en CPU significan lo mismo" do
+    test "los args del modelo quedan intactos y en su orden" do
       original = [
-        "--temp",
-        "0.7",
-        "--top-p",
-        "0.8",
-        "--top-k",
-        "20",
+        "--n-gpu-layers",
+        "99",
+        "--no-kv-offload",
+        "--n-cpu-moe",
+        "30",
         "--cache-type-k",
         "q8_0",
-        "--cache-type-v",
-        "q8_0",
         "--jinja",
-        "--reasoning-format",
-        "deepseek",
-        "--chat-template-kwargs",
-        ~s({"enable_thinking": false})
+        "--temp",
+        "0.7"
       ]
 
-      assert Args.for_cpu(original, true) == {original, {[], []}}
+      {args, _} = Args.for_cpu(original, true)
+
+      # Todo lo de ropero sigue ahí, incluido el 99. Gana el 0 de detrás, que
+      # es exactamente como lo hace ropero.
+      assert Enum.take(args, length(original)) == original
     end
 
-    test "un argv impar de verdad no se corrompe" do
-      # Un valor sin flag delante se queda donde esta. Moverlo seria peor que
-      # dejarlo: un argv mal escrito que el usuario puede ver, y no uno que
-      # Candil ha rehecho sin avisar.
-      original = ["--jinja", "suelto", "--temp", "0.7"]
+    test "no inventa valores ni reordena nada: solo crece por la derecha" do
+      original = ["--n-gpu-layers", "-1", "--n-gpu-layers-draft", "-1", "--temp", "0.7"]
+      {args, _} = Args.for_cpu(original, true)
 
-      assert {^original, _} = Args.for_cpu(original, true)
+      assert Enum.take(args, length(original)) == original
+      assert length(args) == length(original) + 4
     end
 
-    test "una lista vacia sigue siendo una lista vacia" do
-      assert Args.for_cpu([], true) == {[], {[], []}}
+    test "también añade --threads, que en CPU no es decoración" do
+      # Un 27B en CPU va limitado por hilos. Ropero le pasa nproc, y sin eso
+      # tienes un modelo que técnicamente está en CPU y tarda cuatro veces más.
+      {args, _} = Args.for_cpu(["--temp", "0.7"], true)
+
+      assert "--threads" in args
+      n = args |> Enum.reverse() |> Enum.find(&(&1 != "--threads"))
+      assert {n, _} = Integer.parse(n)
+      assert n >= 1
     end
+
+    test "los threads del modelo no se pisan: gana el que va detrás" do
+      {args, _} = Args.for_cpu(["--threads", "12"], true)
+
+      assert args == ["--threads", "12", "--n-gpu-layers", "0", "--threads", nproc()]
+    end
+
+    test "dice qué ha añadido, para no pisar la config de nadie en silencio" do
+      {_args, appended} = Args.for_cpu([], true)
+
+      # "--n-gpu-layers 0" va como un texto, y los hilos como flag y valor.
+      assert length(appended) == 3
+      assert Enum.any?(appended, &(&1 =~ "n-gpu-layers"))
+    end
+
+    test "una lista vacia de argumentos no es un caso raro" do
+      {args, _} = Args.for_cpu([], true)
+      assert args == ["--n-gpu-layers", "0", "--threads", nproc()]
+    end
+  end
+
+  defp nproc do
+    {out, 0} = System.cmd("nproc", [])
+    String.trim(out)
   end
 end

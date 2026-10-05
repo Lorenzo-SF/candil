@@ -138,8 +138,8 @@ defmodule Candil.Engine.Server do
   end
 
   defp build_args(%Engine{start_args: engine_args, host: host, port: port} = engine, model) do
-    {model_args, cpu_report} = Args.for_cpu(model_args(model), engine.cpu)
-    announce_cpu_overrides(model, cpu_report)
+    {model_args, appended} = Args.for_cpu(model_args(model), engine.cpu)
+    announce_cpu_overrides(model, appended)
 
     if String.contains?(model.model_dir, "..") or String.contains?(model.filename, "..") do
       raise ArgumentError, "model path must not contain path traversal (..)"
@@ -188,20 +188,14 @@ defmodule Candil.Engine.Server do
   #
   # Y AVISA de lo que ha pisado, porque modificar la configuracion de alguien
   # en silencio es la forma de perder su confianza el dia que algo va mal.
-  defp announce_cpu_overrides(model, {forced, unknown}) do
-    if forced != [] do
+  # Los flags del modelo se dejan como estan y los de CPU se anaden AL FINAL,
+  # que es como gana ropero: llama-server se queda con la ULTIMA aparicion de
+  # un flag repetido, asi que lo que se pone al final es lo que manda.
+  defp announce_cpu_overrides(model, appended) do
+    if appended != [] do
       Logger.warning(
-        "--cpu en #{model.alias}: #{Enum.join(forced, ", ")} puestos a CPU. " <>
-          "El toml los pedia en GPU y hay otra cosa en la tarjeta."
-      )
-    end
-
-    # Lo que huele a GPU y no conozco se DICE. Una regla que hace la mitad del
-    # trabajo en silencio es peor que una que dice cual no hace.
-    if unknown != [] do
-      Logger.warning(
-        "--cpu en #{model.alias}: no conozco #{Enum.join(unknown, ", ")} y huele a GPU. " <>
-          "Pasan tal cual. Dime que significan y los anado a la regla."
+        "--cpu en #{model.alias}: añadido #{Enum.join(appended, " ")} al final. " <>
+          "El toml puede seguir pidiendo GPU en sus propios flags; los de CPU van detrás y ganan."
       )
     end
 
