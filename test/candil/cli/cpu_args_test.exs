@@ -61,15 +61,46 @@ defmodule Candil.CLITest.CpuArgsTest do
   test "un --n-gpu-layers escondido en model_args se muda al campo" do
     # El toml del usuario tiene el flag DENTRO de model_args, y mientras este
     # ahi `--cpu` no lo puede tocar. Hydrate lo saca de ahi.
-    hydrated_model(spec(%{"model_args" => ["--n-gpu-layers", "99", "--temp", "0.7"]}))
+    hydrated_model(
+      spec(%{
+        "model_args" => [
+          "--alias",
+          "qwencoder",
+          "-fa",
+          "on",
+          "--log-verbosity",
+          "3",
+          "--n-gpu-layers",
+          "-1",
+          "--n-cpu-moe",
+          "30",
+          "--temp",
+          "0.7"
+        ]
+      })
+    )
 
     # `hydrate/1` devuelve la lista de ALIAS registrados, no los structs. Lo que
     # se comprueba es lo mismo que leeria el engine: el Store.
     {:ok, found} = Store.get_model(:m)
 
-    assert found.gpu_layers == 99
+    assert found.gpu_layers == -1
     refute "--n-gpu-layers" in found.model_args
-    assert found.model_args == ["--temp", "0.7"]
+    # Con el flag en MEDIO, no al principio. Con el flag primero el bug es
+    # invisible: no hay nada antes que perder, y el test pasa igual. Este caso
+    # es el que se llevo por delante `--alias`, `-fa` y `--log-verbosity`.
+    assert found.model_args == [
+             "--alias",
+             "qwencoder",
+             "-fa",
+             "on",
+             "--log-verbosity",
+             "3",
+             "--n-cpu-moe",
+             "30",
+             "--temp",
+             "0.7"
+           ]
   end
 
   @tag timeout: 120_000

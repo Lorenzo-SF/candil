@@ -216,8 +216,17 @@ defmodule Candil.Config.Hydrate do
   # set by user` sin entender de donde sale.
   defp pop_n_gpu_layers(args) when is_list(args) do
     case Enum.split_while(args, &(&1 != "--n-gpu-layers")) do
-      {_before, ["--n-gpu-layers", value | after_flag]} -> {to_int(value), after_flag}
-      {_before, _rest} -> {nil, args}
+      # `before` se CONSERVA. Devolver solo `after_flag` se come todo lo que
+      # habia antes del flag, que es donde suelen estar los que importan —
+      # `--alias`, `-fa`, `--log-verbosity`.asi `--n-gpu-layers -1` en medio
+      # de los args se llevaba por delante `--alias qwencoder`, y el modelo
+      # salia sin alias ni flash attention y con exit 1. Un test con el flag
+      # al principio del array no lo ve nunca, porque ahi `before` esta vacio.
+      {before, ["--n-gpu-layers", value | after_flag]} ->
+        {to_int(value), before ++ after_flag}
+
+      {_before, _rest} ->
+        {nil, args}
     end
   end
 

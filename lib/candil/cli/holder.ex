@@ -245,6 +245,17 @@ defmodule Candil.CLI.Holder do
   #
   # Se apaga y luego se sale con codigo 0: si el engine se cae por su cuenta, el
   # titular no ha fallado — ha hecho su trabajo, y el log ya lo dice.
+  # `System.halt/1` y no `exit(0)`.
+  #
+  # `exit(0)` mata el VM por debajo y se lleva por delante el `at_exit` de
+  # Elixir, que necesita `:elixir_config` vivo. El resultado es un crash report
+  # que dice `noproc, {gen_server, call, [elixir_config, ...]}` DESPUES de haber
+  # apagado todo bien, que es la peor forma de morir: parece un fallo cuando
+  # el apagado fue el correcto. Salir por `halt/1` deja que el escript termine
+  # su propia salida.
+  @spec shutdown() :: no_return()
+  defp shutdown, do: System.halt(0)
+
   # Un `receive` sin `after` no termina nunca, y dialyzer lo ve como una
   # funcion que solo acaba lanzando. Se declara que devuelve lo que sea, que
   # es verdad: de este `receive` no se sale con un valor.
@@ -253,11 +264,11 @@ defmodule Candil.CLI.Holder do
     receive do
       {:EXIT, _pid, _reason} ->
         LongRunning.stop(id)
-        exit(0)
+        shutdown()
 
       :stop ->
         LongRunning.stop(id)
-        exit(0)
+        shutdown()
     end
   end
 end
