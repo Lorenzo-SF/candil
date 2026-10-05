@@ -15,6 +15,77 @@
 
 ---
 
+> **ACTUALIZADO 2026-10-05.** Todo lo que hay debajo del aviso de arriba está
+> desfasado: describe el proyecto el 2 de octubre, cuando la fase 6 no había
+> empezado. El estado de hoy, medido, está en la sección 0. Las secciones
+> viejas se conservan porque el **por qué** de cada decisión sigue valiendo,
+> pero el **dónde estamos** es el de la 0.
+
+---
+
+## 0. Estado al 2026-10-05 (esto es lo que manda)
+
+| | |
+|---|---|
+| Rama de trabajo | **`f6-context`**, con `main` ya mergeado (PR #30) |
+| PR abierto | **#31** — fase 6, D8, a la espera de revisión |
+| Tests | **779 tests + 27 doctests**, 0 fallos — medido hoy |
+| Gates | format, compile `--warnings-as-errors`, credo strict, test, dialyzer (0 errores), docs, hex audit, escript |
+| Fases cerradas | **−1 · 0 · 1 · 2 · 3 · 4 · 5** — mergeadas en `main` |
+| Fase en curso | **6 — Context compartido**, D8 hecho en `f6-context` |
+
+### Fases 0 a 5: cerradas
+
+Las cinco están en `main` (PR #30, mergeado y squashado en `211cc3b`). La 5
+cerró con los ocho bugs de la auditoría.
+
+### Fase 6: qué está hecho y qué falta
+
+**Hecho y verificado** (en `f6-context`, PR #31):
+
+- **D8**, el context compartido. `Candil.Context` con partición por
+  `consumer`, TTL, LRU, `Builder` y `Summarizer`.
+- **Alaja como CLI completo.** `Candil.CLI` usa `use Alaja.CLI.Definition`.
+  Se quitó el `IO.puts` directo de la implementación.
+- **Botica** es el doctor entero: `Candil.Doctor.Checks` adapta los ocho
+  checks a `Botica.Types.check_def/0`, `Candil.Doctor.run/2` delega en
+  `Botica.Doctor.run/2`, y `--fix` usa `Botica.Repair.Fixer` para lo que es
+  error. El contrato de `report/1` no cambia.
+- **Arrea** aporta el limitador de peticiones (`Arrea.RateLimiter`), la
+  telemetría y el paralelismo (`Arrea.Parallel`), todo con seam propio en
+  `Candil.HTTP.RateLimit`, `Candil.Concurrency` y `Candil.Telemetry`.
+- **`candil init`**, que escribe un `candil.toml` plantilla generado desde el
+  schema. Existe porque "no models configured, check candil.toml" no dice
+  dónde, ni que el fichero no existe, ni cómo se arregla.
+- **`gpu_layers` es un campo** de `[model.X]`, como `context_size`, y `--cpu`
+  lo pone a 0. Un valor escondido dentro de `model_args` no se puede
+  manipular, y `--cpu` necesitaba manipularlo.
+
+**Falta:**
+
+1. **§3.4 / D4** — lo siguiente natural de la 6.
+2. **§3.6 `chat_with_context/4`** — el parche está en
+   `auditoria/bloqueos/3.6-chat_with_context.patch` y **hoy no bloquea**:
+   dialyzer da 0 errores. Queda integrarlo.
+3. **El PR de Arrea** — `LongRunning.stop/1` devuelve `:ok` sin matar el
+   proceso del SO. Rama `fix/long-running-stops-the-os-process`, pendiente de
+   PR. Al entrar: `mix deps.update arrea` y
+   `Candil.CLI.HolderShutdownTest` pasa de rojo a verde. Es el **único** test
+   que falla ahora mismo, y a propósito.
+4. **El smoke tiene que medir la GPU, no el exit code.** Ver
+   `auditoria/2026-10-05-bugs-de-arranque.md`.
+
+### La tarde del 5 de octubre
+
+Siete bugs de arranque, seis de Candil y uno del `candil.toml`. Están
+escritos con su causa, su síntoma y el patrón que los dejó pasar, en
+**`auditoria/2026-10-05-bugs-de-arranque.md`**. Lelo antes de tocar el
+arranque: el primero —`candil run` no arrancaba nada, en ningún camino, nunca—
+llevaba meses latente y ningún smoke lo vio porque **todos comprobaban exit
+codes, y `candil run` sale 0 haya modelo o no**.
+
+---
+
 ## 1. Dónde está el proyecto
 
 | | |

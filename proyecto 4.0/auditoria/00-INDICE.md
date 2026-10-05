@@ -7,13 +7,26 @@
 
 ---
 
-## ⚠ Lo primero: tres cosas bloquean
+> **Actualizado 2026-10-05.** La tabla de ficheros refleja el estado de hoy.
+> Lo que cambió respecto a la revisión del 3 de octubre: la fase 5 cerró (PR
+> #30) y la 6 está a medias con D8 hecho y esperando revisión (PR #31). El
+> bloqueante de la 6, §3.6, ya no bloquea: dialyzer da 0 errores y el parche
+> está listo para integrar. Los bloqueantes A1 y A2 de la 9 y la 10 siguen
+> abiertos.
+>
+> Y hay un documento nuevo que conviene leer antes de tocar el arranque:
+> [`2026-10-05-bugs-de-arranque.md`](2026-10-05-bugs-de-arranque.md). `candil
+> run` no arrancaba ningún modelo, en ningún camino, desde hacía meses, y
+> ningún smoke lo vio porque **todos comprobaban exit codes**.
+
+## ⚠ Lo primero: cuatro cosas bloquean
 
 | | Qué | Dónde |
 |---|---|---|
 | **A1** | La fase 9 implementa `2025-11-25`, que ya es **Legacy**. La revisión `Current` es `2026-07-28` y **eliminó el handshake `initialize`**, que es lo que la fase 9 llama "obligatorio". | `fase-9-README.md` §0 |
 | **A2** | La fase 10 tiene **dos versiones incompatibles**: SQLite FTS5 + chunking por función, frente a memoria + chunker configurable. Ocho divergencias. | `fase-10-README.md` §0 |
 | **A4** | "Cerrado a `main`" estaba en 6 documentos, contradiciendo la única disciplina del repo. | los 6 README, eliminada |
+| **A5** | `LongRunning.stop/1` de Arrea devuelve `:ok` sin matar el proceso del SO: cerrar un puerto no mata un proceso. `candil stop` decía que paraba y el `llama-server` se quedaba con la VRAM. | PR en `Lorenzo-SF/arrea`, rama `fix/long-running-stops-the-os-process` |
 
 **A2 es el más grave**: un agente que lee el README y otro que lee el prompt
 producen software distinto, y el que mergea primero bloquea al otro.
@@ -30,9 +43,10 @@ El detalle de los nueve hallazgos está en `00-INFORME-AUDITORIA.md`.
 | [`RETOMAR.md`](RETOMAR.md) | — | entrada de la sesión nueva | — |
 | [`PLAN-EJECUCION.md`](PLAN-EJECUCION.md) | — | cómo se ejecuta cada fase | — |
 | [`00-INFORME-AUDITORIA.md`](00-INFORME-AUDITORIA.md) | — | — | — |
+| [`2026-10-05-bugs-de-arranque.md`](2026-10-05-bugs-de-arranque.md) | 6 | **siete bugs de arranque**: seis de Candil y uno del `candil.toml`, con causa y patrón | — |
 | [`fase-2-README.md`](fase-2-README.md) | 2 — Engine/Model v2 + Build | **cerrada**, archivada | `high` |
-| [`fase-5-README.md`](fase-5-README.md) | 5 — Doctor | **a medias** | `low` → `high` |
-| [`fase-6-README.md`](fase-6-README.md) | 6 — Context compartido | pendiente | `high` → `max` |
+| [`fase-5-README.md`](fase-5-README.md) | 5 — Doctor | ✅ **cerrada** (PR #30) | `low` → `high` |
+| [`fase-6-README.md`](fase-6-README.md) | 6 — Context compartido | 🔶 **en curso** (D8 hecho, PR #31) | `high` → `max` |
 | [`fase-7-README.md`](fase-7-README.md) | 7 — Router | pendiente | **`max`** |
 | [`fase-8-README.md`](fase-8-README.md) | 8 — Gateway | pendiente | `high` → `max` |
 | [`fase-9-README.md`](fase-9-README.md) | 9 — MCP | 🛑 **bloqueada** | `xhigh` → `max` |

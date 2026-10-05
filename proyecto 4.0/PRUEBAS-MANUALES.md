@@ -201,3 +201,40 @@ Tres preguntas antes de culpar a una librería:
 3. **¿El mensaje es de Candil o del hermano?** Los dos fallos conocidos que
    quedan son de Alaja y se distinguen por el texto: *Alaja CLI* en el título,
    y `command 'models' has no handler defined`.
+
+---
+
+## Los fallos de arranque que ya están ARREGLADOS (2026-10-05)
+
+Si algo de esta tabla te pasa, **no lo busques en Candil: ya está arreglado**
+y lo que ves es un binario viejo. Se comprueba con `grep` sobre el binario, no por la fecha.
+
+| Síntoma | Qué era | Desde |
+|---|---|---|
+| `candil run X` dice "arrancado" y no arranca nada | `EnginePool.put` no arrancaba nada; la CLI nunca llamó a `Engine.start` | `b64413f` |
+| El engine se lanza contra el puerto 8080 y sin binario | tres sitios montaban un `%Engine{}` vacío | `b64413f` |
+| `--detach` dice "detached" y `stop` no para nada | el claim lo escribía el proceso que se iba a morir | `b64413f`, `edaa7aa` |
+| `candil status` dice ON con el motor muerto | `STATE` releía un `healthy` del arranque y nunca lo volvía a preguntar | `4e85268` |
+| `candil status` no ve una instancia detached | leía solo la memoria del VM, y `stop` leía las dos | `4e85268` |
+| `--cpu` no hace nada | el flag se parseaba y no se leía en ningún sitio | `db0e726` |
+| `llama-server` sale con 1 y el log está vacío | `Arrea.LongRunning.stop/1` no mata el proceso del SO | **PR de Arrea** |
+
+**Si ves `--n-gpu-layers 99` después de poner `--cpu`**, tu binario es viejo:
+
+```bash
+ls -la candil ~/.local/bin/candil      # mismo tamaño y fecha
+sudo cp candil ~/.local/bin/candil
+candil run analyst --detach --port 9998
+grep 'capas' ~/.candil/logs/analyst-9998.log
+```
+
+Esa línea tiene que decir `99 capas a la GPU → 0`. Si no aparece, no tienes
+el binario nuevo.
+
+**Si `llama-server` sale con 1 y el log solo tiene el crash report de Candil**,
+mira los flags del modelo: un argumento que `llama-server` no reconoce sale
+con 1 **sin decir cuál**. Pasa el comando a mano y te contesta.
+
+Todo esto, con la causa de cada uno, está en
+`auditoria/2026-10-05-bugs-de-arranque.md`.
+

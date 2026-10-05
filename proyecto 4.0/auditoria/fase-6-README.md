@@ -1,6 +1,13 @@
 # Fase 6 — Context compartido
 
-> Estado: **pendiente**. Depende de la 4. Carril C.
+> Estado: **en curso** (2026-10-05). D8 implementado en `f6-context`, PR #31
+> a la espera de revisión. La 4 y la 5 están cerradas.
+>
+> **Lo que falta**: §3.4/D4, que es lo siguiente natural, e integrar el
+> parche de §3.6, que ya no bloquea —dialyzer da 0 errores.
+>
+> Antes de tocar el arranque, lee
+> [`2026-10-05-bugs-de-arranque.md`](../auditoria/2026-10-05-bugs-de-arranque.md).
 > Original: `candil-4.0-final.md` §18 y la Fase 6.
 > Effort: 4 d.
 >
