@@ -6,7 +6,33 @@ defmodule Candil.Conversation do
   limits. When the accumulated token estimate exceeds `max_context_tokens`,
   older messages are trimmed while always preserving the system prompt.
 
-  Token estimation is delegated to `Candil.Conversation.Context`.
+  > #### Deprecated {: .warning}
+  >
+  > This module keeps the history **in the process that calls it**, which is
+  > exactly the thing `Candil.Context` exists to fix: two consumers in the
+  > same VM each get their own, and the two cannot be shared, summarised or
+  > moved between models. The replacement is a `chat_with_context/4` on the
+  > `Candil` module, which stores the history in ETS partitioned by consumer.
+  > Removed in 4.1.0.
+  >
+  > It stays in 4.0 because there are consumers outside this ecosystem, and
+  > `Candil.Agent` is one of them inside it.
+  >
+  > **Why the deprecation is in this paragraph and not in an `@deprecated`
+  > attribute:** the attribute is a compiler warning, and `Candil.Agent` still
+  > calls four of these functions, so marking them would turn
+  > `mix compile --warnings-as-errors` red on the repo's own code. Suppressing
+  > that with `@compile {:no_warn_deprecated, Candil.Conversation}` was tried
+  > and **does not work when both modules are in the same parallel compilation
+  > batch** — measured, not assumed. The attribute goes on when `Agent`
+  > migrates to `Candil.Context`, in 4.1.0.
+
+  Token estimation lives in `Candil.Context.TokenEstimator` (moved here by
+  amendment D8, from `Candil.Conversation.TokenEstimator`).
+
+  `Candil.Conversation.Context` no longer exists: it had never left the house,
+  so it is removed rather than deprecated. Its trimming and counting moved in
+  here as private functions, with their arithmetic unchanged.
 
   ## Usage
 
@@ -22,10 +48,14 @@ defmodule Candil.Conversation do
       IO.puts(response.content)
   """
 
-  alias Candil.Conversation.Context
+  alias Candil.Context.TokenEstimator
   alias Candil.Inference
   alias Candil.Model
   alias Candil.Provider
+
+  # Moved from `Candil.Conversation.Context`, which D8 removes. It is a
+  # constant of this module's own policy, not of the estimator.
+  @default_max_response_tokens 2048
 
   @type message :: Inference.message()
 
@@ -65,8 +95,7 @@ defmodule Candil.Conversation do
       provider: Keyword.get(opts, :provider),
       system: Keyword.get(opts, :system),
       max_context_tokens: Keyword.get(opts, :max_context_tokens, 4096),
-      max_response_tokens:
-        Keyword.get(opts, :max_response_tokens, Context.default_max_response_tokens()),
+      max_response_tokens: Keyword.get(opts, :max_response_tokens, @default_max_response_tokens),
       opts:
         Keyword.drop(opts, [:model, :provider, :system, :max_context_tokens, :max_response_tokens])
     }
@@ -84,7 +113,7 @@ defmodule Candil.Conversation do
     messages_with_user = conv.messages ++ [user_msg]
 
     available = conv.max_context_tokens - conv.max_response_tokens
-    trimmed = Context.trim_to_context(messages_with_user, conv.system, available)
+    trimmed = trim_to_context(messages_with_user, conv.system, available)
 
     call_opts = Keyword.merge(conv.opts, max_tokens: conv.max_response_tokens)
     call_opts = if(conv.system, do: Keyword.put(call_opts, :system, conv.system), else: call_opts)
@@ -143,7 +172,7 @@ defmodule Candil.Conversation do
   """
   @spec token_estimate(t()) :: non_neg_integer()
   def token_estimate(%__MODULE__{} = conv) do
-    Context.token_estimate(conv.messages, conv.system)
+    token_total(conv.messages, conv.system)
   end
 
   @doc """
@@ -164,16 +193,65 @@ defmodule Candil.Conversation do
 
   @doc false
   @spec estimate_content_tokens(binary()) :: non_neg_integer()
-  def estimate_content_tokens(text), do: Context.estimate_content_tokens(text)
+  def estimate_content_tokens(text), do: TokenEstimator.estimate_content_tokens(text)
 
   @doc false
   def estimate_content_tokens(_, _), do: 0
 
   @doc false
   @spec estimate_message_tokens(map()) :: non_neg_integer()
-  def estimate_message_tokens(msg), do: Context.estimate_message_tokens(msg)
+  def estimate_message_tokens(msg), do: message_tokens(msg)
 
   @doc false
   @spec estimate_tokens(binary()) :: non_neg_integer()
-  def estimate_tokens(text), do: Context.estimate_tokens(text)
+  def estimate_tokens(text), do: TokenEstimator.estimate_tokens(text)
+
+  # ─── Moved from `Candil.Conversation.Context` (removed by D8) ──────────────
+  #
+  # The arithmetic is unchanged on purpose. `message_tokens/1` here adds 4 for
+  # the role and separators, which `TokenEstimator.estimate_message/1` does not:
+  # they are different numbers and swapping one for the other would silently
+  # change when history gets trimmed.
+
+  # Total tokens for a conversation's messages, plus its system prompt.
+  @spec token_total([map()], String.t() | nil) :: non_neg_integer()
+  defp token_total(messages, system) do
+    system_tokens = if system, do: TokenEstimator.estimate_content_tokens(system), else: 0
+    history_tokens = Enum.reduce(messages, 0, &(&2 + message_tokens(&1)))
+    system_tokens + history_tokens
+  end
+
+  # Drops the oldest messages that do not fit, never the system prompt.
+  @spec trim_to_context([map()], String.t() | nil, non_neg_integer()) :: [map()]
+  defp trim_to_context(messages, system, max_tokens) do
+    system_tokens = if system, do: TokenEstimator.estimate_content_tokens(system), else: 0
+    max_history = max_tokens - system_tokens
+
+    messages
+    |> Enum.reverse()
+    |> Enum.reduce({[], 0}, fn msg, {acc, tokens} ->
+      msg_tokens = message_tokens(msg)
+
+      if tokens + msg_tokens <= max_history do
+        {[msg | acc], tokens + msg_tokens}
+      else
+        {acc, tokens}
+      end
+    end)
+    |> elem(0)
+  end
+
+  # Deliberately NOT `TokenEstimator.estimate_message/1`: this one counts the
+  # role and the separators, on top of the content.
+  @spec message_tokens(map()) :: non_neg_integer()
+  defp message_tokens(msg) do
+    text =
+      case msg do
+        %{content: content} when is_binary(content) -> content
+        %{content: content} when is_list(content) -> Enum.map_join(content, & &1)
+        _ -> ""
+      end
+
+    TokenEstimator.estimate_content_tokens(text) + 4
+  end
 end

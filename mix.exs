@@ -12,6 +12,7 @@ defmodule Candil.MixProject do
       description: "LLM inference and model management for Elixir.",
       source_url: "https://github.com/Lorenzo-SF/candil",
       homepage_url: "https://github.com/Lorenzo-SF/candil",
+      batamanta: batamanta(),
       package: [
         name: :candil,
         licenses: ["MIT"],
@@ -25,8 +26,9 @@ defmodule Candil.MixProject do
       # version`, and it cannot be executed without this line. Left as one
       # deliberate, flagged exception rather than a phase that cannot be
       # verified.
-      escript: [main_module: Candil.CLI],
+      escript: [main_module: Candil.CLI.Escript],
       test_coverage: [tool: ExCoveralls],
+      aliases: aliases(),
       dialyzer: dialyzer_config()
     ]
   end
@@ -67,11 +69,21 @@ defmodule Candil.MixProject do
        optional: true,
        runtime: false,
        override: true},
+      {:batamanta,
+       github: "Lorenzo-SF/Batamanta", optional: true, runtime: false, override: true},
 
-      # Alaja: CLI definition, tables, colour. Used only by
-      # lib/candil/cli/** and lib/candil/doctor.ex. Alaja marks its own
-      # `batamanta` dep optional+runtime:false and never references it from
-      # lib/, so no `mix batamanta` step is needed here.
+      # Alaja: the CLI framework, the tables, the colour.
+      #
+      # It used to be described as "used only by lib/candil/cli/** and
+      # lib/candil/doctor.ex", which was true of the *calls* and false of the
+      # dependency: `Candil.CLI` is a module in `lib/candil/`, it declares the
+      # whole command line through `use Alaja.CLI.Definition`, and every
+      # command's flags, help and dispatch belong to it now. The one thing
+      # Candil keeps is the escript boundary — `Candil.CLI.Escript` — because
+      # the alias table and the terminal decision are not the DSL's to make.
+      #
+      # Alaja marks its own `batamanta` dep optional+runtime:false and never
+      # references it from lib/, so no `mix batamanta` step is needed here.
       {:alaja, github: "Lorenzo-SF/alaja", branch: "main", override: true},
 
       # Botica: health checks and fixes, used only by `candil doctor` for the
@@ -89,6 +101,60 @@ defmodule Candil.MixProject do
       {:ex_doc, "~> 0.34", only: :dev, runtime: false},
       {:benchee, "~> 1.3", only: :dev, runtime: false}
     ]
+  end
+
+  defp aliases do
+    [
+      gen: ["deps.get", "compile", "batamanta", "install"],
+      install: fn _ ->
+        dest_dir = Path.expand("~/.local/bin")
+        File.mkdir_p!(dest_dir)
+        config = Mix.Project.config()
+        app_name = Atom.to_string(config[:app])
+
+        source_path = Path.expand("candil")
+        dest_path = Path.join(dest_dir, app_name)
+
+        if File.exists?(source_path) do
+          install_binary(source_path, dest_path)
+        else
+          Mix.shell().error("[ERROR] No se encontro el binario: #{source_path}")
+          Mix.shell().info("   Ejecutaste 'mix batamanta' primero?")
+        end
+      end
+    ]
+  end
+
+  defp install_binary(source_path, dest_path) do
+    unlink_if_symlink(dest_path)
+
+    case File.cp(source_path, dest_path) do
+      :ok ->
+        File.chmod!(dest_path, 0o755)
+        size = File.stat!(dest_path).size
+
+        if size == 0 do
+          Mix.raise("[ERROR] El binario instalado en #{dest_path} quedo vacio (0 bytes)")
+        end
+
+        Mix.shell().info("  Batamanta instalado en #{dest_path} (#{size} bytes)")
+
+      {:error, reason} ->
+        Mix.shell().error("[ERROR] No se pudo copiar alaja: #{inspect(reason)}")
+    end
+  end
+
+  # Sustituye un symlink del destino por un fichero real. `File.cp/2`
+  # escribe *a través* de un symlink, así que sin esto el destino
+  # heredado puede seguir apuntando al build (o a cualquier otro sitio)
+  # en vez de contener la copia recién instalada.
+  defp unlink_if_symlink(path) do
+    case File.lstat(path) do
+      {:ok, %File.Stat{type: :symlink}} -> File.rm(path)
+      {:ok, _stat} -> :ok
+      {:error, :enoent} -> :ok
+      {:error, reason} -> Mix.raise("[ERROR] No se pudo inspeccionar #{path}: #{inspect(reason)}")
+    end
   end
 
   defp docs do
@@ -156,6 +222,27 @@ defmodule Candil.MixProject do
           Candil.Installer
         ],
         Runtime: [Candil.Telemetry, Candil.Cancellation, Candil.RateLimiter]
+      ]
+    ]
+  end
+
+  defp batamanta do
+    [
+      format: :escript,
+      execution_mode: :cli,
+      compression: 19,
+      binary_name: "Arrea",
+      # BEAM-keeps-alive. The wrapper dispatches to a warm Erlang VM over a
+      # Unix-domain socket instead of booting one per invocation. The socket
+      # is namespaced by (app, version, target), so this daemon is Arrea's
+      # own — it is not shared with the other packaged CLIs.
+      #   ARREA_BEAM_ALIVE=<ms>  override the TTL for one shell (max 86_400_000)
+      #   ARREA_BEAM_ALIVE=0     force the legacy cold-start path
+      daemon: [
+        enabled: true,
+        var: "ARREA_BEAM_ALIVE",
+        default_ms: 300_000,
+        request_timeout_ms: 60_000
       ]
     ]
   end

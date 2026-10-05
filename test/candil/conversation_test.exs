@@ -3,6 +3,45 @@ defmodule Candil.ConversationTest do
 
   alias Candil.Conversation
 
+  describe "D8 · what was decided about this module" do
+    test "the docstring names the replacement and when it goes" do
+      {:docs_v1, _, _, _, %{"en" => doc}, _, _} = Code.fetch_docs(Conversation)
+
+      assert doc =~ "chat_with_context/4"
+      assert doc =~ "4.1.0"
+    end
+
+    test "el reemplazo existe, y es el que el modulo nombra" do
+      # Este test afirmaba que `chat_with_context/4` NO existia, y hacia falta:
+      # era el marcador de "bloqueado" (§3.6). Con el parche integrado, el
+      # nombre del doc y la realidad coinciden, y eso es lo que se comprueba.
+      assert Code.ensure_loaded?(Candil)
+      assert function_exported?(Candil, :chat_with_context, 4)
+    end
+
+    test "Conversation.Context is gone, and the estimator moved rather than was copied" do
+      # D8: `Conversation.Context` had never left the house, so it is removed
+      # and not deprecated. Two copies of the estimator would be worse than
+      # either moving or deleting, so it moved.
+      refute Code.ensure_loaded?(Candil.Conversation.Context)
+
+      assert Code.ensure_loaded?(Candil.Context.TokenEstimator)
+      # `function_exported?/3` answers false for a module that is not loaded yet, so
+      # this asserts a question about load order unless the module is loaded first.
+      # `http_test.exs` says the same thing; the trap was fixed in one file and
+      # left in the others, where a change of seed is what finally showed it.
+      {:module, Candil.Context.TokenEstimator} = Code.ensure_loaded(Candil.Context.TokenEstimator)
+      assert function_exported?(Candil.Context.TokenEstimator, :estimate_content, 1)
+    end
+
+    test "the old estimator name still works, delegating to the new home" do
+      # Consumers outside the ecosystem call this by its old name. Broken, they
+      # would not get a deprecation warning first; they would just stop.
+      assert Candil.Conversation.TokenEstimator.estimate_content("hello world") ==
+               Candil.Context.TokenEstimator.estimate_content("hello world")
+    end
+  end
+
   describe "new/1" do
     test "creates a conversation with model" do
       conv = Conversation.new(model: :llama3)

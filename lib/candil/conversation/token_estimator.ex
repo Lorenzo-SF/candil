@@ -1,108 +1,43 @@
 defmodule Candil.Conversation.TokenEstimator do
   @moduledoc """
-  Token estimation utilities for conversation context management.
+  Moved to `Candil.Context.TokenEstimator` by amendment D8, and kept here only
+  so consumers outside the ecosystem keep compiling until 4.1.0.
 
-  Splits out the token-counting heuristics from `Candil.Conversation` so
-  the conversation module remains focused on message lifecycle.
-
-  Not part of the public API — used only by `Candil.Conversation`.
-
-  ## Algorithm
-
-  Uses the standard 4-chars-per-token heuristic (`ceil(byte_size/4)`)
-  which is fast and works well for English/Code. For multi-lingual
-  content, consider integrating a proper tokenizer (e.g., tiktoken).
+  This is a facade with no logic of its own. The implementation lives in
+  `Candil.Context.TokenEstimator`, because `Candil.Context` needs the estimator
+  and the conversation facade is on its way out; two copies of the same
+  heuristics is the thing D8 was written to prevent.
   """
 
-  @doc """
-  Estimates token count for a conversation by summing all message
-  tokens plus a buffer for the system prompt.
-  """
+  alias Candil.Context.TokenEstimator
+
+  @deprecated "Usa Candil.Context.TokenEstimator. Se elimina en 4.1.0"
+
+  @doc "See `Candil.Context.TokenEstimator.estimate_conversation/1`."
   @spec estimate_conversation(map()) :: non_neg_integer()
-  def estimate_conversation(%{messages: messages, system: system}) do
-    message_total = Enum.reduce(messages, 0, fn msg, acc -> acc + estimate_message(msg) end)
-    message_total + estimate_system(system)
-  end
+  defdelegate estimate_conversation(conversation), to: TokenEstimator
 
-  @doc """
-  Estimates token count for a single message map.
-  """
+  @doc "See `Candil.Context.TokenEstimator.estimate_message/1`."
   @spec estimate_message(map()) :: non_neg_integer()
-  def estimate_message(%{role: _role, content: content}) when is_binary(content) do
-    estimate_content(content)
-  end
+  defdelegate estimate_message(message), to: TokenEstimator
 
-  def estimate_message(%{role: _role, content: content}) when is_list(content) do
-    # Multimodal content: list of parts (text + images)
-    Enum.reduce(content, 0, fn
-      %{type: :text, text: text}, acc when is_binary(text) -> acc + estimate_content(text)
-      # rough estimate for image content
-      _, acc -> acc + 100
-    end)
-  end
-
-  def estimate_message(_msg), do: 0
-
-  defp estimate_system(nil), do: 0
-  defp estimate_system(text) when is_binary(text), do: estimate_content(text)
-
-  @doc """
-  Estimates token count for a raw text string.
-
-  Uses a per-word approximation: each whitespace-separated word
-  contributes one token (rounded up for long words to account for
-  sub-word splits common in BPE tokenizers). On typical English/Code
-  text this is within ±10% of `tiktoken`'s count.
-
-      iex> TokenEstimator.estimate_content("hello world")
-      2
-      iex> TokenEstimator.estimate_content("antidisestablishmentarianism")
-      2
-
-  The legacy 4-chars-per-token heuristic is still available via
-  `estimate_content_legacy/1`.
-  """
+  @doc "See `Candil.Context.TokenEstimator.estimate_content/1`."
   @spec estimate_content(String.t()) :: non_neg_integer()
-  def estimate_content(text) when is_binary(text) do
-    text
-    |> String.split(~r/\s+/, trim: true)
-    |> Enum.reduce(0, fn word, acc ->
-      # Each word ≈ 1 token, plus 1 extra per 6 chars for BPE-style splits.
-      chars = byte_size(word)
-      acc + 1 + div(chars, 6)
-    end)
-  end
+  defdelegate estimate_content(text), to: TokenEstimator
 
-  def estimate_content(_), do: 0
-
-  @doc """
-  Legacy 4-chars-per-token heuristic. Faster than `estimate_content/1`
-  but less accurate for short or non-English text. Kept for callers
-  that need the exact old behaviour.
-  """
+  @doc "See `Candil.Context.TokenEstimator.estimate_content_legacy/1`."
   @spec estimate_content_legacy(String.t()) :: non_neg_integer()
-  def estimate_content_legacy(text) when is_binary(text) do
-    ceil(byte_size(text) / 4)
-  end
+  defdelegate estimate_content_legacy(text), to: TokenEstimator
 
-  def estimate_content_legacy(_), do: 0
+  @doc "See `Candil.Context.TokenEstimator.estimate_message_tokens/1`."
+  @spec estimate_message_tokens(map()) :: non_neg_integer()
+  defdelegate estimate_message_tokens(message), to: TokenEstimator
 
-  # ─── Aliases for backwards compatibility ──────────────────────────
+  @doc "See `Candil.Context.TokenEstimator.estimate_content_tokens/1`."
+  @spec estimate_content_tokens(String.t()) :: non_neg_integer()
+  defdelegate estimate_content_tokens(text), to: TokenEstimator
 
-  @doc """
-  Backwards-compatible alias for `estimate_message/1`.
-  """
-  def estimate_message_tokens(msg), do: estimate_message(msg)
-
-  @doc """
-  Backwards-compatible alias for `estimate_content/1`.
-  """
-  def estimate_content_tokens(text) when is_binary(text), do: estimate_content(text)
-  def estimate_content_tokens(_), do: 0
-
-  @doc """
-  Backwards-compatible alias for `estimate_content/1` (legacy name).
-  """
-  def estimate_tokens(text) when is_binary(text), do: estimate_content(text)
-  def estimate_tokens(_), do: 0
+  @doc "See `Candil.Context.TokenEstimator.estimate_tokens/1`."
+  @spec estimate_tokens(String.t()) :: non_neg_integer()
+  defdelegate estimate_tokens(text), to: TokenEstimator
 end

@@ -3,7 +3,7 @@
 **Fecha**: 2026-09-30
 **Estado**: decidido, no empezado
 **Decide**: Lorenzo · **Ejecuta**: por asignar
-**Destino del documento**: `~/cacafuti/lasaca/PENDIENTE/principal/candil-4.md`
+**Destino del documento**: `~/workspace/github/lasaca/PENDIENTE/principal/candil-4.md`
 
 ---
 
@@ -15,7 +15,7 @@ Inference separados). Lo que falta no es reescribirla, es **terminarla**: config
 CLI con Alaja, Router (de ElPaso), Gateway, Context compartido, MCP, RAG.
 
 **La misión de Candil 4.0** es convertirse en la **librería IA de Elixir** del ecosistema
-`cacafuti`, absorbiendo:
+`lasaca`, absorbiendo:
 
 - **Ropero** (bash) — gestión de modelos y engines locales → se convierte en config TOML.
 - **ElPaso** (Elixir) — router + gateway OpenAI-compatible → se convierte en
@@ -653,7 +653,7 @@ a `Application.get_env(:candil, Candil.Config, [])`.
 **Migración desde ropero**:
 
 ```bash
-mix candil.migrate --from-ropero ~/cacafuti/lasaca/ropero/ropero.d/
+mix candil.migrate --from-ropero ~/workspace/github/lasaca/ropero/ropero.d/
 ```
 
 Lee cada `.sh`, extrae `MODEL_ALIAS`, `MODEL_GGUF`, `MODEL_CTX`, `MODEL_NGL`, etc., y
@@ -747,7 +747,7 @@ router lo arranca (con `Engine.start/2`) antes de responder.
 #### 0.1 — Baseline
 
 ```bash
-cd ~/cacafuti/candil
+cd ~/workspace/github/candil
 mix deps.get
 mix compile --warnings-as-errors
 mix test
@@ -1502,8 +1502,8 @@ Opcional. Modelo de cross-encoder.
 #### 7.1 — Correr
 
 ```bash
-cd ~/cacafuti/candil
-mix candil.migrate --from-ropero ~/cacafuti/lasaca/ropero/ropero.d/ --output ~/.config/candil/candil.toml
+cd ~/workspace/github/candil
+mix candil.migrate --from-ropero ~/workspace/github/lasaca/ropero/ropero.d/ --output ~/.config/candil/candil.toml
 ```
 
 #### 7.2 — Revisar el TOML
@@ -1674,9 +1674,9 @@ Cobertura mínima: 70% (como hoy).
 
 Para arrancar la **Fase 0** no necesito nada más que este documento.
 
-Para la **Fase 1** necesito ver los `.sh` reales de ropero (`~/cacafuti/lasaca/ropero/ropero.d/*.sh`).
+Para la **Fase 1** necesito ver los `.sh` reales de ropero (`~/workspace/github/lasaca/ropero/ropero.d/*.sh`).
 
-Para la **Fase 3** necesito ver el router de ElPaso (`~/cacafuti/ElPaso/lib/el_paso/domain/router.ex` + `decision_engine.ex`).
+Para la **Fase 3** necesito ver el router de ElPaso (`~/workspace/github/ElPaso/lib/el_paso/domain/router.ex` + `decision_engine.ex`).
 
 Para la **Fase 5** necesito el spec de MCP (URL pública) y una decisión: si el shim
 stdio es Elixir o Go. **Recomendación**: Elixir, para no añadir otro lenguaje.

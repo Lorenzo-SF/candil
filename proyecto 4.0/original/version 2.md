@@ -899,7 +899,7 @@ devuelve resultados relevantes.
 
 **Tareas**:
 
-1. **Correr `mix candil.migrate --from-ropero ~/cacafuti/lasaca/ropero/ropero.d/`**.
+1. **Correr `mix candil.migrate --from-ropero ~/workspace/github/lasaca/ropero/ropero.d/`**.
 2. **Revisar el TOML generado a mano**:
    - Verificar que los args de cada modelo son correctos.
    - Ajustar nombres de alias si hace falta.
@@ -1090,7 +1090,7 @@ git.
 Comandos concretos, en orden:
 
 ```bash
-cd ~/cacafuti/candil
+cd ~/workspace/github/candil
 
 # 1. Deps y test baseline
 mix deps.get
@@ -1145,14 +1145,14 @@ Nada bloquea las Fases 0-2. Pero hay que decidir antes de las Fases 3+:
 
 ## 10. Referencias
 
-- **Candil repo**: `~/cacafuti/candil`
-- **ElPaso repo**: `~/cacafuti/elpaso`
-- **Alaja repo**: `~/cacafuti/alaja`
-- **Ropero**: `~/cacafuti/lasaca/ropero`
-- **Apero repo**: `~/cacafuti/apero`
-- **Arrea repo**: `~/cacafuti/arrea`
-- **Botica repo**: `~/cacafuti/botica`
-- **Trebejo repo**: `~/cacafuti/trebejo`
+- **Candil repo**: `~/workspace/github/candil`
+- **ElPaso repo**: `~/workspace/github/elpaso`
+- **Alaja repo**: `~/workspace/github/alaja`
+- **Ropero**: `~/workspace/github/lasaca/ropero`
+- **Apero repo**: `~/workspace/github/apero`
+- **Arrea repo**: `~/workspace/github/arrea`
+- **Botica repo**: `~/workspace/github/botica`
+- **Trebejo repo**: `~/workspace/github/trebejo`
 
 ---
 

@@ -18,46 +18,56 @@ defmodule Candil.CLI.Lifecycle do
 
   alias Alaja.Components.Table
   alias Alaja.Printer, as: Say
-  alias Candil.CLI.{Colorize, Ports, Preflight}
+  alias Candil.CLI.{Colorize, Detach, Ports, Preflight}
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
+  alias Candil.Instances.Probe, as: Probe
 
   @doc """
-  Dispatches the lifecycle verbs.
+  `candil run <model> [flags]`, with the flags already parsed.
 
-  They share this module because they share the registry: a `stop` that did
-  not know where `run` registered would be guessing.
-  """
-  @spec run([binary()]) :: :ok
-  def run(["stop" | rest]), do: stop(rest)
-  def run(["status" | rest]), do: status(rest)
-  def run(["run" | rest]), do: run_model(rest)
-  def run(argv), do: run_model(argv)
-
-  @doc """
-  `candil run <model> [opts]`.
+  Takes the `opts` the Alaja DSL parsed rather than an `argv` list: the type
+  of `--port` is an integer by the time it arrives, and it used to be a string
+  that a hand-rolled `OptionParser` had promised was a number.
 
   Without a model name there is nothing to run, and saying so is the whole
-  answer. The first thing anyone types is `candil run`, and a
-  `FunctionClauseError` for it teaches nothing.
+  answer — the DSL makes `:model` required, so this clause is only reachable
+  from the library, and it still says something useful rather than raising.
   """
-  @spec run_model([binary()]) :: :ok
-  def run_model([]) do
-    error("usage: candil run <model> [--detach] [--port N]")
-    error("       `candil models list` para ver los modelos disponibles")
-    :ok
-  end
+  @spec run_model(map() | keyword()) :: :ok
+  def run_model(opts) do
+    case get(opts, :model) do
+      nil ->
+        error("usage: candil run <model> [--detach] [--port N]")
+        error("       `candil models list` para ver los modelos disponibles")
 
-  def run_model([name | rest]) do
-    alias_name = safe_alias(name)
-    opts = parse(rest)
+      name ->
+        alias_name = safe_alias(name)
 
-    case fetch(alias_name) do
-      {:ok, model} -> start_or_report(model, alias_name, opts)
-      :error -> error("no such model: #{name}")
+        case fetch(alias_name) do
+          {:ok, model} -> start_or_report(model, alias_name, run_opts(opts))
+          :error -> error("no such model: #{name}")
+        end
     end
 
     :ok
   end
+
+  # The internal shape `Preflight` and `Ports` already speak. Built here so
+  # those two keep asking for a keyword list and the DSL keeps asking for a
+  # map, and neither has to know about the other.
+  defp run_opts(opts) do
+    [
+      port: get(opts, :port),
+      force: get(opts, :force) == true,
+      cpu: get(opts, :cpu) == true,
+      detach: get(opts, :detach) == true,
+      yes: get(opts, :yes) == true
+    ]
+  end
+
+  defp get(opts, key) when is_map(opts), do: Map.get(opts, key)
+
+  defp get(opts, key) when is_list(opts), do: Keyword.get(opts, key)
 
   defp start_or_report(model, alias_name, opts) do
     case Preflight.run(alias_name, opts) do
@@ -76,9 +86,42 @@ defmodule Candil.CLI.Lifecycle do
   defp claim_and_start(model, port, opts) do
     case claim_check(model, port, opts) do
       :ok ->
-        EnginePool.put(model.alias, port, nil, model, %Engine{alias: model.engine})
-        record(model, port, opts)
-        started(model, port, opts)
+        if opts[:detach] do
+          # Un detach delega en OTRO proceso, y no escribe el registro aqui:
+          # el dueno del registro tiene que ser el proceso que de verdad sigue
+          # vivo, y este se va a terminar en cuanto imprima.
+          detach(model, port)
+        else
+          # `Candil.Engine.start/2` y no `EnginePool.put/5`.
+          #
+          # `EnginePool.put/5` NO ARRANCA NADA: su `handle_call` guarda un mapa
+          # en el estado del pool y contesta `:ok`. La funcion que de verdad
+          # levanta el `Candil.Engine.Server` bajo `Candil.EngineSupervisor`
+          # es `Engine.start/2`, y hasta ahora solo la llamaban
+          # `Candil.Engine.Launcher` y `Candil.LLM`. La CLI no.
+          #
+          # O sea que `candil run` no ha arrancado un modelo NUNCA, en
+          # NINGUN camino, y no fallaba: imprimia "arrancado en :9999" y
+          # salia con 0 sin haberlaunchado nada. Ni VRAM, ni log del engine,
+          # ni crash report — porque no habia proceso que se casara, ni
+          # proceso que muriera, ni proceso que imprimiera. Todo lo que se ha
+          # diagnosticado esta noche era el sintoma de esto.
+          #
+          # `Engine.start/2` tambien registra la instancia en el pool por su
+          # cuenta, asi que esta llamada sustituye a la de antes, no se suma.
+          case Engine.start(resolve_engine!(model, port, opts), model) do
+            {:ok, _pid} ->
+              record(model, port, opts)
+              started(model, port, opts)
+
+            {:error, reason} ->
+              # Aqui se puede fallar de verdad —binario que no esta, engine que
+              # no arranca— y el mensaje lo dice. Que es lo que `started/3`
+              # hacia: decir que habia algo donde no habia nada.
+              Say.print_error("no se ha podido arrancar #{model.alias}: #{reason}")
+              :error
+          end
+        end
 
       {:occupied, holder, port} ->
         occupied(model, port, holder, opts)
@@ -90,6 +133,30 @@ defmodule Candil.CLI.Lifecycle do
   # is the file. The owner is this process's OS pid, and `C19` is the whole
   # rule: kill the owner and the engine goes with it, because the engine was
   # never detached from it.
+  # El engine REAL del catalogo, con el puerto ya puesto. Nunca un
+  # `%Engine{alias: model.engine}` pelado: ese struct no tiene binary, ni
+  # api_key, ni start_args, y su puerto es el 8080 por defecto, asi que el
+  # modelo arranca hacia otro sitio o no arranca. Ver `Engine.for_model/2`.
+  defp resolve_engine!(model, port, opts) do
+    case Engine.for_model(model, port, get(opts, :cpu) == true) do
+      {:ok, engine} ->
+        engine
+
+      {:error, :not_found} ->
+        Say.print_error("el modelo #{model.alias} no tiene ningun engine en la configuracion")
+        exit({:shutdown, 1})
+    end
+  end
+
+  defp host_of(nil), do: "127.0.0.1"
+
+  defp host_of(alias_name) do
+    case Store.get_engine(alias_name) do
+      {:ok, %Engine{host: host}} -> to_string(host)
+      _ -> "127.0.0.1"
+    end
+  end
+
   defp record(%Model{alias: name, engine: engine}, port, opts) do
     if opts[:port], do: Instances.claim_ad_hoc(port)
 
@@ -99,7 +166,8 @@ defmodule Candil.CLI.Lifecycle do
         port,
         engine && to_string(engine),
         Instances.os_pid(),
-        true
+        true,
+        host_of(engine)
       )
 
     :ok = Instances.put({to_string(name), port}, instance)
@@ -123,15 +191,31 @@ defmodule Candil.CLI.Lifecycle do
   # saying the process is not attached, and a log path to look at later. The
   # engine's own output goes through the same colouriser when the caller
   # supplies it as `:on_output`.
-  defp started(%Model{alias: name}, port, opts) do
-    if opts[:detach] do
-      Say.print_success(
-        "#{name} detached (owner pid #{Instances.os_pid()}) · log: #{log_path(name, port)}"
-      )
-    else
-      IO.write(Colorize.line("  #{name} arrancado en :#{port}"))
-    end
+  # No se anuncia nada hasta que el registro lo confirma. Antes se escribia el
+  # registro con el pid de este proceso, se imprimia "detached (owner pid N)" y
+  # se salia: al siguiente `candil status` el registro ya estaba podado y no
+  # habia ni proceso ni log ni nada que parar. Aqui se espera al titular.
+  defp detach(model, port) do
+    log = log_path(to_string(model.alias), port)
 
+    case Detach.spawn(to_string(model.alias), port, log: log) do
+      {:ok, pid} ->
+        Say.print_success("#{model.alias} detached (owner pid #{pid}) · log: #{log}")
+        :ok
+
+      {:error, {:holder_no_arrived, log}} ->
+        Say.print_error("#{model.alias} no ha podido quedarse en marcha. Mira el log:")
+        Say.print_error("  #{log}")
+        :error
+
+      {:error, reason} ->
+        Say.print_error("#{model.alias} no se ha podido lanzar: #{inspect(reason)}")
+        :error
+    end
+  end
+
+  defp started(%Model{alias: name}, port, _opts) do
+    Say.print_raw(Colorize.line("  #{name} arrancado en :#{port}") <> "\n")
     :ok
   end
 
@@ -143,8 +227,12 @@ defmodule Candil.CLI.Lifecycle do
     if opts[:force] do
       Say.print_warning("--force: matando '#{holder}' en :#{port}")
       stop_holder(model, port)
-      EnginePool.put(model.alias, port, nil, model, %Engine{alias: model.engine})
-      Say.print_success("#{model.alias} arrancado en :#{port}")
+      # Tambien aqui: `EnginePool.put/5` no arranca nada, asi que el mensaje de
+      # "arrancado" era falso en el camino de `--force` igual que en el normal.
+      case Engine.start(resolve_engine!(model, port, opts), model) do
+        {:ok, _pid} -> Say.print_success("#{model.alias} arrancado en :#{port}")
+        {:error, reason} -> Say.print_error("no se ha podido arrancar #{model.alias}: #{reason}")
+      end
     else
       Say.print_error(":#{port} está ocupado por '#{holder}'.")
       Say.print("  candil no mata automáticamente. Usa:")
@@ -173,11 +261,16 @@ defmodule Candil.CLI.Lifecycle do
   @doc """
   `candil stop [all|<model>]`.
   """
-  @spec stop([binary()]) :: :ok
-  def stop([]), do: stop_all()
-  def stop(["all" | _rest]), do: stop_all()
+  @spec stop(map() | keyword()) :: :ok
+  def stop(opts) when is_map(opts) or is_list(opts) do
+    case get(opts, :model) do
+      nil -> stop_all()
+      "all" -> stop_all()
+      name -> stop_one(name)
+    end
+  end
 
-  def stop([name | _rest]) do
+  def stop_one(name) do
     alias_name = safe_alias(name)
     local = EnginePool.list() |> Enum.filter(&(&1.alias == alias_name))
 
@@ -268,24 +361,106 @@ defmodule Candil.CLI.Lifecycle do
   it into `jq -r '.[0].model'`. A map would need `.models[0]` and the criteria
   are not a suggestion.
   """
-  @spec status([binary()]) :: :ok
-  def status(argv) do
-    if "--json" in argv do
-      IO.puts(Jason.encode!(Enum.map(EnginePool.list(), &json_row/1)))
+  @spec status(map() | keyword()) :: :ok
+  def status(opts) when is_map(opts) or is_list(opts) do
+    running = running()
+
+    if get(opts, :json) == true do
+      # Raw, and with the newline: a `--json` consumer pipes this into jq
+      # and decoration is exactly what breaks it.
+      Say.print_raw(Jason.encode!(Enum.map(running, &json_row/1)) <> "\n")
     else
-      print_table(EnginePool.list())
+      print_table(running)
     end
 
     :ok
   end
 
-  defp json_row(%{alias: a, port: p, pid: pid, started_at: started}) do
+  # Locales Y remotas, y no solo las locales.
+  #
+  # `EnginePool.list()` es la memoria de ESTE VM. Una instancia detached vive en
+  # el registro, en otro proceso, y aqui no aparece: `candil run --detach`
+  # contestaba "detached", `candil status` decia que no habia nada, y
+  # `candil stop` —que si leia las dos— no tenia nada que parar. Status y stop
+  # no podian estar mas en desacuerdo sobre que es estar corriendo.
+  defp running do
+    local =
+      Enum.map(EnginePool.list(), fn entry ->
+        %{
+          model: to_string(entry.alias),
+          port: entry.port,
+          pid: entry.pid,
+          state: state_of(entry.alias),
+          engine: engine_name(entry),
+          owner: "local",
+          uptime_ms: System.monotonic_time(:millisecond) - entry.started_at
+        }
+      end)
+
+    # El registro serializa el arranque como ISO 8601 ("2026-10-04T19:42:39Z").
+    # Un reloj ilegible da `nil` y la celda sale "—", no cero: un cero parece un
+    # dato y un "—" parece lo que es, que es que no lo sabemos.
+    remote =
+      Enum.map(Instances.read(), fn instance ->
+        %{
+          model: Map.get(instance, :model),
+          port: Map.get(instance, :port),
+          # El pid del dueno es del sistema operativo y pertenece a otro
+          # proceso: es el unico identificador util de una instancia detached.
+          pid: Map.get(instance, :pid),
+          engine: Map.get(instance, :engine),
+          owner: "detached",
+          state: nil,
+          # `Map.get/3` y no `instance.host`: un registro escrito por una
+          # version anterior de Candil no tiene la clave, y `instance.host`
+          # sobre un mapa descodificado de JSON es un KeyError esperando a que
+          # alguien actualice de la version de ayer. Un registro del mundo real
+          # se lee con get, nunca con punto.
+          host: Map.get(instance, :host) || "127.0.0.1",
+          # El registro solo sabe guardar un instante de RELOJ DE PARED, y una
+          # fila local lo tiene de reloj MONOTONO. Restarlos entre si no
+          # significa nada — salia un uptime de -39460084m, que es la clase de
+          # numero que hace dudar de la maquina en vez del codigo—. Cada fila
+          # mide su uptime en su propio reloj y ya.
+          uptime_ms: uptime_since(Map.get(instance, :started_at))
+        }
+      end)
+
+    local ++ probe(remote)
+  end
+
+  # STATE de una instancia detached se PREGUNTA, no se recuerda.
+  #
+  # El registro guarda `healthy: true` del momento en que arranco, y eso solo
+  # significa "el proceso dueno existia". Con suerte. El usuario lo vio con una
+  # herramienta que no es Candil: `candil status` decia ON y `ropero status`
+  # decia que el puerto estaba libre. Los dos tenian razon sobre preguntas
+  # distintas, y solo uno contestaba a la que dice la columna. Una columna
+  # STATE en una tabla de modelos significa "esta sirviendo", y un proceso
+  # vivo que no escucha es justo lo que tiene que salir como DOWN: ocupa GPU,
+  # ocupa puerto y no contesta a nadie.
+  defp probe(remote) do
+    states = Probe.states(remote)
+    Enum.map(remote, &%{&1 | state: Map.get(states, &1.port, "DOWN")})
+  end
+
+  defp engine_name(%{engine: %Engine{alias: nil}}), do: "llama-server"
+  defp engine_name(%{engine: %Engine{alias: name}}), do: to_string(name)
+  defp engine_name(_), do: "llama-server"
+
+  defp uptime_since(_), do: nil
+
+  # `state` sigue siendo lo que dice el polizador de salud. La procedencia va en
+  # SU campo: un contrato que cambia de significado porque hacia falta otro
+  # dato es un contrato roto por la puerta de atras.
+  defp json_row(row) do
     %{
-      model: to_string(a),
-      port: p,
-      pid: pid && inspect(pid),
-      state: state_of(a),
-      uptime_ms: System.monotonic_time(:millisecond) - started
+      model: row.model,
+      port: row.port,
+      pid: row.pid && inspect(row.pid),
+      state: row.state,
+      owner: row.owner,
+      uptime_ms: row.uptime_ms
     }
   end
 
@@ -293,7 +468,7 @@ defmodule Candil.CLI.Lifecycle do
 
   defp print_table(instances) do
     Table.print(
-      headers: ["SLOT", "PORT", "STATE", "MODEL", "PID", "UPTIME", "ENGINE"],
+      headers: ["SLOT", "PORT", "STATE", "MODEL", "PID", "UPTIME", "ENGINE", "OWNER"],
       rows: Enum.map(instances, &row/1),
       headers_color: :cyan,
       headers_effects: [:bold],
@@ -305,15 +480,16 @@ defmodule Candil.CLI.Lifecycle do
   # difference is the whole point of the column: a process whose row exists
   # and whose server stopped answering is `DOWN`, and a table that says `ON`
   # for it sends the user to debug the wrong thing.
-  defp row(%{port: port, alias: a, pid: pid, engine: engine, started_at: started}) do
+  defp row(row) do
     [
-      slot(port),
-      to_string(port),
-      state_of(to_string(a)),
-      to_string(a),
-      pid || "-",
-      uptime(started),
-      (engine.alias && to_string(engine.alias)) || "llama-server"
+      slot(row.port),
+      to_string(row.port),
+      row.state,
+      row.model,
+      row.pid || "-",
+      uptime(row.uptime_ms),
+      row.engine || "llama-server",
+      row.owner
     ]
   end
 
@@ -332,8 +508,11 @@ defmodule Candil.CLI.Lifecycle do
   # distinguishes a GPU instance from a CPU one in the default range.
   defp slot(port), do: if(rem(port, 100) >= 90, do: "dGPU", else: "CPU")
 
-  defp uptime(started) do
-    seconds = div(System.monotonic_time(:millisecond) - started, 1000)
+  defp uptime(nil), do: "—"
+  defp uptime(ms) when ms < 0, do: "—"
+
+  defp uptime(ms) do
+    seconds = div(ms, 1000)
     "#{div(seconds, 60)}m#{rem(seconds, 60)}s"
   end
 

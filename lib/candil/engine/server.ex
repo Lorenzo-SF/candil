@@ -5,7 +5,8 @@ defmodule Candil.Engine.Server do
   The OS process itself is owned by `Arrea.LongRunning`, which gives us
   for free:
 
-    * Registration in `Arrea.Registry` under `{:candil_engine, model.alias}`
+    * Registration in `Arrea.Registry` under `id_for/2`: the MODEL alias and the
+      port the engine actually bound to
       so other apps can `Arrea.LongRunning.state(id)` / `health(id)` /
       `stop(id)` without going through Candil.
     * Telemetry events on `[:arrea, :long_running, ...]` for started /
@@ -13,8 +14,14 @@ defmodule Candil.Engine.Server do
     * Automatic port cleanup on crash (Arrea links the port and the
       GenServer; if the binary dies, Arrea dies, and the link cascade
       kills this GenServer too).
-    * Crash isolation via `Arrea.WorkerSupervisor`'s `:one_for_one`
-      strategy.
+    * Crash isolation — but from two supervisors, not one, and the previous
+      version of this bullet said only `Arrea.WorkerSupervisor`, which was
+      wrong about half of it. The OS process runs under
+      `Arrea.WorkerSupervisor` because `Arrea.LongRunning.start/1` puts
+      it there. *This* GenServer runs under `Candil.EngineSupervisor`, a
+      `DynamicSupervisor` that Candil owns. Both are `:one_for_one`, so the
+      property holds; attributing it to Arrea alone made a host reading this
+      think it could find these processes in Arrea's tree, and it cannot.
 
   What this GenServer keeps:
 
@@ -28,6 +35,8 @@ defmodule Candil.Engine.Server do
   """
 
   use GenServer
+
+  require Logger
 
   alias Candil.Engine
 
@@ -57,7 +66,10 @@ defmodule Candil.Engine.Server do
     base_url = "http://#{engine.host}:#{engine.port}"
 
     case LongRunning.start_link(
-           id: {:candil_engine, model.alias},
+           # El puerto va dentro del id a proposito: `Arrea.LongRunning`
+           # emite la salida del engine por telemetria con solo el `id`, y sin
+           # el puerto quien la escucha no sabe en que log escribirla.
+           id: id_for(model, engine),
            binary: binary,
            args: args,
            cd: model_dir_safe(model),
@@ -97,16 +109,61 @@ defmodule Candil.Engine.Server do
 
   def handle_info(_msg, state), do: {:noreply, state}
 
+  # Como ropero: un 27B en CPU va limitado por hilos, y sin esto tienes un
+  # modelo que tecnicamente esta en CPU y tarda cuatro veces mas.
+  defp threads_args(%Engine{cpu: true}), do: ["--threads", Integer.to_string(cpu_count())]
+  defp threads_args(%Engine{}), do: []
+
+  defp cpu_count do
+    case System.cmd("nproc", []) do
+      {out, 0} ->
+        case Integer.parse(String.trim(out)) do
+          {n, _} when n > 0 -> n
+          _ -> 8
+        end
+
+      _ ->
+        System.schedulers_online()
+    end
+  rescue
+    _kind -> System.schedulers_online()
+  end
+
+  @doc false
+  # El id de Arrea, en UN sitio, y con cada campo de donde le toca: el ALIAS
+  # del modelo y el PUERTO del engine.
+  #
+  # No son el mismo campo. El modelo se llama `analyst` y su engine se llama
+  # `llama_cpp`; el engine escucha en el puerto que ha resuelto la CLI para el
+  # slot. Con el alias del engine, el log del motor se llamaba
+  # `llama_cpp-9990.log` —un fichero por engine, no por modelo, con un nombre
+  # que no le corresponde a nadie— mientras el titular anunciaba
+  # `analyst-9990.log` y escribia ahi. Dos nombres para el mismo log, y el que
+  # se anuncia no es el que se escribe.
+  #
+  # Con `Model.port` en vez de `engine.port` el id decia 9999 mientras el
+  # proceso escuchaba en 9990, `terminate/2` iba a parar un id que no existia, y
+  # el proceso se quedaba vivo sin que `candil stop` lo alcanzara. Con `coder`
+  # los tres coincidian y no se notaba.
+  def id_for(%{alias: model_alias}, %{port: port}), do: {:candil_engine, model_alias, port}
+
   @impl GenServer
-  def terminate(_reason, %{model: model}) do
+  def terminate(_reason, %{model: model, engine: engine}) do
     # Explicit cleanup so the OS process goes away when Candil asks it
     # to. If we got here because the link already died (port crashed),
     # this returns {:error, :not_found} harmlessly.
-    _ = LongRunning.stop({:candil_engine, model.alias})
+    # El id sale del MODELO y del ENGINE, cada uno de donde le toca: ver `id_for/2`.
+    _ = LongRunning.stop(id_for(model, engine))
     :ok
   end
 
   defp build_args(%Engine{start_args: engine_args, host: host, port: port} = engine, model) do
+    # `--n-gpu-layers` sale SIEMPRE del campo `gpu_layers` del modelo, nunca
+    # de `model_args`: `Hydrate` ya ha sacado el flag de ahi, asi que hay una
+    # sola fuente de verdad y `--cpu` no tiene nada que reescribir.
+    model_args = model_args(model) ++ ["--n-gpu-layers", to_string(layers(model, engine))]
+    announce_cpu_overrides(model, engine)
+
     if String.contains?(model.model_dir, "..") or String.contains?(model.filename, "..") do
       raise ArgumentError, "model path must not contain path traversal (..)"
     end
@@ -128,8 +185,48 @@ defmodule Candil.Engine.Server do
         to_string(model.alias)
       ] ++ api_key_args(engine)
 
-    base ++ model_args(model) ++ engine_args
+    base ++ model_args ++ threads_args(engine) ++ engine_args
   end
+
+  # ── `--cpu`: lo que de verdad significa ir a CPU ──────────────────────────
+  #
+  # Sin esto, `--cpu` era un flag que se parseaba, se validaba y no se leia en
+  # ningun sitio. El modelo se lanzaba con SUS `model_args`, incluidos los de
+  # GPU, y con `--n-gpu-layers 99` de la config lo que pasaba era:
+  #
+  #     failed to fit params to free device memory:
+  #       n_gpu_layers already set by user to 99, abort
+  #     allocating 12005.90 MiB on device 0: cudaMalloc failed: out of memory
+  #
+  # Es decir:Candil decia "lo voy a poner en CPU" mientras el modelo intentaba
+  # subir 12 GB a una GPU que ya tenia 14 GB cogidos. Y llama-server decia,
+  # en su propia linea de aviso, que si NO le fijaras el numero se habria
+  # ajustado solo. El flag del usuario le quitaba justo la capacidad de
+  # adaptarse.
+  #
+  # Asi que `--cpu` pone `--n-gpu-layers 0` —no "lo que quepa", sino CPU, que
+  # es lo que significa el flag— y quita los flags que solo tienen sentido en
+  # GPU. El resto de la configuracion del modelo se respeta: muestreo, cache y
+  # eso valen igual en CPU.
+  #
+  # Y AVISA de lo que ha pisado, porque modificar la configuracion de alguien
+  # en silencio es la forma de perder su confianza el dia que algo va mal.
+  # Con `--cpu` el campo del modelo vale 0 y ya esta. Y se dice CUAL ERA, para
+  # que no parezca que el modelo no tenia GPU: un 99 puesto a 0 sin explicar de
+  # donde salio el 99 deja al usuario pensando que se lo hainventado Candil.
+  defp layers(model, engine) do
+    if engine.cpu do
+      Logger.warning(
+        "--cpu en #{model.alias}: #{model.gpu_layers} capas a la GPU → 0 (CPU entera)"
+      )
+
+      0
+    else
+      model.gpu_layers
+    end
+  end
+
+  defp announce_cpu_overrides(_model, _engine), do: :ok
 
   # `--api-key` is only added when the engine configures one, so a server
   # started without it behaves exactly as before. The flag has to be on the

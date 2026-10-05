@@ -32,7 +32,7 @@ defmodule Candil.Engine do
 
   @type alias :: atom()
 
-  alias Candil.{Build, Store}
+  alias Candil.{Build, Instances, Model, Store}
   alias Candil.Engine.Server
   alias Candil.{EnginePool, Installer}
 
@@ -54,6 +54,11 @@ defmodule Candil.Engine do
             api_key: nil,
             auth_headers: [],
             start_args: [],
+            # `--cpu`: pone las capas a 0 y quita los flags de dispositivo. No
+            # es un `start_args` mas porque hay que REESCRIBIR los que el
+            # modelo trae en su `model_args`, y ahi solo se puede llegar desde
+            # aqui.
+            cpu: false,
             launcher: nil
 
   @type version :: :latest | binary()
@@ -249,29 +254,101 @@ defmodule Candil.Engine do
   @doc """
   Returns the effective binary directory for an engine.
 
-  Falls back to `~/.candil/llm/bin` when `binary_dir` is `nil`.
+  Falls back to `<data_dir>/llm/bin` when `binary_dir` is `nil`.
 
   Raises `ArgumentError` if the configured path contains `..` (path traversal).
   """
   @spec binary_dir(t()) :: binary()
   def binary_dir(%__MODULE__{binary_dir: nil}) do
-    Path.join([System.user_home!(), ".candil", "llm", "bin"])
+    # `general.data_dir` and not a hardcoded `~/.candil`: a user who moves
+    # data_dir to ~/llama was telling us where everything lives, and reading
+    # the binary from somewhere else means `models pull` writes where you asked
+    # and `candil run` looks somewhere else. Same mistake, two directories.
+    Path.join([Instances.data_dir(), "llm", "bin"])
   end
 
   def binary_dir(%__MODULE__{binary_dir: dir}) do
-    if String.contains?(dir, "..") do
-      raise ArgumentError, "binary_dir must not contain path traversal (..): #{inspect(dir)}"
-    end
-
+    guard_no_traversal!(dir, "binary_dir")
     dir
   end
 
   @doc """
-  Returns the full path to the `llama-server` binary for this engine.
+  The engine of `model` as registered, bound to `port`.
+
+  ## Why this function exists
+
+  Three call sites used to build `%Engine{alias: model.engine}` — a struct
+  with the alias and **nothing else**: no `binary`, no `install`, no
+  `api_key`, no `start_args`, and `port: 8080`, which is the default in the
+  defstruct. Every preflight that did it answered "no binary" regardless of
+  what the catalogue said. The call sites that did it to actually *start* an
+  engine printed `arrancado en :9999` and started nothing: the binary path
+  fell back to `<data_dir>/llm/bin/llama-server` and the health check went to
+  port 8080.
+
+  None of it raised. `EnginePool.put/5` only starts a GenServer, and a
+  GenServer listening on 8080 starts perfectly. The user found it watching
+  VRAM with btop — a 27B model that never moved the 47 MB baseline. Every
+  smoke test before that had checked exit codes, and `candil run` exits 0
+  whether or not a model came up.
+
+  `preflight.ex` had already learned this lesson and carries almost the same
+  comment. It just never reached the call sites that start things.
+  """
+  @spec for_model(term(), pos_integer(), boolean()) :: {:ok, t()} | {:error, :not_found}
+  def for_model(model, port, cpu \\ false)
+
+  def for_model(%Model{engine: nil}, _port, _cpu), do: {:error, :not_found}
+
+  def for_model(%Model{engine: alias_name}, port, cpu) do
+    case Store.get_engine(alias_name) do
+      # El puerto se fija aqui y no en el llamante: el engine del catalogo no
+      # sabe que slot se le ha asignado, y `Engine.Server` consulta la salud en
+      # `engine.port`.
+      {:ok, engine} -> {:ok, %{engine | port: port, cpu: cpu}}
+      {:error, :not_found} -> {:error, :not_found}
+    end
+  end
+
+  def for_model(_model, _port, _cpu), do: {:error, :not_found}
+
+  @doc """
+  Returns the full path to the engine binary.
+
+  ## `binary` wins, and it used to be ignored
+
+  `engine.binary` — the key `binary = "..."` in `[engine.<name>]` — is read
+  from the config, validated by the schema, stored in the struct, and then
+  **never looked at**: this function was `binary_dir/1 <> "llama-server"`, so
+  the configured path was reported as missing and, worse, `Engine.Server`
+  spawned *that* path instead. A config that names an absolute binary had no
+  effect on the process that got run.
+
+  Order: an explicit `binary` is the whole answer, including its filename;
+  `binary_dir` is the directory for a standard `llama-server`; and with
+  neither, the binary is looked for under `general.data_dir`.
   """
   @spec binary_path(t()) :: binary()
   def binary_path(%__MODULE__{} = engine) do
-    Path.join(binary_dir(engine), "llama-server")
+    case engine.binary do
+      nil -> Path.join(binary_dir(engine), "llama-server")
+      path -> expand_binary(path)
+    end
+  end
+
+  defp expand_binary(path) do
+    guard_no_traversal!(path, "binary")
+    # `~` is expanded because it is a TOML convenience: a config that works
+    # for `data_dir` and silently does not for `binary` is a trap.
+    Path.expand(path)
+  end
+
+  defp guard_no_traversal!(path, field) do
+    if String.contains?(path, "..") do
+      raise ArgumentError, "#{field} must not contain path traversal (..): #{inspect(path)}"
+    end
+
+    path
   end
 
   @doc """
@@ -407,18 +484,28 @@ defmodule Candil.Engine do
   Returns `true` if the engine serving `model_alias` is running and responding
   to the `/health` endpoint.
   """
-  @spec healthy?(atom()) :: boolean()
-  def healthy?(model_alias) when is_atom(model_alias) do
+  @spec healthy?(atom(), timeout()) :: boolean()
+  def healthy?(model_alias, timeout \\ 5_000) when is_atom(model_alias) do
     case Registry.lookup(registry(), model_alias) do
-      [{pid, _}] ->
-        case GenServer.call(pid, :health, 5_000) do
-          :ok -> true
-          _ -> false
-        end
-
-      [] ->
-        false
+      [{pid, _}] -> health_call(pid, timeout)
+      [] -> false
     end
+  end
+
+  # El timeout se puede bajar porque se llama en bucle esperando a que un
+  # modelo levante. Con cinco segundos por intento, un engine que no responde
+  # cuesta cinco segundos en cada vuelta y el bucle entero se va a su
+  # presupuesto sin haber comprobado nada nuevo.
+  #
+  # El `catch` es por el timeout, no por paranoia: un GenServer que no contesta
+  # hace que `GenServer.call/3` SALGA, y una salida no es un `false`. Sin
+  # atraparla, preguntar la salud de un engine que se ha quedado colgado tumba
+  # a quien pregunta —que es el titular, a la espera de un presupuesto
+  # entero—.
+  defp health_call(pid, timeout) do
+    GenServer.call(pid, :health, timeout) == :ok
+  catch
+    :exit, _reason -> false
   end
 
   @doc """

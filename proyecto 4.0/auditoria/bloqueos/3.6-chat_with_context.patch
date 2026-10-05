@@ -1,0 +1,670 @@
+diff --git a/lib/candil.ex b/lib/candil.ex
+index b9ac06c..5357b74 100644
+--- a/lib/candil.ex
++++ b/lib/candil.ex
+@@ -38,6 +38,8 @@ defmodule Candil do
+       Candil.Store.register_provider(provider)
+   """
+ 
++  alias Candil.Context
++  alias Candil.Inference
+   alias Candil.Llm
+ 
+   @doc """
+@@ -101,6 +103,8 @@ defmodule Candil do
+     * `:stop` — list of stop sequences
+ 
+   """
++  @spec chat(atom(), [Inference.message()], keyword()) ::
++          {:ok, Inference.response()} | {:error, term()}
+   defdelegate chat(model_alias, messages, opts), to: Llm
+ 
+   @doc """
+@@ -117,6 +121,31 @@ defmodule Candil do
+   """
+   defdelegate chat(model, provider, messages, opts), to: Llm
+ 
++  @doc """
++  Chats against a model using the shared, consumer-partitioned context.
++
++  The replacement for `Candil.Conversation`, which kept its history in the
++  calling process. Here the history lives in ETS under `{consumer, session_id}`,
++  so two consumers in the same VM never see each other's turns, not even with
++  the same `session_id`.
++
++  ## Options
++
++    * `:consumer` — required. Which consumer this conversation belongs to.
++    * `:context_size` — the model's window.
++    * `:system_prompt`, `:margin_tokens` — context building.
++    * the rest go to `chat/3`.
++
++  ## Examples
++
++      iex> Candil.chat_with_context(:coder, "s1", [%{role: "user", content: "hola"}], consumer: :posadero)
++      {:error, :not_started}
++
++  """
++  defdelegate chat_with_context(model_alias, session_id, messages, opts),
++    to: Context,
++    as: :chat
++
+   @doc """
+   Runs an embeddings request against a **local** model.
+ 
+diff --git a/lib/candil/context.ex b/lib/candil/context.ex
+index 2748fed..289cc9a 100644
+--- a/lib/candil/context.ex
++++ b/lib/candil/context.ex
+@@ -25,7 +25,8 @@ defmodule Candil.Context do
+ 
+   use GenServer
+ 
+-  alias Candil.Context.Session
++  alias Candil.Context.{Builder, Session}
++  alias Candil.Inference
+ 
+   @table :candil_context_sessions
+ 
+@@ -104,6 +105,82 @@ defmodule Candil.Context do
+     end
+   end
+ 
++  @doc """
++  Chats against a model with the session's history, and records the exchange.
++
++  The session is keyed by `{consumer, session_id}`, so the history a consumer
++  sends is not the history another one sees — not even with the same
++  `session_id`. That partitioning is the whole point of this module, and it is
++  invisible in the return value, which is why it is worth a function of its own
++  instead of three calls a caller has to remember to make in the right order.
++
++  ## Options
++
++    * `:consumer` — required. Which consumer this conversation belongs to.
++    * `:context_size` — the model's window. Travels with the model, not with
++      the conversation: the same session can be routed to a 4k model and then
++      to a 131k one.
++    * `:system_prompt`, `:margin_tokens` — passed through to the builder.
++    * anything else goes to `Candil.chat/3`.
++
++  Returns what `Candil.Inference.chat_local/3` returns. The new messages are
++  recorded before the call, so a model that dies mid-request does not lose the
++  question; the assistant's reply is only recorded once it exists whole, never
++  in chunks.
++
++  It calls `Inference` and not the `Candil` facade on purpose. `Candil` delegates
++  `chat_with_context/4` here, so going back through it closes a cycle between
++  the two modules, and dialyzer answers a call inside a cycle with the most
++  pessimistic typing it can justify — which here meant deciding that the model
++  could never answer, and that the whole success branch was dead code. The
++  facade is a pass-through; calling the layer underneath breaks the cycle and
++  says the same thing.
++  """
++  @spec chat(atom(), String.t(), [Inference.message()], keyword()) ::
++          {:ok, Inference.response()} | {:error, term()}
++  def chat(model_alias, session_id, messages, opts \\ []) do
++    consumer = Keyword.fetch!(opts, :consumer)
++    build_opts = Keyword.take(opts, [:context_size, :system_prompt, :margin_tokens])
++    call_opts = Keyword.drop(opts, [:consumer, :context_size, :system_prompt, :margin_tokens])
++
++    with {:ok, session} <- create(consumer, session_id),
++         :ok <- record(consumer, session_id, messages),
++         {:ok, built} <- Builder.build(session, messages, build_opts),
++         {:ok, response} <- Inference.chat_local(model_alias, built, call_opts) do
++      _ = append_message(consumer, session_id, "assistant", content_of(response))
++      {:ok, response}
++    end
++  end
++
++  defp record(consumer, session_id, messages) do
++    Enum.reduce_while(messages, :ok, fn message, :ok ->
++      role = to_string(Map.get(message, :role) || Map.get(message, "role"))
++      content = to_string(Map.get(message, :content) || Map.get(message, "content") || "")
++
++      case append_message(consumer, session_id, role, content) do
++        :ok -> {:cont, :ok}
++        error -> {:halt, error}
++      end
++    end)
++  end
++
++  # The response shape is the backend's, not ours: a string, or a struct with
++  # `:content`. Guessing wrong here would write "nil" into somebody's history
++  # and call it a conversation.
++  defp content_of(%{content: content}) when is_binary(content), do: content
++  defp content_of(response) when is_binary(response), do: response
++  defp content_of(%{"content" => content}) when is_binary(content), do: content
++
++  defp content_of(response) do
++    content =
++      case response do
++        %{choices: [%{message: %{content: c}}]} -> c
++        _ -> nil
++      end
++
++    to_string(content || "")
++  end
++
+   @doc """
+   Deletes one session. The consumer's other sessions are untouched.
+   """
+diff --git a/lib/candil/context/builder.ex b/lib/candil/context/builder.ex
+index 702dee0..92dc358 100644
+--- a/lib/candil/context/builder.ex
++++ b/lib/candil/context/builder.ex
+@@ -15,6 +15,7 @@ defmodule Candil.Context.Builder do
+   """
+ 
+   alias Candil.Context.Session
++  alias Candil.Inference
+ 
+   @default_margin 512
+   @default_context_size 4096
+@@ -40,7 +41,8 @@ defmodule Candil.Context.Builder do
+       iex> Candil.Context.Builder.build(session, [%{role: "user", content: "hola"}], context_size: 4)
+       {:error, :context_exceeded}
+   """
+-  @spec build(Session.t(), [map()], keyword()) :: {:ok, [map()]} | {:error, :context_exceeded}
++  @spec build(Session.t(), [Inference.message()], keyword()) ::
++          {:ok, [Inference.message()]} | {:error, :context_exceeded}
+   def build(session, messages, opts \\ []) do
+     margin = Keyword.get(opts, :margin_tokens, @default_margin)
+     window = Keyword.get(opts, :context_size, @default_context_size) - margin
+diff --git a/lib/candil/conversation.ex b/lib/candil/conversation.ex
+index 0481967..d124f0e 100644
+--- a/lib/candil/conversation.ex
++++ b/lib/candil/conversation.ex
+@@ -6,7 +6,32 @@ defmodule Candil.Conversation do
+   limits. When the accumulated token estimate exceeds `max_context_tokens`,
+   older messages are trimmed while always preserving the system prompt.
+ 
+-  Token estimation is delegated to `Candil.Conversation.Context`.
++  > #### Deprecated {: .warning}
++  >
++  > This module keeps the history **in the process that calls it**, which is
++  > exactly the thing `Candil.Context` exists to fix: two consumers in the
++  > same VM each get their own, and the two cannot be shared, summarised or
++  > moved between models. Use `Candil.chat_with_context/4`, which stores the
++  > history in ETS partitioned by consumer. Removed in 4.1.0.
++  >
++  > It stays in 4.0 because there are consumers outside this ecosystem, and
++  > `Candil.Agent` is one of them inside it.
++  >
++  > **Why the deprecation is in this paragraph and not in an `@deprecated`
++  > attribute:** the attribute is a compiler warning, and `Candil.Agent` still
++  > calls four of these functions, so marking them would turn
++  > `mix compile --warnings-as-errors` red on the repo's own code. Suppressing
++  > that with `@compile {:no_warn_deprecated, Candil.Conversation}` was tried
++  > and **does not work when both modules are in the same parallel compilation
++  > batch** — measured, not assumed. The attribute goes on when `Agent`
++  > migrates to `Candil.Context`, in 4.1.0.
++
++  Token estimation lives in `Candil.Context.TokenEstimator` (moved here by
++  amendment D8, from `Candil.Conversation.TokenEstimator`).
++
++  `Candil.Conversation.Context` no longer exists: it had never left the house,
++  so it is removed rather than deprecated. Its trimming and counting moved in
++  here as private functions, with their arithmetic unchanged.
+ 
+   ## Usage
+ 
+@@ -22,11 +47,15 @@ defmodule Candil.Conversation do
+       IO.puts(response.content)
+   """
+ 
+-  alias Candil.Conversation.Context
++  alias Candil.Context.TokenEstimator
+   alias Candil.Inference
+   alias Candil.Model
+   alias Candil.Provider
+ 
++  # Moved from `Candil.Conversation.Context`, which D8 removes. It is a
++  # constant of this module's own policy, not of the estimator.
++  @default_max_response_tokens 2048
++
+   @type message :: Inference.message()
+ 
+   @type t :: %__MODULE__{
+@@ -65,8 +94,7 @@ defmodule Candil.Conversation do
+       provider: Keyword.get(opts, :provider),
+       system: Keyword.get(opts, :system),
+       max_context_tokens: Keyword.get(opts, :max_context_tokens, 4096),
+-      max_response_tokens:
+-        Keyword.get(opts, :max_response_tokens, Context.default_max_response_tokens()),
++      max_response_tokens: Keyword.get(opts, :max_response_tokens, @default_max_response_tokens),
+       opts:
+         Keyword.drop(opts, [:model, :provider, :system, :max_context_tokens, :max_response_tokens])
+     }
+@@ -84,7 +112,7 @@ defmodule Candil.Conversation do
+     messages_with_user = conv.messages ++ [user_msg]
+ 
+     available = conv.max_context_tokens - conv.max_response_tokens
+-    trimmed = Context.trim_to_context(messages_with_user, conv.system, available)
++    trimmed = trim_to_context(messages_with_user, conv.system, available)
+ 
+     call_opts = Keyword.merge(conv.opts, max_tokens: conv.max_response_tokens)
+     call_opts = if(conv.system, do: Keyword.put(call_opts, :system, conv.system), else: call_opts)
+@@ -143,7 +171,7 @@ defmodule Candil.Conversation do
+   """
+   @spec token_estimate(t()) :: non_neg_integer()
+   def token_estimate(%__MODULE__{} = conv) do
+-    Context.token_estimate(conv.messages, conv.system)
++    token_total(conv.messages, conv.system)
+   end
+ 
+   @doc """
+@@ -164,16 +192,65 @@ defmodule Candil.Conversation do
+ 
+   @doc false
+   @spec estimate_content_tokens(binary()) :: non_neg_integer()
+-  def estimate_content_tokens(text), do: Context.estimate_content_tokens(text)
++  def estimate_content_tokens(text), do: TokenEstimator.estimate_content_tokens(text)
+ 
+   @doc false
+   def estimate_content_tokens(_, _), do: 0
+ 
+   @doc false
+   @spec estimate_message_tokens(map()) :: non_neg_integer()
+-  def estimate_message_tokens(msg), do: Context.estimate_message_tokens(msg)
++  def estimate_message_tokens(msg), do: message_tokens(msg)
+ 
+   @doc false
+   @spec estimate_tokens(binary()) :: non_neg_integer()
+-  def estimate_tokens(text), do: Context.estimate_tokens(text)
++  def estimate_tokens(text), do: TokenEstimator.estimate_tokens(text)
++
++  # ─── Moved from `Candil.Conversation.Context` (removed by D8) ──────────────
++  #
++  # The arithmetic is unchanged on purpose. `message_tokens/1` here adds 4 for
++  # the role and separators, which `TokenEstimator.estimate_message/1` does not:
++  # they are different numbers and swapping one for the other would silently
++  # change when history gets trimmed.
++
++  # Total tokens for a conversation's messages, plus its system prompt.
++  @spec token_total([map()], String.t() | nil) :: non_neg_integer()
++  defp token_total(messages, system) do
++    system_tokens = if system, do: TokenEstimator.estimate_content_tokens(system), else: 0
++    history_tokens = Enum.reduce(messages, 0, &(&2 + message_tokens(&1)))
++    system_tokens + history_tokens
++  end
++
++  # Drops the oldest messages that do not fit, never the system prompt.
++  @spec trim_to_context([map()], String.t() | nil, non_neg_integer()) :: [map()]
++  defp trim_to_context(messages, system, max_tokens) do
++    system_tokens = if system, do: TokenEstimator.estimate_content_tokens(system), else: 0
++    max_history = max_tokens - system_tokens
++
++    messages
++    |> Enum.reverse()
++    |> Enum.reduce({[], 0}, fn msg, {acc, tokens} ->
++      msg_tokens = message_tokens(msg)
++
++      if tokens + msg_tokens <= max_history do
++        {[msg | acc], tokens + msg_tokens}
++      else
++        {acc, tokens}
++      end
++    end)
++    |> elem(0)
++  end
++
++  # Deliberately NOT `TokenEstimator.estimate_message/1`: this one counts the
++  # role and the separators, on top of the content.
++  @spec message_tokens(map()) :: non_neg_integer()
++  defp message_tokens(msg) do
++    text =
++      case msg do
++        %{content: content} when is_binary(content) -> content
++        %{content: content} when is_list(content) -> Enum.map_join(content, & &1)
++        _ -> ""
++      end
++
++    TokenEstimator.estimate_content_tokens(text) + 4
++  end
+ end
+diff --git a/lib/candil/conversation/token_estimator.ex b/lib/candil/conversation/token_estimator.ex
+index e20a2bf..f7e5a3c 100644
+--- a/lib/candil/conversation/token_estimator.ex
++++ b/lib/candil/conversation/token_estimator.ex
+@@ -1,108 +1,43 @@
+ defmodule Candil.Conversation.TokenEstimator do
+   @moduledoc """
+-  Token estimation utilities for conversation context management.
++  Moved to `Candil.Context.TokenEstimator` by amendment D8, and kept here only
++  so consumers outside the ecosystem keep compiling until 4.1.0.
+ 
+-  Splits out the token-counting heuristics from `Candil.Conversation` so
+-  the conversation module remains focused on message lifecycle.
+-
+-  Not part of the public API — used only by `Candil.Conversation`.
++  This is a facade with no logic of its own. The implementation lives in
++  `Candil.Context.TokenEstimator`, because `Candil.Context` needs the estimator
++  and the conversation facade is on its way out; two copies of the same
++  heuristics is the thing D8 was written to prevent.
++  """
+ 
+-  ## Algorithm
++  alias Candil.Context.TokenEstimator
+ 
+-  Uses the standard 4-chars-per-token heuristic (`ceil(byte_size/4)`)
+-  which is fast and works well for English/Code. For multi-lingual
+-  content, consider integrating a proper tokenizer (e.g., tiktoken).
+-  """
++  @deprecated "Usa Candil.Context.TokenEstimator. Se elimina en 4.1.0"
+ 
+-  @doc """
+-  Estimates token count for a conversation by summing all message
+-  tokens plus a buffer for the system prompt.
+-  """
++  @doc "See `Candil.Context.TokenEstimator.estimate_conversation/1`."
+   @spec estimate_conversation(map()) :: non_neg_integer()
+-  def estimate_conversation(%{messages: messages, system: system}) do
+-    message_total = Enum.reduce(messages, 0, fn msg, acc -> acc + estimate_message(msg) end)
+-    message_total + estimate_system(system)
+-  end
++  defdelegate estimate_conversation(conversation), to: TokenEstimator
+ 
+-  @doc """
+-  Estimates token count for a single message map.
+-  """
++  @doc "See `Candil.Context.TokenEstimator.estimate_message/1`."
+   @spec estimate_message(map()) :: non_neg_integer()
+-  def estimate_message(%{role: _role, content: content}) when is_binary(content) do
+-    estimate_content(content)
+-  end
+-
+-  def estimate_message(%{role: _role, content: content}) when is_list(content) do
+-    # Multimodal content: list of parts (text + images)
+-    Enum.reduce(content, 0, fn
+-      %{type: :text, text: text}, acc when is_binary(text) -> acc + estimate_content(text)
+-      # rough estimate for image content
+-      _, acc -> acc + 100
+-    end)
+-  end
+-
+-  def estimate_message(_msg), do: 0
+-
+-  defp estimate_system(nil), do: 0
+-  defp estimate_system(text) when is_binary(text), do: estimate_content(text)
+-
+-  @doc """
+-  Estimates token count for a raw text string.
+-
+-  Uses a per-word approximation: each whitespace-separated word
+-  contributes one token (rounded up for long words to account for
+-  sub-word splits common in BPE tokenizers). On typical English/Code
+-  text this is within ±10% of `tiktoken`'s count.
++  defdelegate estimate_message(message), to: TokenEstimator
+ 
+-      iex> TokenEstimator.estimate_content("hello world")
+-      2
+-      iex> TokenEstimator.estimate_content("antidisestablishmentarianism")
+-      2
+-
+-  The legacy 4-chars-per-token heuristic is still available via
+-  `estimate_content_legacy/1`.
+-  """
++  @doc "See `Candil.Context.TokenEstimator.estimate_content/1`."
+   @spec estimate_content(String.t()) :: non_neg_integer()
+-  def estimate_content(text) when is_binary(text) do
+-    text
+-    |> String.split(~r/\s+/, trim: true)
+-    |> Enum.reduce(0, fn word, acc ->
+-      # Each word ≈ 1 token, plus 1 extra per 6 chars for BPE-style splits.
+-      chars = byte_size(word)
+-      acc + 1 + div(chars, 6)
+-    end)
+-  end
+-
+-  def estimate_content(_), do: 0
++  defdelegate estimate_content(text), to: TokenEstimator
+ 
+-  @doc """
+-  Legacy 4-chars-per-token heuristic. Faster than `estimate_content/1`
+-  but less accurate for short or non-English text. Kept for callers
+-  that need the exact old behaviour.
+-  """
++  @doc "See `Candil.Context.TokenEstimator.estimate_content_legacy/1`."
+   @spec estimate_content_legacy(String.t()) :: non_neg_integer()
+-  def estimate_content_legacy(text) when is_binary(text) do
+-    ceil(byte_size(text) / 4)
+-  end
++  defdelegate estimate_content_legacy(text), to: TokenEstimator
+ 
+-  def estimate_content_legacy(_), do: 0
++  @doc "See `Candil.Context.TokenEstimator.estimate_message_tokens/1`."
++  @spec estimate_message_tokens(map()) :: non_neg_integer()
++  defdelegate estimate_message_tokens(message), to: TokenEstimator
+ 
+-  # ─── Aliases for backwards compatibility ──────────────────────────
++  @doc "See `Candil.Context.TokenEstimator.estimate_content_tokens/1`."
++  @spec estimate_content_tokens(String.t()) :: non_neg_integer()
++  defdelegate estimate_content_tokens(text), to: TokenEstimator
+ 
+-  @doc """
+-  Backwards-compatible alias for `estimate_message/1`.
+-  """
+-  def estimate_message_tokens(msg), do: estimate_message(msg)
+-
+-  @doc """
+-  Backwards-compatible alias for `estimate_content/1`.
+-  """
+-  def estimate_content_tokens(text) when is_binary(text), do: estimate_content(text)
+-  def estimate_content_tokens(_), do: 0
+-
+-  @doc """
+-  Backwards-compatible alias for `estimate_content/1` (legacy name).
+-  """
+-  def estimate_tokens(text) when is_binary(text), do: estimate_content(text)
+-  def estimate_tokens(_), do: 0
++  @doc "See `Candil.Context.TokenEstimator.estimate_tokens/1`."
++  @spec estimate_tokens(String.t()) :: non_neg_integer()
++  defdelegate estimate_tokens(text), to: TokenEstimator
+ end
+diff --git a/lib/candil/inference/chat.ex b/lib/candil/inference/chat.ex
+index 3f3fa7c..3311178 100644
+--- a/lib/candil/inference/chat.ex
++++ b/lib/candil/inference/chat.ex
+@@ -1,8 +1,15 @@
+ defmodule Candil.Inference.Chat do
+   @moduledoc false
+ 
+-  alias Candil.{Engine, Error, HTTP, Model, Provider, RequestBuilder, Store}
+-
++  alias Candil.{Engine, Error, HTTP, Inference, Model, Provider, RequestBuilder, Store}
++
++  # This module had no `@spec` at all, so dialyzer had to infer the return type
++  # from the body — and it inferred one that omitted `{:ok, _}`, which made
++  # every caller's success branch look unreachable. `Candil.Context.chat/4`
++  # hit it first. The contract is below, written from what the code returns:
++  # `parse_openai_response/1` answers `{:ok, response}` for any 2xx.
++  @spec do_chat_local(atom(), [Inference.message()], keyword()) ::
++          {:ok, Inference.response()} | {:error, term()}
+   def do_chat_local(model_alias, messages, opts) do
+     start = System.monotonic_time()
+     :telemetry.execute([:candil, :llm, :chat, :start], %{}, %{model: model_alias})
+@@ -36,6 +43,8 @@ defmodule Candil.Inference.Chat do
+     result
+   end
+ 
++  @spec do_chat_remote(Model.t(), Provider.t(), [Inference.message()], keyword()) ::
++          {:ok, Inference.response()} | {:error, term()}
+   def do_chat_remote(%Model{} = model, %Provider{} = provider, messages, opts) do
+     start = System.monotonic_time()
+     :telemetry.execute([:candil, :llm, :chat, :start], %{}, %{model: model.name})
+diff --git a/test/candil/conversation/token_estimator_test.exs b/test/candil/conversation/token_estimator_test.exs
+index 7a01b28..53419c7 100644
+--- a/test/candil/conversation/token_estimator_test.exs
++++ b/test/candil/conversation/token_estimator_test.exs
+@@ -1,93 +1,50 @@
+ defmodule Candil.Conversation.TokenEstimatorTest do
+   use ExUnit.Case, async: true
+ 
+-  alias Candil.Conversation.TokenEstimator
++  # D8 moved the implementation to `Candil.Context.TokenEstimator`. The real
++  # tests live there now; what is left here is the promise that matters to
++  # consumers outside this ecosystem: the old name still answers, with the same
++  # number, instead of quietly raising UndefinedFunctionError on their next
++  # upgrade.
++  # Calling the deprecated facade on purpose is the whole point of this file,
++  # so the compiler warning it produces is left standing: it is correct, and a
++  # suppression here that silently did nothing would be worse than the noise.
++  # (It was tried. `@compile {:no_warn_deprecated, M}` does not take effect when
++  # both modules land in the same parallel compilation batch — measured.)
+ 
+-  describe "estimate_content/1 (per-word heuristic)" do
+-    test "counts words" do
+-      assert TokenEstimator.estimate_content("hello world") == 2
+-      assert TokenEstimator.estimate_content("") == 0
+-    end
+-
+-    test "adds extra tokens for long words" do
+-      # 7 chars → 1 + div(7, 6) = 2
+-      assert TokenEstimator.estimate_content("antidis") == 2
+-      # 24 chars → 1 + 4 = 5
+-      assert TokenEstimator.estimate_content("antidisestablishmentarianism") == 5
+-    end
+-
+-    test "handles non-binary input as zero" do
+-      assert TokenEstimator.estimate_content(nil) == 0
+-      assert TokenEstimator.estimate_content(123) == 0
+-    end
+-  end
+-
+-  describe "estimate_content_legacy/1 (4 chars per token)" do
+-    test "uses ceil(byte_size/4)" do
+-      assert TokenEstimator.estimate_content_legacy("abcd") == 1
+-      assert TokenEstimator.estimate_content_legacy("abcde") == 2
+-      assert TokenEstimator.estimate_content_legacy("") == 0
+-    end
+-
+-    test "handles non-binary input as zero" do
+-      assert TokenEstimator.estimate_content_legacy(nil) == 0
+-    end
+-  end
+-
+-  describe "estimate_message/1" do
+-    test "counts string content" do
+-      assert TokenEstimator.estimate_message(%{role: "user", content: "hello world"}) == 2
+-    end
+-
+-    test "counts multimodal parts (text + images)" do
+-      msg = %{
+-        role: "user",
+-        content: [
+-          %{type: :text, text: "look"},
+-          %{type: :image}
+-        ]
+-      }
+-
+-      # 1 word (1 token) + 100 for the image
+-      assert TokenEstimator.estimate_message(msg) == 101
+-    end
++  alias Candil.Context.TokenEstimator, as: New
++  alias Candil.Conversation.TokenEstimator, as: Old
+ 
+-    test "returns 0 for unknown shapes" do
+-      assert TokenEstimator.estimate_message(%{}) == 0
+-      assert TokenEstimator.estimate_message(nil) == 0
+-    end
+-  end
++  @conversation %{messages: [%{role: "user", content: "hello world"}], system: "be brief"}
++  @message %{role: "user", content: "hello world"}
+ 
+-  describe "estimate_conversation/1" do
+-    test "sums messages plus system prompt" do
+-      conv = %{
+-        messages: [%{role: "user", content: "hi there"}, %{role: "assistant", content: "yo"}],
+-        system: "you are a bot"
+-      }
+-
+-      # 2 + 1 + 4 = 7
+-      assert TokenEstimator.estimate_conversation(conv) == 7
++  describe "the old name still answers" do
++    test "estimate_conversation/1" do
++      assert Old.estimate_conversation(@conversation) ==
++               New.estimate_conversation(@conversation)
+     end
+ 
+-    test "works without system prompt" do
+-      conv = %{messages: [%{role: "user", content: "hello"}], system: nil}
+-      assert TokenEstimator.estimate_conversation(conv) == 1
++    test "estimate_message/1" do
++      assert Old.estimate_message(@message) == New.estimate_message(@message)
+     end
+-  end
+ 
+-  describe "backwards-compatible aliases" do
+-    test "estimate_message_tokens/1 delegates to estimate_message/1" do
+-      assert TokenEstimator.estimate_message_tokens(%{role: "user", content: "a b"}) == 2
++    test "estimate_content/1" do
++      assert Old.estimate_content("hello world") == New.estimate_content("hello world")
+     end
+ 
+-    test "estimate_content_tokens/1 delegates to estimate_content/1" do
+-      assert TokenEstimator.estimate_content_tokens("a b") == 2
+-      assert TokenEstimator.estimate_content_tokens(nil) == 0
++    test "estimate_content_legacy/1" do
++      assert Old.estimate_content_legacy("hello world") ==
++               New.estimate_content_legacy("hello world")
+     end
+ 
+-    test "estimate_tokens/1 delegates to estimate_content/1" do
+-      assert TokenEstimator.estimate_tokens("a b") == 2
+-      assert TokenEstimator.estimate_tokens(nil) == 0
++    test "the three aliases" do
++      for {old, new} <- [
++            {Old.estimate_message_tokens(@message), New.estimate_message_tokens(@message)},
++            {Old.estimate_content_tokens("hi there"), New.estimate_content_tokens("hi there")},
++            {Old.estimate_tokens("hi there"), New.estimate_tokens("hi there")}
++          ] do
++        assert old == new
++      end
+     end
+   end
+ end
+diff --git a/test/candil/conversation_test.exs b/test/candil/conversation_test.exs
+index 241176a..fabcd3d 100644
+--- a/test/candil/conversation_test.exs
++++ b/test/candil/conversation_test.exs
+@@ -3,6 +3,39 @@ defmodule Candil.ConversationTest do
+ 
+   alias Candil.Conversation
+ 
++  describe "D8 · what was decided about this module" do
++    test "the docstring names the replacement and when it goes" do
++      {:docs_v1, _, _, _, %{"en" => doc}, _, _} = Code.fetch_docs(Conversation)
++
++      assert doc =~ "Candil.chat_with_context/4"
++      assert doc =~ "4.1.0"
++    end
++
++    test "the replacement this deprecation points at actually exists" do
++      # A deprecation that names a function nobody wrote is worse than none:
++      # it sends the reader to a second dead end.
++      assert Code.ensure_loaded?(Candil)
++      assert function_exported?(Candil, :chat_with_context, 4)
++    end
++
++    test "Conversation.Context is gone, and the estimator moved rather than was copied" do
++      # D8: `Conversation.Context` had never left the house, so it is removed
++      # and not deprecated. Two copies of the estimator would be worse than
++      # either moving or deleting, so it moved.
++      refute Code.ensure_loaded?(Candil.Conversation.Context)
++
++      assert Code.ensure_loaded?(Candil.Context.TokenEstimator)
++      assert function_exported?(Candil.Context.TokenEstimator, :estimate_content, 1)
++    end
++
++    test "the old estimator name still works, delegating to the new home" do
++      # Consumers outside the ecosystem call this by its old name. Broken, they
++      # would not get a deprecation warning first; they would just stop.
++      assert Candil.Conversation.TokenEstimator.estimate_content("hello world") ==
++               Candil.Context.TokenEstimator.estimate_content("hello world")
++    end
++  end
++
+   describe "new/1" do
+     test "creates a conversation with model" do
+       conv = Conversation.new(model: :llama3)

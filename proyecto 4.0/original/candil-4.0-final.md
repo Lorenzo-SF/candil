@@ -20,20 +20,19 @@
 > los snapshots del código real de `candil` 3.0.0, `ropero`, `elpaso`,
 > `botica`, `posadero`, `alaja`, `apero`, `arrea`, `trebejo`.
 >
-> **Destino**: `~/cacafuti/lasaca/PENDIENTE/principal/candil-4.md`
+> **Destino**: `~/workspace/github/lasaca/PENDIENTE/principal/candil-4.md`
 
 ---
 
 ## Índice
 
 **Parte I — Contexto** (§1-§4)
+
 1. [Resumen ejecutivo](#1-resumen-ejecutivo) · 2. [Estado real de candil](#2-estado-real-de-candil-300) · 3. [Los hallazgos que cambian el diseño](#3--los-hallazgos-que-cambian-el-diseño) · 4. [ropero](#4-ropero--lo-que-se-absorbe) · 5. [ElPaso y el ecosistema](#5-elpaso-y-el-ecosistema)
 
-**Parte II — Decisiones** (§6-§7)
-6. [Decisiones cerradas](#6-decisiones-cerradas) · 7. [Contradicciones resueltas](#7-contradicciones-resueltas)
+**Parte II — Decisiones** (§6-§7) 6. [Decisiones cerradas](#6-decisiones-cerradas) · 7. [Contradicciones resueltas](#7-contradicciones-resueltas)
 
-**Parte III — Arquitectura** (§8-§22)
-8. [El modelo provider/engine/model](#8-el-modelo-providerenginemodel) · 9. [Capas y ficheros](#9-capas-y-ficheros) · 10. [Config TOML](#10-config-toml) · 11. [Puertos, instancias y supervivencia](#11-puertos-instancias-y-supervivencia-del-proceso) · 12. [Source](#12-candilsource--descargar-sin-el-cli-hf) · 13. [Build](#13-candilbuild--las-dos-estrategias-de-instalación) · 14. [Módulos: API](#14-módulos-nuevos--especificación-de-api) · 15. [H1: autenticación local](#15-h1--autenticación-en-la-ruta-local) · 16. [CLI](#16-cli) · 17. [Doctor](#17-candildoctor) · 18. [Context compartido](#18-context-compartido) · 19. [Router](#19-router) · 20. [Gateway](#20-gateway-openai-compatible) · 21. [MCP](#21-mcp) · 22. [RAG](#22-rag)
+**Parte III — Arquitectura** (§8-§22) 8. [El modelo provider/engine/model](#8-el-modelo-providerenginemodel) · 9. [Capas y ficheros](#9-capas-y-ficheros) · 10. [Config TOML](#10-config-toml) · 11. [Puertos, instancias y supervivencia](#11-puertos-instancias-y-supervivencia-del-proceso) · 12. [Source](#12-candilsource--descargar-sin-el-cli-hf) · 13. [Build](#13-candilbuild--las-dos-estrategias-de-instalación) · 14. [Módulos: API](#14-módulos-nuevos--especificación-de-api) · 15. [H1: autenticación local](#15-h1--autenticación-en-la-ruta-local) · 16. [CLI](#16-cli) · 17. [Doctor](#17-candildoctor) · 18. [Context compartido](#18-context-compartido) · 19. [Router](#19-router) · 20. [Gateway](#20-gateway-openai-compatible) · 21. [MCP](#21-mcp) · 22. [RAG](#22-rag)
 
 **Parte IV — Plan** (§23) · 12 fases, criterios de aceptación
 
@@ -71,14 +70,14 @@ El plan trae las dos cosas a un solo sitio.
 
 **Alcance completo de v4**, en seis bloques:
 
-| Bloque | Qué |
-|---|---|
-| **Fundamentos** | los 8 bugs, la autenticación local, config TOML, descargas, compilación |
-| **Ciclo de vida** | el modelo provider/engine/model, las instancias, la CLI |
-| **Diagnóstico** | `candil doctor`, con botica para los checks genéricos |
-| **Memoria** | Context compartido entre consumidores, con resumen automático |
-| **Decisión** | Router: qué modelo responde, con reglas, embeddings y clasificador |
-| **Exposición** | Gateway HTTP, MCP, RAG |
+| Bloque            | Qué                                                                     |
+| ----------------- | ----------------------------------------------------------------------- |
+| **Fundamentos**   | los 8 bugs, la autenticación local, config TOML, descargas, compilación |
+| **Ciclo de vida** | el modelo provider/engine/model, las instancias, la CLI                 |
+| **Diagnóstico**   | `candil doctor`, con botica para los checks genéricos                   |
+| **Memoria**       | Context compartido entre consumidores, con resumen automático           |
+| **Decisión**      | Router: qué modelo responde, con reglas, embeddings y clasificador      |
+| **Exposición**    | Gateway HTTP, MCP, RAG                                                  |
 
 **Esfuerzo**: 57-67 días de trabajo concentrado, 12-14 semanas. Es un proyecto
 grande, y el documento lo dice en vez de esconderlo.
@@ -91,18 +90,18 @@ grande, y el documento lo dice en vez de esconderlo.
 
 Verificado contra el snapshot (49 ficheros en `lib/`).
 
-| Capa | Módulos | Estado |
-|---|---|---|
-| **App** | `Application` (Registry, Config, Cancellation, Tool, EnginePool, DynamicSupervisor) | ✅ |
-| **Config** | `Config` (3 tablas ETS), `ConfigManager` | ⚠️ solo ETS, sin fichero |
-| **Dominio** | `Model`, `Provider`, `Engine` | ✅ structs con validación |
-| **Ciclo engine** | `Engine`, `Engine.Server`, `Engine.Server.External`, `Engine.Launcher`, `Engine.HealthPoller`, `EnginePool` | ⚠️ ver B6, B7 |
-| **Instalación** | `Installer`, `Detector`, `Detector.{GPU,Models,Release}` | ⚠️ ver B6, B8 |
-| **Inferencia** | `Inference`, `Inference.Chat`, `Inference.Embeddings`, `RequestBuilder`, `Stream`, `HTTP`, `HTTP.Client`, `HTTP.Retry` | ⚠️ ver B1, B5 |
-| **Backend** | `Backend`, `Backend.LlamaCpp`, `Backend.OpenAICompat` | ❌ 3 de 4 callbacks stub |
-| **Conversación** | `Conversation`, `Conversation.Context`, `Conversation.TokenEstimator` | ✅ |
-| **Tools/Agent** | `Tool`, `Tools`, `Structured`, `Agent` | ⚠️ dependen de los backends rotos |
-| **Runtime** | `Cost`, `Health`, `Telemetry`, `Cancellation`, `RateLimiter`, `Error` | ✅ |
+| Capa             | Módulos                                                                                                                | Estado                            |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------- | --------------------------------- |
+| **App**          | `Application` (Registry, Config, Cancellation, Tool, EnginePool, DynamicSupervisor)                                    | ✅                                |
+| **Config**       | `Config` (3 tablas ETS), `ConfigManager`                                                                               | ⚠️ solo ETS, sin fichero          |
+| **Dominio**      | `Model`, `Provider`, `Engine`                                                                                          | ✅ structs con validación         |
+| **Ciclo engine** | `Engine`, `Engine.Server`, `Engine.Server.External`, `Engine.Launcher`, `Engine.HealthPoller`, `EnginePool`            | ⚠️ ver B6, B7                     |
+| **Instalación**  | `Installer`, `Detector`, `Detector.{GPU,Models,Release}`                                                               | ⚠️ ver B6, B8                     |
+| **Inferencia**   | `Inference`, `Inference.Chat`, `Inference.Embeddings`, `RequestBuilder`, `Stream`, `HTTP`, `HTTP.Client`, `HTTP.Retry` | ⚠️ ver B1, B5                     |
+| **Backend**      | `Backend`, `Backend.LlamaCpp`, `Backend.OpenAICompat`                                                                  | ❌ 3 de 4 callbacks stub          |
+| **Conversación** | `Conversation`, `Conversation.Context`, `Conversation.TokenEstimator`                                                  | ✅                                |
+| **Tools/Agent**  | `Tool`, `Tools`, `Structured`, `Agent`                                                                                 | ⚠️ dependen de los backends rotos |
+| **Runtime**      | `Cost`, `Health`, `Telemetry`, `Cancellation`, `RateLimiter`, `Error`                                                  | ✅                                |
 
 **Deps** (`mix.exs`): `apero` y `arrea` por **GitHub** (no Hex), `jason`,
 `mox` (test), `credo`, `dialyxir`, `excoveralls`, `ex_doc`. `trebejo` se usa
@@ -117,16 +116,16 @@ dos `Application.get_env` en todo el código:
 
 ### 2.1 Los 8 bugs (verificados uno a uno)
 
-| # | Ubicación | Qué pasa | Consecuencia |
-|---|---|---|---|
-| **B1** | `Backend.LlamaCpp.chat/3` | `{:error, %Error{reason: :backend_unavailable}}` | `Agent.run/3` y `Structured.complete/4` **nunca funcionan** |
-| **B2** | `Backend.LlamaCpp.chat_stream/3` | ídem | sin streaming local por backend |
-| **B3** | `Backend.OpenAICompat.chat_stream/3` → `build_chunk_stream/1` | stream de 1 chunk vacío con `Process.sleep(50)` | **peor que no tener streaming**: el llamador cree que funciona |
-| **B4** | `Backend.OpenAICompat.embed/3` | `Enum.map` con una request por texto | 100 textos = 100 round-trips. La doc promete batch |
-| **B5** | `Config.register_provider/1` → `validate_api_key/1` | solo acepta `{:system, "VAR"}` o `nil`; el README muestra un string plano | `raise ArgumentError` siguiendo el README |
-| **B6** | `Detector.safe_arch/0` | si `Trebejo.OS` no está, devuelve `:unknown` en silencio | la descarga del binario falla después sin decir por qué. `trebejo` no está en `mix.exs` |
-| **B7** | `EnginePool` | LRU de N donde **nadie llama `evict/0`**. `put/1` es `cast` (fire-and-forget) | no es un pool, es el registro de la última escritura. El nombre miente |
-| **B8** | `Installer.verify_checksum/2` | `File.read(path)` completo para modelos de **17 GB** | OOM. Verificado: `qwen.env` descarga un GGUF de 17.7 GB |
+| #      | Ubicación                                                     | Qué pasa                                                                      | Consecuencia                                                                            |
+| ------ | ------------------------------------------------------------- | ----------------------------------------------------------------------------- | --------------------------------------------------------------------------------------- |
+| **B1** | `Backend.LlamaCpp.chat/3`                                     | `{:error, %Error{reason: :backend_unavailable}}`                              | `Agent.run/3` y `Structured.complete/4` **nunca funcionan**                             |
+| **B2** | `Backend.LlamaCpp.chat_stream/3`                              | ídem                                                                          | sin streaming local por backend                                                         |
+| **B3** | `Backend.OpenAICompat.chat_stream/3` → `build_chunk_stream/1` | stream de 1 chunk vacío con `Process.sleep(50)`                               | **peor que no tener streaming**: el llamador cree que funciona                          |
+| **B4** | `Backend.OpenAICompat.embed/3`                                | `Enum.map` con una request por texto                                          | 100 textos = 100 round-trips. La doc promete batch                                      |
+| **B5** | `Config.register_provider/1` → `validate_api_key/1`           | solo acepta `{:system, "VAR"}` o `nil`; el README muestra un string plano     | `raise ArgumentError` siguiendo el README                                               |
+| **B6** | `Detector.safe_arch/0`                                        | si `Trebejo.OS` no está, devuelve `:unknown` en silencio                      | la descarga del binario falla después sin decir por qué. `trebejo` no está en `mix.exs` |
+| **B7** | `EnginePool`                                                  | LRU de N donde **nadie llama `evict/0`**. `put/1` es `cast` (fire-and-forget) | no es un pool, es el registro de la última escritura. El nombre miente                  |
+| **B8** | `Installer.verify_checksum/2`                                 | `File.read(path)` completo para modelos de **17 GB**                          | OOM. Verificado: `qwen.env` descarga un GGUF de 17.7 GB                                 |
 
 **Tests stale** (B9): `config_test.exs:9` hace
 `delete_all_objects(:apero_llm_engines, :undefined)` — nombre obsoleto y aridad
@@ -179,7 +178,7 @@ candil— se saltó de Candil y escribió su propio cliente:
 `Posadero.LLM.Ropero` existe **porque Candil no puede**. Y documenta un segundo
 problema en el mismo sitio:
 
-> El puerto de un modelo no es una propiedad del modelo: sale de su *provider*,
+> El puerto de un modelo no es una propiedad del modelo: sale de su _provider_,
 > y un mismo provider sirve varios alias. Además, `ropero.d/*.sh` puede pinear
 > un modelo a un puerto propio con `MODEL_PORT`, y entonces ese alias se aparta
 > del slot que le tocaría por su provider.
@@ -193,13 +192,13 @@ desde Candil. Es un agujero general. **Diseño en §15. Fase 0.**
 
 ### 3.2 H2 — El modelo de datos de ropero no encaja
 
-| ropero | Candil 3.0 | Problema |
-|---|---|---|
-| `MODEL_ENGINE` (llama-server, airllm, tensorrt-llm, mlx_lm) | `Engine.alias` | Candil asume un solo tipo de motor |
-| `MODEL_PORT` (9990 embed, 9991 qwenvision) | `Engine.port` | el puerto está en el engine, no en el modelo |
-| `get_model_args_X()` | `Model.model_args` | ok en concepto; Candil no genera los flags base |
-| flags del binario en sí | `Installer` descarga un precompilado genérico | el binario de ropero y el de Candil **no son equivalentes** |
-| **el mismo modelo corriendo dos veces** (GPU + CPU) | — | Candil no tiene el concepto de instancia |
+| ropero                                                      | Candil 3.0                                    | Problema                                                    |
+| ----------------------------------------------------------- | --------------------------------------------- | ----------------------------------------------------------- |
+| `MODEL_ENGINE` (llama-server, airllm, tensorrt-llm, mlx_lm) | `Engine.alias`                                | Candil asume un solo tipo de motor                          |
+| `MODEL_PORT` (9990 embed, 9991 qwenvision)                  | `Engine.port`                                 | el puerto está en el engine, no en el modelo                |
+| `get_model_args_X()`                                        | `Model.model_args`                            | ok en concepto; Candil no genera los flags base             |
+| flags del binario en sí                                     | `Installer` descarga un precompilado genérico | el binario de ropero y el de Candil **no son equivalentes** |
+| **el mismo modelo corriendo dos veces** (GPU + CPU)         | —                                             | Candil no tiene el concepto de instancia                    |
 
 **Diseño**: §8 (provider/engine/model), §11 (instancias), §13 (build).
 
@@ -274,19 +273,19 @@ Descubrimiento: se sourcea cada `ropero.d/*.sh` y se leen 8 arrays asociativos
 `MODEL_ALIAS_TARGET`, `MODEL_GPU`, `MODEL_PORT`). Se excluyen los que empiezan
 por `_`, `00-`, `01-`, `*-compile-*`, `*-download-*`.
 
-| Script | Engine | GGUF / Path | ctx | Alias | Puerto | Flags distintivos |
-|---|---|---|---|---|---|---|
-| `devstral.sh` | llama-server | `Devstral-Small-2-24B-Instruct-2512-UD-Q4_K_XL.gguf` | 131072 | **`coder_lite`** | — | `ngl -1`, `no-kv-offload`, `cache q8_0`, `cache-prompt`, `cache-reuse 512`, `kv-unified`, `context-shift`, `jinja`, `chat-template-kwargs {"enable_thinking": false}`, `reasoning-format deepseek`, `temp 0.6/top-k 20/top-p 0.95/min-p 0.05/repeat-penalty 1.0/repeat-last-n 64/seed -1`, `batch 4096/ubatch 1024/parallel 1`, `threads 12/threads-batch 16/poll 30`, `n-predict 4096/keep 1024`, `load-mode none` |
-| `qwencoder.sh` | llama-server | `Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf` | 131072 | **`coder`** | — | `ngl -1` + **`n-cpu-moe 30`** (MoE en CPU por 16 GB VRAM), `no-kv-offload`, `cache q8_0`, `cache-prompt`, `context-shift`, `kv-unified`, `jinja`, `reasoning-format deepseek`, `load-mode none`, `temp 0.7/top-p 0.8/top-k 20/min-p 0/repeat-penalty 1.05/repeat-last-n 64`, `batch 4096/ubatch 1024/parallel 1`, `threads 12`, `n-predict 8192/keep 1024` |
-| `qwen.sh` | llama-server | `Qwen3.8-27B-UD-Q3_K_XL.gguf` | 131072 | **`analyst`** | — | `ngl 99` (**no `-1`**: el fitting se cuelga con ctx 131k + draft), **`--spec-type draft-mtp` + `--model-draft …/mtp-Qwen3.8-27B-Q4_0.gguf`**, `n-gpu-layers-draft -1`, `spec-draft-n-max 5/spec-draft-n-min 1/spec-draft-backend-sampling`, `no-kv-offload`, `cache q8_0/cache-prompt/context-shift/kv-unified`, `jinja`, `reasoning-format deepseek`, `chat-template-kwargs {"enable_thinking": false}`, `load-mode none`, `temp 0.7/top-p 0.8/top-k 20/min-p 0/presence-penalty 1.5/repeat-penalty 1.0/repeat-last-n 64`, `n-predict 16384/keep 1024` |
-| `qwenvision.sh` | llama-server | `Qwen2.5-VL-7B-Instruct-UD-Q4_K_XL.gguf` | 32768 | — | **9991** | `ngl 999`, **`--mmproj <dir>/Qwen2.5-VL-mmproj.gguf`**, `temp 0.2/top-p 0.9/top-k 20/repeat-penalty 1.05`, `cache q8_0`, `n-predict 4096/slot-prompt-similarity 0.8/keep 8192`, `jinja`, `load-mode none`. *(en `fired/`)* |
-| `fable.sh` | llama-server | `Fable-Coder-35B-A3B-Q4_K_M.gguf` | 131072 | — | — | MoE 35B/3B, MTP nativo, tuning por VRAM (`n-cpu-moe 40`), 48 layers Gated DeltaNet. Calibrado para RTX 5080 |
-| `embed.sh` | llama-server | `jina-code-embeddings-1.5b-Q8_0.gguf` | 8192 | — | **9990** | `--embedding`, `pooling last`, `embd-normalize 2`, `batch 1024/ubatch 1024/parallel 4`, `jinja` |
-| `gptoss_high.sh` | llama-server (vía `_gptoss_common.sh`) | `openai_gpt-oss-20b-MXFP4.gguf` | 131072 | **`verifier`** | — | `ngl 99`, `temp 0.8/top-k 40/min-p 0.05/repeat-penalty 1.1`, **`chat-template-kwargs {"reasoning_effort":"high"}`**, `threads 12/threads-batch 24`, `reasoning-format auto`, `batch 4096/ubatch 1024`, `n-predict 16384/slot-prompt-similarity 0.2/keep 8192`, `cache q8_0`, `jinja`, `kv-unified`, `load-mode auto`, + spec ngram |
-| `gptoss_medium.sh` | ídem | ídem | 131072 | **`designer`** | — | `reasoning_effort: medium` |
-| `gptoss_low.sh` | ídem | ídem | 131072 | — | — | `reasoning_effort: low` + `spec-type ngram-simple` |
-| `airgptoss.sh` | **airllm** | `gpt-oss-120b` (safetensors) | 131072 | — | — | *(en `fired/`)* |
-| `fired/*.sh` (7) | varios | varios | — | — | — | archivados: `internivision`, `mlx_lm`, `muse`, `nemotron`, `next`, `qwopus`, `tensorrt-llm` |
+| Script             | Engine                                 | GGUF / Path                                          | ctx    | Alias            | Puerto   | Flags distintivos                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
+| ------------------ | -------------------------------------- | ---------------------------------------------------- | ------ | ---------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `devstral.sh`      | llama-server                           | `Devstral-Small-2-24B-Instruct-2512-UD-Q4_K_XL.gguf` | 131072 | **`coder_lite`** | —        | `ngl -1`, `no-kv-offload`, `cache q8_0`, `cache-prompt`, `cache-reuse 512`, `kv-unified`, `context-shift`, `jinja`, `chat-template-kwargs {"enable_thinking": false}`, `reasoning-format deepseek`, `temp 0.6/top-k 20/top-p 0.95/min-p 0.05/repeat-penalty 1.0/repeat-last-n 64/seed -1`, `batch 4096/ubatch 1024/parallel 1`, `threads 12/threads-batch 16/poll 30`, `n-predict 4096/keep 1024`, `load-mode none`                                                                                                                                     |
+| `qwencoder.sh`     | llama-server                           | `Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf`       | 131072 | **`coder`**      | —        | `ngl -1` + **`n-cpu-moe 30`** (MoE en CPU por 16 GB VRAM), `no-kv-offload`, `cache q8_0`, `cache-prompt`, `context-shift`, `kv-unified`, `jinja`, `reasoning-format deepseek`, `load-mode none`, `temp 0.7/top-p 0.8/top-k 20/min-p 0/repeat-penalty 1.05/repeat-last-n 64`, `batch 4096/ubatch 1024/parallel 1`, `threads 12`, `n-predict 8192/keep 1024`                                                                                                                                                                                              |
+| `qwen.sh`          | llama-server                           | `Qwen3.8-27B-UD-Q3_K_XL.gguf`                        | 131072 | **`analyst`**    | —        | `ngl 99` (**no `-1`**: el fitting se cuelga con ctx 131k + draft), **`--spec-type draft-mtp` + `--model-draft …/mtp-Qwen3.8-27B-Q4_0.gguf`**, `n-gpu-layers-draft -1`, `spec-draft-n-max 5/spec-draft-n-min 1/spec-draft-backend-sampling`, `no-kv-offload`, `cache q8_0/cache-prompt/context-shift/kv-unified`, `jinja`, `reasoning-format deepseek`, `chat-template-kwargs {"enable_thinking": false}`, `load-mode none`, `temp 0.7/top-p 0.8/top-k 20/min-p 0/presence-penalty 1.5/repeat-penalty 1.0/repeat-last-n 64`, `n-predict 16384/keep 1024` |
+| `qwenvision.sh`    | llama-server                           | `Qwen2.5-VL-7B-Instruct-UD-Q4_K_XL.gguf`             | 32768  | —                | **9991** | `ngl 999`, **`--mmproj <dir>/Qwen2.5-VL-mmproj.gguf`**, `temp 0.2/top-p 0.9/top-k 20/repeat-penalty 1.05`, `cache q8_0`, `n-predict 4096/slot-prompt-similarity 0.8/keep 8192`, `jinja`, `load-mode none`. _(en `fired/`)_                                                                                                                                                                                                                                                                                                                              |
+| `fable.sh`         | llama-server                           | `Fable-Coder-35B-A3B-Q4_K_M.gguf`                    | 131072 | —                | —        | MoE 35B/3B, MTP nativo, tuning por VRAM (`n-cpu-moe 40`), 48 layers Gated DeltaNet. Calibrado para RTX 5080                                                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `embed.sh`         | llama-server                           | `jina-code-embeddings-1.5b-Q8_0.gguf`                | 8192   | —                | **9990** | `--embedding`, `pooling last`, `embd-normalize 2`, `batch 1024/ubatch 1024/parallel 4`, `jinja`                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `gptoss_high.sh`   | llama-server (vía `_gptoss_common.sh`) | `openai_gpt-oss-20b-MXFP4.gguf`                      | 131072 | **`verifier`**   | —        | `ngl 99`, `temp 0.8/top-k 40/min-p 0.05/repeat-penalty 1.1`, **`chat-template-kwargs {"reasoning_effort":"high"}`**, `threads 12/threads-batch 24`, `reasoning-format auto`, `batch 4096/ubatch 1024`, `n-predict 16384/slot-prompt-similarity 0.2/keep 8192`, `cache q8_0`, `jinja`, `kv-unified`, `load-mode auto`, + spec ngram                                                                                                                                                                                                                      |
+| `gptoss_medium.sh` | ídem                                   | ídem                                                 | 131072 | **`designer`**   | —        | `reasoning_effort: medium`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| `gptoss_low.sh`    | ídem                                   | ídem                                                 | 131072 | —                | —        | `reasoning_effort: low` + `spec-type ngram-simple`                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `airgptoss.sh`     | **airllm**                             | `gpt-oss-120b` (safetensors)                         | 131072 | —                | —        | _(en `fired/`)_                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `fired/*.sh` (7)   | varios                                 | varios                                               | —      | —                | —        | archivados: `internivision`, `mlx_lm`, `muse`, `nemotron`, `next`, `qwopus`, `tensorrt-llm`                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
 
 **Detalle estructural**: `gptoss_high/medium/low.sh` **no contienen los
 flags**. Hacen `source _gptoss_common.sh` y delegan en
@@ -416,37 +415,37 @@ falta, `candil status --system`.
 
 Verificado contra el snapshot (17.554 líneas, 82 módulos).
 
-| Módulo | Veredicto | Motivo |
-|---|---|---|
-| `Downloader.ModelDownloader` + `Registry` | ⚠️ **referencia** | Finch en streaming, progreso en ETS, checksum, cancelación, `.tmp`+rename, telemetría. Le faltan rangos, pausa, concurrencia, y no hay forma de **esperar**. Buena base, no está lista |
-| `Domain.Router` + `DecisionEngine` + `Scorer` + `TaskCategories` + `Cache` + `EmbeddingMatcher` + `LLMClassifier` + `ModelState` + `AutoTuner` + `RouterAnalyzer` | ✅ **v4, §19** | la lógica es válida; el acoplamiento a `Personality` + Ecto no |
-| `HTTP.Server` + `Anthropic.Proxy` + `MessageNormalizer` | ✅ **v4, §20** | el normalizador es reutilizable tal cual |
-| `Context.*` (Storage, SessionContext, ContextBuilder, ContextSummarizer, PrefixManager, TokenCounter, SessionSupervisor) | ✅ **v4, §18** | con backend ETS, sin Ecto |
-| `Engine.Adapter` + `HTTPClient` | ✅ **v4, §20** | se reescriben sobre `Candil.Provider` |
-| `Security.Auth` + `RateLimiter` | ✅ **v4, §20** | JWT **no** (ver §21 para lo que sí implica) |
-| `CostManager` | ✅ **v4, §14.6** | presupuesto por consumidor |
-| `Doctor` | ❌ **descartar** | sus 10 checks son de ElPaso (pgvector, migraciones, Ollama). Candil usa botica |
-| `Domain.LlamaServerManager` | ❌ **descartar** | un modelo a la vez, puerto 8081 fijo, delega en `~/bin/localllama`, `Process.sleep(1_000)`. Candil lo hace mejor |
-| `Domain.ModelManager` | ❌ **descartar** | circuit breakers de Zaguan, `Repo` para todo, `@circuit_opts` hardcodeados |
-| `Domain.EngineManager` | ❌ **descartar** | CRUD de Ecto |
-| `Ecosystem` | ❌ **descartar** | `Code.ensure_loaded?` + `apply/3` para Zaguan/Apero: antipatrón en una librería pública |
-| `Bootstrap` | ❌ **descartar** | verifica pgvector y baja embeddings de Ollama |
-| `HTTP.Dashboard` | ❌ **descartar** | web |
-| `Cluster.*`, `PersonalityManager` | ❌ **descartar** | multi-nodo / fuera de alcance |
-| `CLI` + 17 mix tasks | ❌ **descartar** | `model list/start/stop` son stubs que solo hacen `IO.puts` |
-| `Models.*` (Ecto schemas) | ❌ **descartar** | sin Postgres en v4 |
+| Módulo                                                                                                                                                            | Veredicto         | Motivo                                                                                                                                                                                 |
+| ----------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `Downloader.ModelDownloader` + `Registry`                                                                                                                         | ⚠️ **referencia** | Finch en streaming, progreso en ETS, checksum, cancelación, `.tmp`+rename, telemetría. Le faltan rangos, pausa, concurrencia, y no hay forma de **esperar**. Buena base, no está lista |
+| `Domain.Router` + `DecisionEngine` + `Scorer` + `TaskCategories` + `Cache` + `EmbeddingMatcher` + `LLMClassifier` + `ModelState` + `AutoTuner` + `RouterAnalyzer` | ✅ **v4, §19**    | la lógica es válida; el acoplamiento a `Personality` + Ecto no                                                                                                                         |
+| `HTTP.Server` + `Anthropic.Proxy` + `MessageNormalizer`                                                                                                           | ✅ **v4, §20**    | el normalizador es reutilizable tal cual                                                                                                                                               |
+| `Context.*` (Storage, SessionContext, ContextBuilder, ContextSummarizer, PrefixManager, TokenCounter, SessionSupervisor)                                          | ✅ **v4, §18**    | con backend ETS, sin Ecto                                                                                                                                                              |
+| `Engine.Adapter` + `HTTPClient`                                                                                                                                   | ✅ **v4, §20**    | se reescriben sobre `Candil.Provider`                                                                                                                                                  |
+| `Security.Auth` + `RateLimiter`                                                                                                                                   | ✅ **v4, §20**    | JWT **no** (ver §21 para lo que sí implica)                                                                                                                                            |
+| `CostManager`                                                                                                                                                     | ✅ **v4, §14.6**  | presupuesto por consumidor                                                                                                                                                             |
+| `Doctor`                                                                                                                                                          | ❌ **descartar**  | sus 10 checks son de ElPaso (pgvector, migraciones, Ollama). Candil usa botica                                                                                                         |
+| `Domain.LlamaServerManager`                                                                                                                                       | ❌ **descartar**  | un modelo a la vez, puerto 8081 fijo, delega en `~/bin/localllama`, `Process.sleep(1_000)`. Candil lo hace mejor                                                                       |
+| `Domain.ModelManager`                                                                                                                                             | ❌ **descartar**  | circuit breakers de Zaguan, `Repo` para todo, `@circuit_opts` hardcodeados                                                                                                             |
+| `Domain.EngineManager`                                                                                                                                            | ❌ **descartar**  | CRUD de Ecto                                                                                                                                                                           |
+| `Ecosystem`                                                                                                                                                       | ❌ **descartar**  | `Code.ensure_loaded?` + `apply/3` para Zaguan/Apero: antipatrón en una librería pública                                                                                                |
+| `Bootstrap`                                                                                                                                                       | ❌ **descartar**  | verifica pgvector y baja embeddings de Ollama                                                                                                                                          |
+| `HTTP.Dashboard`                                                                                                                                                  | ❌ **descartar**  | web                                                                                                                                                                                    |
+| `Cluster.*`, `PersonalityManager`                                                                                                                                 | ❌ **descartar**  | multi-nodo / fuera de alcance                                                                                                                                                          |
+| `CLI` + 17 mix tasks                                                                                                                                              | ❌ **descartar**  | `model list/start/stop` son stubs que solo hacen `IO.puts`                                                                                                                             |
+| `Models.*` (Ecto schemas)                                                                                                                                         | ❌ **descartar**  | sin Postgres en v4                                                                                                                                                                     |
 
 ### 5.2 El ecosistema, y quién se reusa
 
-| Librería | Versión | Qué se reusa |
-|---|---|---|
-| **apero** | 4.0.0 | `Http.stream/7`, `Http.get/3`, `Retry`, `Proc.which/1`, `OS.type/0`, `File`, `Crypto`, `Cache`. **Ya es dep** |
-| **arrea** | 3.0.0 | `LongRunning` (procesos OS), `CircuitBreaker`, `Registry`, telemetría, workers. **Ya es dep** |
-| **trebejo** | 2.0.0 | `OS.arch/0`. **Se declara dep** (arregla B6) |
-| **botica** | 2.1.1 | **solo `Doctor`**, para checks genéricos de memoria y disco |
-| **alaja** | 3.1.2 | `CLI.Definition`, `Components.Table`, `Printer`, `Printer.Interactive`, `Syntax`. **Dep de GitHub** |
-| **pote** | 3.0.0 | color, vía alaja. Transitiva |
-| **elpaso** | 0.1.0 | Router, Context, Gateway, MessageNormalizer, CostManager (§5.1) |
+| Librería    | Versión | Qué se reusa                                                                                                  |
+| ----------- | ------- | ------------------------------------------------------------------------------------------------------------- |
+| **apero**   | 4.0.0   | `Http.stream/7`, `Http.get/3`, `Retry`, `Proc.which/1`, `OS.type/0`, `File`, `Crypto`, `Cache`. **Ya es dep** |
+| **arrea**   | 3.0.0   | `LongRunning` (procesos OS), `CircuitBreaker`, `Registry`, telemetría, workers. **Ya es dep**                 |
+| **trebejo** | 2.0.0   | `OS.arch/0`. **Se declara dep** (arregla B6)                                                                  |
+| **botica**  | 2.1.1   | **solo `Doctor`**, para checks genéricos de memoria y disco                                                   |
+| **alaja**   | 3.1.2   | `CLI.Definition`, `Components.Table`, `Printer`, `Printer.Interactive`, `Syntax`. **Dep de GitHub**           |
+| **pote**    | 3.0.0   | color, vía alaja. Transitiva                                                                                  |
+| **elpaso**  | 0.1.0   | Router, Context, Gateway, MessageNormalizer, CostManager (§5.1)                                               |
 
 **Duplicación a vigilar**: `apero` y `trebejo` se solapan (File, Proc, OS, …).
 Candil no toca ninguno: usa `apero` para HTTP y procesos, y no necesita el resto.
@@ -457,52 +456,52 @@ Candil no toca ninguno: usa `apero` para HTTP y procesos, y no necesita el resto
 
 ## 6. Decisiones cerradas
 
-| # | Decisión | Razón |
-|---|---|---|
-| **C1** | **Alaja como dep de GitHub** `{:alaja, github: "Lorenzo-SF/alaja"}` | Los tres docs oscilaban entre `path:` y `github:`. `github:` es lo que ya usan `apero` y `arrea` |
-| **C2** | **ETS siempre.** Postgres fuera de v4 | "Opcional" en la práctica es "mantenerlo verde un año". Fuera |
-| **C3** | **Alcance de v4**: fundamentos, ciclo de vida, diagnóstico, Context, Router, Gateway, MCP, RAG. Todo definido en este documento | Es el punto único de conocimiento. No hay v5 difuminado: o está aquí, o no se hace |
-| **C4** | **Gateway en v4** | Es lo que hace que Candil sea consumible por opencode y cualquier cliente OpenAI-compatible sin instalar la librería |
-| **C5** | `apero` y `arrea` como dep. `trebejo` **declarada** (opcional) | Arregla B6 |
-| **C6** | Un solo `mix.exs` | Igual que los tres docs |
-| **C7** | `consumer` como parámetro en toda la API con estado | La mejor idea de v2/v3. Se mantiene |
-| **C8** | **El puerto es del modelo**, no del engine | H2. `Model.port :: :auto | pos_integer` |
-| **C9** | **`EnginePool` es un registro de instancias `{model, port} → pid`. Sin LRU** | B7. El LRU resolvía un problema que no se tiene: 4 modelos de 20 GB no caben, y tampoco los vas a cachear |
-| **C10** | **Dos estrategias de instalación declaradas por el usuario**: `:precompiled` y `:source` (clonar + `cmake` con **sus** `cmake_args`). Ningún flag por defecto | H4. ropero compila con `sm_120a` + MXFP4 porque su hardware lo pide. Eso lo sabe el usuario |
-| **C11** | **Botica no entra en el ciclo de vida.** Su dominio es `doctor`/`doctor --fix`. Se usa solo para checks genéricos | H3 |
-| **C12** | **`Engine` gana `:api_key`, `:auth_headers`, `:install`, `:base_port`. `Model` gana `:port`, `:source`, `:tags`, `:enabled`, `:launcher`, `:base_url`, `:type: :external`** | H1, H2, C10 |
-| **C13** | **Semver major**: 3.x → 4.0.0. Se rompen `Model`, `Engine`, `EnginePool` | Esos structs son API pública documentada |
-| **C14** | **Ningún motor de inferencia hardcodeado.** `Launcher` permite externos (vLLM, TGI, LM Studio, Ollama, airllm, tensorrt, mlx) sin código para ninguno | El punto ideal: muchos modelos, un engine, reutilizable |
-| **C15** | **No hay comando de migración.** Análisis (§4) + `candil.toml` a mano (Apéndice A) | Los `.sh` tienen `case` anidados, variables indiretas y `source` entre ellos. El análisis es un artefacto, no un parser |
-| **C16** | **ropero no se toca.** Legacy. Su retirada es decisión de Lorenzo | 50 GB descargados y gunter en producción |
-| **C17** | **Rutas configurables sin opinión.** `data_dir`, `model_dir`, `log_dir` en el TOML | "Da igual mientras sea configurable" |
-| **C18** | **Descarga nativa de HuggingFace por HTTPS**, sin el CLI `hf`. `repo` + `file` + `revision`, o `url` completo | `hf` no está en todas las máquinas. HTTPS directo da control de `Range`, checksum y progreso |
-| **C19** | **El CLI es foreground. `--detach` es `nohup` de sí mismo.** Un solo camino de ciclo de vida | H5. Ver §11 |
-| **C20** | **`instances.json` con un campo `owner` que hoy solo vale `{:pid, os_pid}`**, y un `case` de dispatch con una segunda cláusula reservada para `{:socket, path}` | Deja la puerta a un daemon sin especular código. Ver §11.4 |
-| **C21** | **MCP en la revisión `2025-11-25`**, con handshake `initialize`, cabecera `MCP-Protocol-Version` en HTTP, y **sin** JSON-RPC batching (eliminado en 2025-06-18) | Los tres docs usaban `2024-11-05`, dos generaciones de retraso |
-| **C22** | **Rutas de fichero siempre absolutas en los args.** `~` se expande al construir, nunca se pasa a `llama-server` | ropero lo avisa en su propio código: `~` no se expande entre comillas dobles |
+| #       | Decisión                                                                                                                                                                    | Razón                                                                                                                   |
+| ------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------- | ------------ |
+| **C1**  | **Alaja como dep de GitHub** `{:alaja, github: "Lorenzo-SF/alaja"}`                                                                                                         | Los tres docs oscilaban entre `path:` y `github:`. `github:` es lo que ya usan `apero` y `arrea`                        |
+| **C2**  | **ETS siempre.** Postgres fuera de v4                                                                                                                                       | "Opcional" en la práctica es "mantenerlo verde un año". Fuera                                                           |
+| **C3**  | **Alcance de v4**: fundamentos, ciclo de vida, diagnóstico, Context, Router, Gateway, MCP, RAG. Todo definido en este documento                                             | Es el punto único de conocimiento. No hay v5 difuminado: o está aquí, o no se hace                                      |
+| **C4**  | **Gateway en v4**                                                                                                                                                           | Es lo que hace que Candil sea consumible por opencode y cualquier cliente OpenAI-compatible sin instalar la librería    |
+| **C5**  | `apero` y `arrea` como dep. `trebejo` **declarada** (opcional)                                                                                                              | Arregla B6                                                                                                              |
+| **C6**  | Un solo `mix.exs`                                                                                                                                                           | Igual que los tres docs                                                                                                 |
+| **C7**  | `consumer` como parámetro en toda la API con estado                                                                                                                         | La mejor idea de v2/v3. Se mantiene                                                                                     |
+| **C8**  | **El puerto es del modelo**, no del engine                                                                                                                                  | H2. `Model.port :: :auto                                                                                                | pos_integer` |
+| **C9**  | **`EnginePool` es un registro de instancias `{model, port} → pid`. Sin LRU**                                                                                                | B7. El LRU resolvía un problema que no se tiene: 4 modelos de 20 GB no caben, y tampoco los vas a cachear               |
+| **C10** | **Dos estrategias de instalación declaradas por el usuario**: `:precompiled` y `:source` (clonar + `cmake` con **sus** `cmake_args`). Ningún flag por defecto               | H4. ropero compila con `sm_120a` + MXFP4 porque su hardware lo pide. Eso lo sabe el usuario                             |
+| **C11** | **Botica no entra en el ciclo de vida.** Su dominio es `doctor`/`doctor --fix`. Se usa solo para checks genéricos                                                           | H3                                                                                                                      |
+| **C12** | **`Engine` gana `:api_key`, `:auth_headers`, `:install`, `:base_port`. `Model` gana `:port`, `:source`, `:tags`, `:enabled`, `:launcher`, `:base_url`, `:type: :external`** | H1, H2, C10                                                                                                             |
+| **C13** | **Semver major**: 3.x → 4.0.0. Se rompen `Model`, `Engine`, `EnginePool`                                                                                                    | Esos structs son API pública documentada                                                                                |
+| **C14** | **Ningún motor de inferencia hardcodeado.** `Launcher` permite externos (vLLM, TGI, LM Studio, Ollama, airllm, tensorrt, mlx) sin código para ninguno                       | El punto ideal: muchos modelos, un engine, reutilizable                                                                 |
+| **C15** | **No hay comando de migración.** Análisis (§4) + `candil.toml` a mano (Apéndice A)                                                                                          | Los `.sh` tienen `case` anidados, variables indiretas y `source` entre ellos. El análisis es un artefacto, no un parser |
+| **C16** | **ropero no se toca.** Legacy. Su retirada es decisión de Lorenzo                                                                                                           | 50 GB descargados y gunter en producción                                                                                |
+| **C17** | **Rutas configurables sin opinión.** `data_dir`, `model_dir`, `log_dir` en el TOML                                                                                          | "Da igual mientras sea configurable"                                                                                    |
+| **C18** | **Descarga nativa de HuggingFace por HTTPS**, sin el CLI `hf`. `repo` + `file` + `revision`, o `url` completo                                                               | `hf` no está en todas las máquinas. HTTPS directo da control de `Range`, checksum y progreso                            |
+| **C19** | **El CLI es foreground. `--detach` es `nohup` de sí mismo.** Un solo camino de ciclo de vida                                                                                | H5. Ver §11                                                                                                             |
+| **C20** | **`instances.json` con un campo `owner` que hoy solo vale `{:pid, os_pid}`**, y un `case` de dispatch con una segunda cláusula reservada para `{:socket, path}`             | Deja la puerta a un daemon sin especular código. Ver §11.4                                                              |
+| **C21** | **MCP en la revisión `2025-11-25`**, con handshake `initialize`, cabecera `MCP-Protocol-Version` en HTTP, y **sin** JSON-RPC batching (eliminado en 2025-06-18)             | Los tres docs usaban `2024-11-05`, dos generaciones de retraso                                                          |
+| **C22** | **Rutas de fichero siempre absolutas en los args.** `~` se expande al construir, nunca se pasa a `llama-server`                                                             | ropero lo avisa en su propio código: `~` no se expande entre comillas dobles                                            |
 
 ## 7. Contradicciones de los documentos previos, resueltas
 
-| Punto | v1 | v2 | v3 | **v4** |
-|---|---|---|---|---|
-| Cuántos bugs | "3" (§2.2 lista 8) | 3 | 9 | **8 de código + 9 de test** |
-| Alcance de v4 | 10 fases, 25-35 d | 8 fases, 17-25 d | 10 fases, 26-36 d | **12 fases, 57-67 d, todo definido** |
-| RAG / MCP / Context / Gateway | dentro | dentro | dentro | **dentro, con especificación completa** (§18-§22) |
-| Puerto: modelo o engine | `[model.X] port` | igual | igual | **modelo** (C8) |
-| Compilar llama.cpp | no se menciona | no se menciona | `Candil.Installer` | **sí, con `cmake_args` del usuario** (C10) |
-| API key en la ruta local | **no se menciona** | **no se menciona** | **no se menciona** | **H1, bloqueante, Fase 0** |
-| `Botica.Batteries.LlamaServer` | **no se menciona** | "opt-in para doctor" | "opt-in para doctor" | **fuera de su dominio → de Candil** (C11) |
-| Supervivencia del proceso | no se menciona | no se menciona | no se menciona | **H5, §11** (C19, C20) |
-| Migración de ropero | `mix candil.migrate` + regex | ídem | ídem + shell | **no hay comando** (C15) |
-| `ropero` se borra | fase 10 | fase 7 | fase 7 | **no se toca** (C16) |
-| MCP protocol version | `2024-11-05` | `2024-11-05` | `2024-11-05` | **`2025-11-25` + header** (C21) |
-| `~` en los args | — | — | `"~/.candil/models/…"` en el ejemplo | **rutas absolutas siempre** (C22) |
-| Deps del ecosistema | github | path | path | **github** (C1) |
-| Postgres | "opcional" + Ecto | "opcional" + schemas | "opcional" + Repo | **fuera** (C2) |
-| Semver | no se dice | no se dice | no se dice | **major 4.0.0** (C13) |
-| `model_args` | lista | mapa TOML | mapa TOML | **lista ordenada** (§10.4) |
-| Auth del gateway | API key | API key + JWT | `api_keys` en TOML | **API key, con `{env}` opcional; JWT no** (§20.4) |
+| Punto                          | v1                           | v2                   | v3                                   | **v4**                                            |
+| ------------------------------ | ---------------------------- | -------------------- | ------------------------------------ | ------------------------------------------------- |
+| Cuántos bugs                   | "3" (§2.2 lista 8)           | 3                    | 9                                    | **8 de código + 9 de test**                       |
+| Alcance de v4                  | 10 fases, 25-35 d            | 8 fases, 17-25 d     | 10 fases, 26-36 d                    | **12 fases, 57-67 d, todo definido**              |
+| RAG / MCP / Context / Gateway  | dentro                       | dentro               | dentro                               | **dentro, con especificación completa** (§18-§22) |
+| Puerto: modelo o engine        | `[model.X] port`             | igual                | igual                                | **modelo** (C8)                                   |
+| Compilar llama.cpp             | no se menciona               | no se menciona       | `Candil.Installer`                   | **sí, con `cmake_args` del usuario** (C10)        |
+| API key en la ruta local       | **no se menciona**           | **no se menciona**   | **no se menciona**                   | **H1, bloqueante, Fase 0**                        |
+| `Botica.Batteries.LlamaServer` | **no se menciona**           | "opt-in para doctor" | "opt-in para doctor"                 | **fuera de su dominio → de Candil** (C11)         |
+| Supervivencia del proceso      | no se menciona               | no se menciona       | no se menciona                       | **H5, §11** (C19, C20)                            |
+| Migración de ropero            | `mix candil.migrate` + regex | ídem                 | ídem + shell                         | **no hay comando** (C15)                          |
+| `ropero` se borra              | fase 10                      | fase 7               | fase 7                               | **no se toca** (C16)                              |
+| MCP protocol version           | `2024-11-05`                 | `2024-11-05`         | `2024-11-05`                         | **`2025-11-25` + header** (C21)                   |
+| `~` en los args                | —                            | —                    | `"~/.candil/models/…"` en el ejemplo | **rutas absolutas siempre** (C22)                 |
+| Deps del ecosistema            | github                       | path                 | path                                 | **github** (C1)                                   |
+| Postgres                       | "opcional" + Ecto            | "opcional" + schemas | "opcional" + Repo                    | **fuera** (C2)                                    |
+| Semver                         | no se dice                   | no se dice           | no se dice                           | **major 4.0.0** (C13)                             |
+| `model_args`                   | lista                        | mapa TOML            | mapa TOML                            | **lista ordenada** (§10.4)                        |
+| Auth del gateway               | API key                      | API key + JWT        | `api_keys` en TOML                   | **API key, con `{env}` opcional; JWT no** (§20.4) |
 
 ---
 
@@ -562,15 +561,16 @@ graph TB
 
 `Model.type` pasa a tener tres valores:
 
-| type | Apunta a | Campos propios | Ciclo de vida |
-|---|---|---|---|
-| `:local` | un `Engine` | `port`, `model_args`, `source` | Candil lo arranca (o se lo pide al engine) |
-| `:remote` | un `Provider` | `name` | Candil no arranca nada |
-| `:external` | un `Engine` con `launcher` | `base_url`, `launcher` | Candil se engancha, no gestiona |
+| type        | Apunta a                   | Campos propios                 | Ciclo de vida                              |
+| ----------- | -------------------------- | ------------------------------ | ------------------------------------------ |
+| `:local`    | un `Engine`                | `port`, `model_args`, `source` | Candil lo arranca (o se lo pide al engine) |
+| `:remote`   | un `Provider`              | `name`                         | Candil no arranca nada                     |
+| `:external` | un `Engine` con `launcher` | `base_url`, `launcher`         | Candil se engancha, no gestiona            |
 
 `Model.validate/1` (que ya existe y no se llamaba) extiende la regla: `:local`
 exige `engine`, `:remote` exige `provider` + `name`, `:external` exige `engine`
-+ `base_url` + `launcher`.
+
+- `base_url` + `launcher`.
 
 ---
 
@@ -851,7 +851,7 @@ base_port  = 11434
 ```
 
 **Por qué es mejor que el `Detector` de 3.0**: el `Detector` elige el asset de la
-release *y no acierta si tu GPU es nueva*. Con `strategy = "source"` y
+release _y no acierta si tu GPU es nueva_. Con `strategy = "source"` y
 `CMAKE_CUDA_ARCHITECTURES` explícito, el binario es el que quieres, y cambiar de
 GPU es cambiar una línea del TOML.
 
@@ -1071,13 +1071,13 @@ hay una cosa que puede estar rota.
 
 Consecuencias, todas correctas:
 
-| Situación | Qué pasa |
-|---|---|
-| `candil run coder` + Ctrl-C | el engine muere. Es lo que quieres |
-| `candil run coder --detach` | un proceso `candil run` normal, con nohup, dueño del engine |
-| matan al proceso detached | el engine muere. Sin zombis |
-| `candil stop coder` desde otro terminal | lee `instances.json`, saca el pid, le manda la señal |
-| la VM se muere sola | el engine se va con ella. Nunca queda un huérfano |
+| Situación                               | Qué pasa                                                    |
+| --------------------------------------- | ----------------------------------------------------------- |
+| `candil run coder` + Ctrl-C             | el engine muere. Es lo que quieres                          |
+| `candil run coder --detach`             | un proceso `candil run` normal, con nohup, dueño del engine |
+| matan al proceso detached               | el engine muere. Sin zombis                                 |
+| `candil stop coder` desde otro terminal | lee `instances.json`, saca el pid, le manda la señal        |
+| la VM se muere sola                     | el engine se va con ella. Nunca queda un huérfano           |
 
 ### 11.4 `instances.json` y la puerta a un daemon (C20)
 
@@ -1126,11 +1126,11 @@ ya no existe — los `nohup` dejan zombis, y un JSON sin podar miente.
 
 ## 12. `Candil.Source` — descargar sin el CLI `hf`
 
-| kind | campos | cómo |
-|---|---|---|
+| kind          | campos                                                                    | cómo                                                                                                    |
+| ------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------- |
 | `huggingface` | `repo`, `file`, `revision`, `dest`, `dest_name`, `sha256`, `hf_token_env` | `GET https://huggingface.co/{repo}/resolve/{revision}/{file}`, con `Authorization: Bearer` si hay token |
-| `url` | `url`, `file`, `dest`, `sha256` | `GET {url}` a fichero |
-| `local` | `path` | no hace nada; comprueba que exista |
+| `url`         | `url`, `file`, `dest`, `sha256`                                           | `GET {url}` a fichero                                                                                   |
+| `local`       | `path`                                                                    | no hace nada; comprueba que exista                                                                      |
 
 **Requisitos no negociables** — algunos no los tiene ni ropero ni ElPaso:
 
@@ -1395,20 +1395,20 @@ graph TD
 
 **Equivalencia con ropero**, comando a comando:
 
-| ropero | candil 4.0 | Nota |
-|---|---|---|
-| `ropero list` | `candil models list` | + tamaño y estado de descarga |
-| `ropero <m>` (foreground) | `candil run <m>` | **foreground en ambos** (C19) |
-| `ropero <m> --background` | `candil run <m> --detach` | `nohup` de sí mismo |
-| `ropero <m> --cpu` | `candil run <m> --cpu` | idéntico |
-| `ropero <m> --port N` | `candil run <m> --port N` | idéntico |
-| `ropero <m> --force` | `candil run <m> --force` | idéntico |
-| `ropero status` | `candil status` | + `--json`, `--watch` |
-| `ropero stop X` / `all` | `candil stop X` / `all` | idéntico |
-| `ropero --check` | `candil doctor` | + checks de config, source, puertos |
-| `ropero --install` | `candil engine install` | con la config del TOML |
-| `ropero status --craft` | — | era para iterar el layout |
-| métricas de `ropero status` | `candil status --system` (o no) | §4.6 |
+| ropero                      | candil 4.0                      | Nota                                |
+| --------------------------- | ------------------------------- | ----------------------------------- |
+| `ropero list`               | `candil models list`            | + tamaño y estado de descarga       |
+| `ropero <m>` (foreground)   | `candil run <m>`                | **foreground en ambos** (C19)       |
+| `ropero <m> --background`   | `candil run <m> --detach`       | `nohup` de sí mismo                 |
+| `ropero <m> --cpu`          | `candil run <m> --cpu`          | idéntico                            |
+| `ropero <m> --port N`       | `candil run <m> --port N`       | idéntico                            |
+| `ropero <m> --force`        | `candil run <m> --force`        | idéntico                            |
+| `ropero status`             | `candil status`                 | + `--json`, `--watch`               |
+| `ropero stop X` / `all`     | `candil stop X` / `all`         | idéntico                            |
+| `ropero --check`            | `candil doctor`                 | + checks de config, source, puertos |
+| `ropero --install`          | `candil engine install`         | con la config del TOML              |
+| `ropero status --craft`     | —                               | era para iterar el layout           |
+| métricas de `ropero status` | `candil status --system` (o no) | §4.6                                |
 
 **El `--foreground` se queda como default**, a diferencia de mi iteración
 anterior. Con (b) tiene sentido: el proceso es el dueño, y para "background" se
@@ -1639,13 +1639,13 @@ flowchart TD
     R4 --> OUT
 ```
 
-| Capa | Coste | Cuándo | Fuente |
-|---|---|---|---|
-| 0 · Cache | ~0 | siempre primero | ETS, TTL 300 s |
-| 1 · Reglas | ~0 | keywords del TOML | `[router.rules.*]` |
-| 2 · Embeddings | 1 request | si hay modelo con `embeddings` | `EmbeddingMatcher` |
-| 3 · LLM | 1 request caro | **opt-in** | `LLMClassifier` con un modelo pequeño |
-| 4 · Default | 0 | siempre | `consumer.model_default` |
+| Capa           | Coste          | Cuándo                         | Fuente                                |
+| -------------- | -------------- | ------------------------------ | ------------------------------------- |
+| 0 · Cache      | ~0             | siempre primero                | ETS, TTL 300 s                        |
+| 1 · Reglas     | ~0             | keywords del TOML              | `[router.rules.*]`                    |
+| 2 · Embeddings | 1 request      | si hay modelo con `embeddings` | `EmbeddingMatcher`                    |
+| 3 · LLM        | 1 request caro | **opt-in**                     | `LLMClassifier` con un modelo pequeño |
+| 4 · Default    | 0              | siempre                        | `consumer.model_default`              |
 
 **La 3 es opt-in** porque cuesta una inferencia para decidir. Con `[router]
 enable_llm_classifier = false` (default) nunca se llega.
@@ -1685,19 +1685,19 @@ end
 
 ### 19.4 Los módulos
 
-| Módulo | Responsabilidad | Notas |
-|---|---|---|
-| `Router` | facade: `route/2`, `pin/2`, `unpin/1`, `stats/1` | |
-| `Router.DecisionEngine` | orquesta las 4 capas | el `cond` de §19.2 |
-| `Router.Cache` | ETS, `hash(prompt) → {alias, expires_at}` | TTL `[router] cache_ttl_seconds` |
-| `Router.Scorer` | reglas del TOML → score por modelo | `hits / length(words)` |
-| `Router.TaskCategories` | clasificador por keywords: `:code`, `:reasoning`, `:fast`, `:embed`, `:vision` | sin ML |
-| `Router.EmbeddingMatcher` | similitud coseno contra un índice de prompts etiquetados | necesita un modelo `embeddings` |
-| `Router.LLMClassifier` | pide a un modelo pequeño que clasifique | opt-in |
-| `Router.ModelState` | `{:ready, url}` \| `{:starting, pid}` \| `{:stopped}` \| `{:error, r}` por `(model, port)` | se apoya en `EnginePool` |
-| `Router.Consumer` | `model_default`, `max_concurrent`, `rate_limit_per_minute`, `pinned` | lee `[consumer.*]` |
-| `Router.Analyzer` | uso por modelo, latencia, coste, errores | para `candil router stats` |
-| `Router.AutoTuner` | ajusta pesos de la Tabla de afinidad con datos reales | opt-in, necesita volumen |
+| Módulo                    | Responsabilidad                                                                            | Notas                            |
+| ------------------------- | ------------------------------------------------------------------------------------------ | -------------------------------- |
+| `Router`                  | facade: `route/2`, `pin/2`, `unpin/1`, `stats/1`                                           |                                  |
+| `Router.DecisionEngine`   | orquesta las 4 capas                                                                       | el `cond` de §19.2               |
+| `Router.Cache`            | ETS, `hash(prompt) → {alias, expires_at}`                                                  | TTL `[router] cache_ttl_seconds` |
+| `Router.Scorer`           | reglas del TOML → score por modelo                                                         | `hits / length(words)`           |
+| `Router.TaskCategories`   | clasificador por keywords: `:code`, `:reasoning`, `:fast`, `:embed`, `:vision`             | sin ML                           |
+| `Router.EmbeddingMatcher` | similitud coseno contra un índice de prompts etiquetados                                   | necesita un modelo `embeddings`  |
+| `Router.LLMClassifier`    | pide a un modelo pequeño que clasifique                                                    | opt-in                           |
+| `Router.ModelState`       | `{:ready, url}` \| `{:starting, pid}` \| `{:stopped}` \| `{:error, r}` por `(model, port)` | se apoya en `EnginePool`         |
+| `Router.Consumer`         | `model_default`, `max_concurrent`, `rate_limit_per_minute`, `pinned`                       | lee `[consumer.*]`               |
+| `Router.Analyzer`         | uso por modelo, latencia, coste, errores                                                   | para `candil router stats`       |
+| `Router.AutoTuner`        | ajusta pesos de la Tabla de afinidad con datos reales                                      | opt-in, necesita volumen         |
 
 **El Router arranca el engine si hace falta.** `resolve/2` devuelve el modelo y
 el engine; el `Gateway` llama a `Engine.ensure_started/2` antes de inferir, con
@@ -1761,18 +1761,18 @@ sirve de endpoint Anthropic-compatible para los que solo hablan ese dialecto.
 
 ### 20.2 Rutas
 
-| Método | Ruta | Handler |
-|---|---|---|
-| POST | `/c/:consumer/v1/chat/completions` | `ChatCompletions` |
-| POST | `/c/:consumer/v1/messages` | `Messages` (Anthropic) |
-| POST | `/c/:consumer/v1/embeddings` | `Embeddings` |
-| GET | `/c/:consumer/v1/models` | `Models` |
-| POST | `/v1/chat/completions` | igual, `consumer = default` |
-| POST | `/v1/messages` | igual, `consumer = default` |
-| POST | `/v1/embeddings` | igual, `consumer = default` |
-| GET | `/v1/models` | igual |
-| GET | `/health` | `Health` |
-| GET | `/metrics` | `Metrics` (texto Prometheus) |
+| Método | Ruta                               | Handler                      |
+| ------ | ---------------------------------- | ---------------------------- |
+| POST   | `/c/:consumer/v1/chat/completions` | `ChatCompletions`            |
+| POST   | `/c/:consumer/v1/messages`         | `Messages` (Anthropic)       |
+| POST   | `/c/:consumer/v1/embeddings`       | `Embeddings`                 |
+| GET    | `/c/:consumer/v1/models`           | `Models`                     |
+| POST   | `/v1/chat/completions`             | igual, `consumer = default`  |
+| POST   | `/v1/messages`                     | igual, `consumer = default`  |
+| POST   | `/v1/embeddings`                   | igual, `consumer = default`  |
+| GET    | `/v1/models`                       | igual                        |
+| GET    | `/health`                          | `Health`                     |
+| GET    | `/metrics`                         | `Metrics` (texto Prometheus) |
 
 El prefijo `/c/:consumer` es lo que permite que opencode y posadero compartan
 gateway sin mezclarse. Sin prefijo, `default_consumer`.
@@ -1897,7 +1897,7 @@ candil_request_duration_seconds_count{model="coder"} 128
 ### 21.1 Revisión del protocolo (C21)
 
 Verificado contra la especificación: la revisión actual es **`2025-11-25`**, en
-la era de *handshake*. Los tres documentos previos usaban `"2024-11-05"`, dos
+la era de _handshake_. Los tres documentos previos usaban `"2024-11-05"`, dos
 generaciones de retraso.
 
 Tres consecuencias concretas que un servidor debe cumplir:
@@ -1912,10 +1912,10 @@ Tres consecuencias concretas que un servidor debe cumplir:
 
 ### 21.2 Transports
 
-| Transport | Para | Notas |
-|---|---|---|
-| `stdio` | que opencode y demás lo lancen como subprocess | el shim por defecto |
-| `http` | compartido, y para clientes remotos | header `MCP-Protocol-Version` obligatorio |
+| Transport | Para                                           | Notas                                     |
+| --------- | ---------------------------------------------- | ----------------------------------------- |
+| `stdio`   | que opencode y demás lo lancen como subprocess | el shim por defecto                       |
+| `http`    | compartido, y para clientes remotos            | header `MCP-Protocol-Version` obligatorio |
 
 ### 21.3 API
 
@@ -2153,7 +2153,7 @@ un servidor con api-key.
 ### 0.1 Baseline (30 min)
 
 ```bash
-cd ~/cacafuti/candil
+cd ~/workspace/github/candil
 mix deps.get
 mkdir -p docs/baseline
 mix compile --warnings-as-errors 2>&1 | tee docs/baseline/compile.txt
@@ -2735,7 +2735,7 @@ $ ./candil rag query vault "dónde está la decisión sobre el daemon"
 sortear H1. Se sustituye por `Candil.Store.get_model/1` + `Candil.embed/3`.
 
 ```bash
-cd ~/cacafuti/lasaca/posadero
+cd ~/workspace/github/lasaca/posadero
 git rm lib/posadero/llm/ropero.ex
 mix test                    # 0 failures
 grep -r "LLM.Ropero" lib/   # 0
@@ -2965,13 +2965,13 @@ model_default = "coder"
 
 **Cambios deliberados respecto a ropero**:
 
-| | ropero | candil | por qué |
-|---|---|---|---|
-| `HOST` | `0.0.0.0` | `127.0.0.1` | 0.0.0.0 expone a la red local sin querer. Si necesitas LAN, se configura |
-| rutas | `~/models/gguf` | configurables | C17 |
-| symlinks a `~/.local/bin` | sí, con reglas especiales | **no** | ropero enlazó un venv entero y tumbó el `python3` del sistema. Candil apunta con `binary` |
-| `ROPERO_<M>_<P>` | overrides en runtime | no se migran | son interactivos; se editan el TOML o se pasan por CLI |
-| métricas de `status` | sí | no | §4.6 |
+|                           | ropero                    | candil        | por qué                                                                                   |
+| ------------------------- | ------------------------- | ------------- | ----------------------------------------------------------------------------------------- |
+| `HOST`                    | `0.0.0.0`                 | `127.0.0.1`   | 0.0.0.0 expone a la red local sin querer. Si necesitas LAN, se configura                  |
+| rutas                     | `~/models/gguf`           | configurables | C17                                                                                       |
+| symlinks a `~/.local/bin` | sí, con reglas especiales | **no**        | ropero enlazó un venv entero y tumbó el `python3` del sistema. Candil apunta con `binary` |
+| `ROPERO_<M>_<P>`          | overrides en runtime      | no se migran  | son interactivos; se editan el TOML o se pasan por CLI                                    |
+| métricas de `status`      | sí                        | no            | §4.6                                                                                      |
 
 **Los modelos de `fired/`** (`qwenvision`, `muse`, `nemotron`, `next`, `qwopus`,
 `internivision`, `airgptoss`, `tensorrt-llm`, `mlx_lm`) no entran en el TOML. Si
@@ -2996,9 +2996,10 @@ pgrep -a llama-server | grep -- --model
 de ropero. Está escrito, testeado, y documentado en su moduledoc.
 
 Con H1 arreglado, ese módulo se borra y se sustituye por `Candil.Store.get_model/1`
-+ `Candil.embed/3`. No es "cablear posadero a candil" (que era la Fase 8 de v3,
-3-4 días): es **borrar 250 líneas que existen solo para sortear un bug de
-candil**. Media hora de trabajo y 250 líneas de deuda menos.
+
+- `Candil.embed/3`. No es "cablear posadero a candil" (que era la Fase 8 de v3,
+  3-4 días): es **borrar 250 líneas que existen solo para sortear un bug de
+  candil**. Media hora de trabajo y 250 líneas de deuda menos.
 
 Si H1 no se arregla, eso no se puede hacer, y posadero mantiene dos clientes de
 LLM para siempre.
@@ -3059,15 +3060,15 @@ LLM para siempre.
 
 ## E — Preguntas abiertas
 
-| # | Pregunta | Bloquea | Recomendación |
-|---|---|---|---|
-| Q1 | ¿Los modelos de `fired/` entran en el TOML? | Fase 2.4 | no. Se documentan en §4.1 y se añaden si hacen falta |
-| Q2 | ¿El `mmproj` de qwenvision es `source` o `model_args`? | Fase 2.4 | `model_args` con ruta absoluta. Es un fichero auxiliar, no el modelo |
-| Q3 | ¿Gateway en `127.0.0.1` o también en LAN? | Fase 8 | loopback por defecto; `host` configurable. `auth = "none"` en loopback |
-| Q4 | ¿JWT en el gateway? | v5 | no en v4. Una rama más en `Auth` si hace falta |
-| Q5 | ¿Métricas de sistema en `status`? | v5 | no, mientras ropero exista |
-| Q6 | ¿Candil en Hex o solo git? | Fase 11 | git. Con deps por GitHub, Hex no aporta nada |
-| Q7 | ¿airllm / tensorrt / mlx como engines de primera clase? | v5 | no. `Launcher.Http` los cubre, y es la respuesta correcta |
-| Q8 | ¿Quién compila si no hay cmake ni red? | Fase 2.2 | no hay modelo. Se dice claro, con las dos opciones que sí hay |
-| Q9 | ¿El `[context]` se persiste entre reinicios? | Fase 6 | no en v4. ETS. Si hace falta, `Context.Backend.Disk` sin DB |
-| Q10 | ¿Los consumers pueden tener tablas de afinidad distintas? | Fase 7 | sí, `[consumer.X] affinity`, sobrescribe `[router.affinity]` |
+| #   | Pregunta                                                  | Bloquea  | Recomendación                                                          |
+| --- | --------------------------------------------------------- | -------- | ---------------------------------------------------------------------- |
+| Q1  | ¿Los modelos de `fired/` entran en el TOML?               | Fase 2.4 | no. Se documentan en §4.1 y se añaden si hacen falta                   |
+| Q2  | ¿El `mmproj` de qwenvision es `source` o `model_args`?    | Fase 2.4 | `model_args` con ruta absoluta. Es un fichero auxiliar, no el modelo   |
+| Q3  | ¿Gateway en `127.0.0.1` o también en LAN?                 | Fase 8   | loopback por defecto; `host` configurable. `auth = "none"` en loopback |
+| Q4  | ¿JWT en el gateway?                                       | v5       | no en v4. Una rama más en `Auth` si hace falta                         |
+| Q5  | ¿Métricas de sistema en `status`?                         | v5       | no, mientras ropero exista                                             |
+| Q6  | ¿Candil en Hex o solo git?                                | Fase 11  | git. Con deps por GitHub, Hex no aporta nada                           |
+| Q7  | ¿airllm / tensorrt / mlx como engines de primera clase?   | v5       | no. `Launcher.Http` los cubre, y es la respuesta correcta              |
+| Q8  | ¿Quién compila si no hay cmake ni red?                    | Fase 2.2 | no hay modelo. Se dice claro, con las dos opciones que sí hay          |
+| Q9  | ¿El `[context]` se persiste entre reinicios?              | Fase 6   | no en v4. ETS. Si hace falta, `Context.Backend.Disk` sin DB            |
+| Q10 | ¿Los consumers pueden tener tablas de afinidad distintas? | Fase 7   | sí, `[consumer.X] affinity`, sobrescribe `[router.affinity]`           |

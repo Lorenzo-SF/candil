@@ -6,7 +6,7 @@ defmodule Candil.CLITest do
   import ExUnit.CaptureIO
 
   alias Candil.CLI
-  alias Candil.CLI.{Colorize, Help, Lifecycle, Ports, Preflight}
+  alias Candil.CLI.{Colorize, Escript, Help, Holder, Lifecycle, Ports, Preflight}
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
 
   doctest Candil.CLI.Version
@@ -43,7 +43,12 @@ defmodule Candil.CLITest do
 
   defp engine! do
     binary = Path.join(System.tmp_dir!(), "candil-cli-llama-server")
-    unless File.exists?(binary), do: File.write!(binary, "#!/bin/sh\n")
+    # Un `sh` VACIO se queda leyendo stdin para siempre, y Arrea lo
+    # LINCKEA: el engine de este test no muere nunca y el titular se queda
+    # esperando a un presupuesto entero. Un binario de mentira que hace lo que
+    # uno de verdad hace cuando se niega a arrancar —salir— es lo que
+    # reproduce el caso.
+    unless File.exists?(binary), do: File.write!(binary, "#!/bin/sh\nexit 1\n")
     File.chmod!(binary, 0o755)
     Store.register_engine(%Candil.Engine{alias: :e, binary: binary})
   end
@@ -55,6 +60,27 @@ defmodule Candil.CLITest do
     File.rm(Path.join(System.tmp_dir!(), "candil-cli-#{alias_name}.gguf"))
   end
 
+  describe "the exit status" do
+    # An escript's exit status is its `main/1` return, and only if that is an
+    # integer. Handlers return atoms, so without a translation at the boundary
+    # `candil doctor` on a machine with no engine binary printed a report full
+    # of failures and exited 0 — and a CI pipeline went green on it.
+    test "an :error from a handler becomes 1" do
+      assert Escript.exit_status(:error) == 1
+      assert Escript.exit_status({:error, :circuit_open}) == 1
+    end
+
+    test ":ok and anything unrecognised stay 0" do
+      assert Escript.exit_status(:ok) == 0
+      assert Escript.exit_status(nil) == 0
+      assert Escript.exit_status([]) == 0
+    end
+
+    test "an integer passes through, so a framework usage error is not lost" do
+      assert Escript.exit_status(2) == 2
+    end
+  end
+
   describe "dispatch" do
     test "the bare word `version` prints the version" do
       # Not just the flag. The first cut only knew `--version` and `-v`, so
@@ -63,17 +89,56 @@ defmodule Candil.CLITest do
       assert capture_io(fn -> CLI.main(["version"]) end) =~ "Candil "
     end
 
+    # `Escript.expand/1` and `CLI.main/1`, separately — never
+    # `Escript.main/1`. That one ends in `System.halt/1` on purpose, so calling
+    # it from a test kills the run part-way through and `mix test` still exits
+    # **0**: a suite that looks green because it stopped. It cost one round of
+    # "34 dots and no summary" to find that out.
+    #
+    # The two halves are what is under test anyway: `expand/1` owns the alias
+    # table and `CLI.main/1` owns the dispatch. Going through `Escript.main/1`
+    # would also have tested a path where `--version` and `version` are
+    # different entries — Alaja owns `--version` as a global option and prints
+    # its own, lowercase — and "fixing" that disagreement would have hidden the
+    # fact that they never were the same entry.
     test "the flag spellings agree with it" do
-      expected = capture_io(fn -> CLI.main(["version"]) end)
+      dispatch = fn argv -> capture_io(fn -> argv |> Escript.expand() |> CLI.main() end) end
+
+      expected = dispatch.(["version"])
 
       for spelling <- ["--version", "-v"] do
-        assert capture_io(fn -> CLI.main([spelling]) end) == expected
+        assert dispatch.([spelling]) == expected
       end
     end
 
+    test "the alias table rewrites the first token only" do
+      # `candil models remove --version` means a model called `--version`, not
+      # a request for the version.
+      assert Escript.expand(["--version"]) == ["version"]
+      assert Escript.expand(["models", "--version"]) == ["models", "--version"]
+      assert Escript.expand([]) == []
+    end
+
+    test "an unknown command returns :error, which is what makes the exit 1" do
+      # `catch_all` routes it here. Returning `:ok` instead would print a good
+      # error and exit 0, which is the bug this replaced.
+      # stderr, not stdout: a failure that says so on stdout lands in whatever
+      # a script was capturing.
+      err = capture_io(:stderr, fn -> assert :error = Escript.unknown(%{name: "frobnicate"}) end)
+      assert err =~ "frobnicate"
+    end
+
     test "unknown input prints the usage rather than raising" do
-      assert capture_io(fn -> CLI.main([]) end) =~ "Usage: candil"
-      assert capture_io(fn -> CLI.main(["frobnicate"]) end) =~ "Usage: candil"
+      assert capture_io(fn -> CLI.main([]) end) =~ "Command"
+
+      # On stderr, and in Alaja's words. The assertion that matters is the one
+      # that was always missing: no stack trace, and the bad token named. The
+      # exact phrasing belongs to the framework now, so pinning it here would
+      # be a test that fails on an upgrade for no good reason.
+      error = capture_io(:stderr, fn -> CLI.main(["frobnicate"]) end)
+
+      refute error =~ "** (", "an unknown command must not raise"
+      assert error =~ "frobnicate"
     end
 
     test "the lifecycle verbs are routed, not treated as models" do
@@ -84,28 +149,32 @@ defmodule Candil.CLITest do
     # The next two are here because the binary shipped broken with 702 tests
     # green: nobody ran it, and the CI did not build it either.
     test "the help lists every command the dispatch table can reach" do
-      shown = Help.commands() |> Enum.map(&elem(&1, 0)) |> MapSet.new()
-      dispatchable = CLI.commands() |> Map.keys() |> MapSet.new()
+      shown = Help.top_level_commands() |> Enum.map(&elem(&1, 0)) |> MapSet.new()
+      dispatchable = CLI.command_names() |> MapSet.new()
 
       assert dispatchable == shown,
              "these are dispatchable but missing from the help: " <>
                inspect(MapSet.difference(dispatchable, shown))
     end
 
-    test "every command in the help has a description, not a blank line" do
-      for {name, description} <- Help.commands() do
-        assert description != "", "#{name} is listed with no description"
+    # The description now lives in the declaration, next to the flag it
+    # describes, so that is where the invariant is checked. Asserting it
+    # against a hand-rolled help string would be asserting that a copy of the
+    # declaration is a copy of the declaration.
+    test "every declared command has a description, not a blank line" do
+      for command <- CLI.__commands__() do
+        assert command.description != "", "#{command.name} is declared with no description"
       end
     end
 
-    test "`run` with no model says so instead of raising" do
-      # `candil run` is the first thing anyone types. It used to die with a
-      # FunctionClauseError, which teaches nothing about the right spelling.
-      output = capture_io(fn -> CLI.main(["run"]) end)
-
-      assert output =~ "usage: candil run"
-      assert output =~ "models list"
-    end
+    # No in-process test for this one, and that is deliberate: the DSL answers
+    # a usage error with `System.halt(1)`, which is the right thing for a binary
+    # and impossible to assert from inside the VM — the test run dies with it.
+    # The contract is checked where it is actually observable, in the CI smoke
+    # step, which runs the built escript: "candil run with no model exits
+    # non-zero, names the command and the missing argument, and prints no stack
+    # trace". A test that had to be deleted to keep the suite alive is a test
+    # that was in the wrong place.
   end
 
   describe "models list" do
@@ -231,7 +300,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> EnginePool.delete(:coder, 9999) end)
 
-      out = capture_io(fn -> Lifecycle.run(["analyst", "--port", "9999"]) end)
+      out = capture_io(fn -> Lifecycle.run_model(%{model: "analyst", port: 9999}) end)
       assert out =~ "coder"
       assert out =~ "no mata automáticamente"
     end
@@ -253,7 +322,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> EnginePool.delete(:coder, 9999) end)
 
-      capture_io(fn -> Lifecycle.run(["analyst", "--port", "9999"]) end)
+      capture_io(fn -> Lifecycle.run_model(%{model: "analyst", port: 9999}) end)
 
       assert :error = EnginePool.get(:analyst, 9999)
     end
@@ -271,7 +340,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> EnginePool.delete(:coder, 9999) end)
 
-      out = capture_io(fn -> Lifecycle.status(["--json"]) end)
+      out = capture_io(fn -> Lifecycle.status(%{json: true}) end)
       [row] = Jason.decode!(out)
       assert row["model"] == "coder"
       assert row["port"] == 9999
@@ -282,22 +351,22 @@ defmodule Candil.CLITest do
     end
 
     test "with nothing running it says so" do
-      assert capture_io(fn -> Lifecycle.status([]) end) =~ "no hay instancias"
+      assert capture_io(fn -> Lifecycle.status(%{}) end) =~ "no hay instancias"
     end
   end
 
   describe "the colouriser" do
     test "an error is red and throughput is magenta" do
-      assert Colorize.colour_for("CUDA error: no kernel image") == :red
-      assert Colorize.colour_for("eval time: 12.3 ms/token") == :magenta
+      assert Colorize.level_for("CUDA error: no kernel image") == :error
+      assert Colorize.level_for("eval time: 12.3 ms/token") == :magenta
     end
 
     test "a loaded model is green" do
-      assert Colorize.colour_for("main: server is listening on http://0.0.0.0:8080") == :green
+      assert Colorize.level_for("main: server is listening on http://0.0.0.0:8080") == :success
     end
 
     test "an OOM is red, which is the line that matters" do
-      assert Colorize.colour_for("ggml: out of memory") == :red
+      assert Colorize.level_for("ggml: out of memory") == :error
     end
 
     test "a line nothing matches is returned untouched" do
@@ -344,26 +413,146 @@ defmodule Candil.CLITest do
       :ok
     end
 
-    test "records the instance on disk, with this process as the owner" do
+    # Este test afirmaba, en un comentario, que el dueño era "el pid de este
+    # proceso, porque es lo que cuya muerte se lleva el engine detras". Eso es
+    # exactamente el bug: el pid escrito era el del escript que salia acto
+    # seguido, `alive?/1` lo poda, y el engine se iba con el. Comprobado con
+    # un escript de verdad: /proc/<pid> muerto, sin proceso, log que no existia
+    # y un registro con healthy: true.
+    test "no deja un registro si no hay nadie a quien pertenezca" do
       model!(:coder)
       engine!()
 
-      capture_io(fn -> Lifecycle.run(["coder", "--port", "10500", "--detach"]) end)
+      out =
+        capture_io(fn ->
+          Lifecycle.run_model(%{model: "coder", port: 10_500, detach: true})
+        end)
 
-      assert [instance] = Instances.read()
-      assert instance.model == "coder"
-      assert instance.port == 10_500
-      # The owner is the OS pid of THIS process, because that is the thing
-      # whose death takes the engine with it. A detached instance is never
-      # detached from its owner.
-      assert instance.owner == %{kind: :pid, pid: os_pid()}
+      # Sin escript delante no hay titular que lanzar, y un registro sin dueno
+      # es un corpse esperando: no se escribe, y no se dice que ha arrancado.
+      assert Instances.read() == []
+      refute out =~ "detached"
+    end
+
+    # Este es el bug que el usuario vio en su maquina: el titular se quedaba
+    # vivo con su claim escrito, el engine no habia llegado a responder, y
+    # `status` decia detached y luego DOWN — con la GPU a 47 MB y el puerto
+    # libre. Aqui no hay engine, y por eso la puerta TIENE que estar cerrada.
+    test "el titular NO reclama un puerto si el engine no llega a responder" do
+      model!(:coder)
+      engine!()
+
+      # `spawn` a pelo y no `Task.async`: el binario de este test sale enseguida
+      # con codigo 0, Arrea lo LINCKEA, y un Task enlaza tambien al que lo
+      # lanza. El `{:exit_status, 0}` llega entonces al proceso de test y
+      # revienta antes del assert, con un fallo que no dice nada de lo que
+      # comprueba. Un proceso sin enlaces devuelve lo que quiera por mensaje.
+      parent = self()
+
+      spawn(fn ->
+        # Trampa de salidas OBLIGATORIA en este proceso. Arrea LINCKEA al
+        # engine, el binario de mentira sale con codigo 1, y un proceso que
+        # no atrapa salidas muere con el. El `catch` de abajo solo rescata
+        # `exit/1` llamado a proposito: una muerte por enlace no pasa por el.
+        # Y `spawn` sin enlaces solo evita que muera el TEST, no el titular.
+        Process.flag(:trap_exit, true)
+
+        # 6s de presupuesto: el engine de mentira sale con codigo 0, pero el
+        # GenServer se queda polling salud un rato antes de caer, y con el
+        # presupuesto de 4 minutos un test unitario tardaria 4 minutos en
+        # comprobar lo mismo.
+        #
+        # El `catch` no es por robustez: `spawn` NO ENLAZA, asi que si el
+        # titular sale en vez de devolver, no hay quien se entere y el test se
+        # queda esperando hasta el `after`. Informar de una salida es
+        # justamente lo que distingue "el titular fallo" de "el titular no
+        # fallo, solo tardo".
+        outcome =
+          try do
+            Holder.start("coder", 10_500, health_budget: 6_000)
+          catch
+            kind, reason -> {:salio, kind, reason}
+          end
+
+        send(parent, {:holder_result, outcome})
+      end)
+
+      result =
+        receive do
+          {:holder_result, returned} -> returned
+        after
+          20_000 -> flunk("el titular no devolvio nada en 20s")
+        end
+
+      assert {:error, reason} = result
+
+      # El motivo va incluido cuando el proceso estaba en el registro: un
+      # "se ha caido" sin el por que es el sintoma, no el diagnostico. Y
+      # `engine_refused` es el caso bueno: el engine dijo que no, en vez de
+      # morirse en silencio.
+      assert match?({:engine_died, _}, reason) or match?({:engine_refused, _}, reason) or
+               reason == :timeout,
+             "motivo inesperado: #{inspect(reason)}"
+
+      # Sin claim, `status` no inventa nada y `stop` no tiene a quien parar.
+      assert Instances.read() == []
+    end
+
+    test "el motivo de fallo se explica en castellano, no en atomos" do
+      assert Holder.explain(:timeout) =~ "no ha contestado"
+      assert Holder.explain(:engine_died) =~ "se ha caido"
+      assert Holder.explain(:no_such_model) =~ "no hay ningun modelo"
+    end
+
+    # La tabla y el `--json` son dos renderizadores de las mismas filas, y con
+    # los tests cubriendo solo el json, `row/1` llego a pedir `:started_at` a una
+    # fila que ya lleva `:uptime_ms` y revento con KeyError en `candil status`,
+    # justo en el camino que se ejecuta sin querer. Ningun test lo vio porque
+    # ninguno miraba la tabla.
+    test "status sin --json sabe pintar una instancia que solo esta en el registro" do
+      dir = Path.join(System.tmp_dir!(), "candil-detached-#{System.unique_integer([:positive])}")
+      previous = System.get_env("CANDIL_DATA_DIR")
+      System.put_env("CANDIL_DATA_DIR", dir)
+      on_exit(fn -> if previous, do: System.put_env("CANDIL_DATA_DIR", previous) end)
+
+      # Sin motor local: si lo hubiera, `running/0` lo pondria delante por
+      # `{model, port}` y no se veria la fila remota en absoluto. Que la local
+      # gane tambien es lo correcto, asi que esto no es un rodeo: es como se
+      # ve de verdad una instancia detached, que esta en otro proceso.
+      instance =
+        Instances.build("coder", 10_600, "llama_cpp", Instances.os_pid(), true)
+
+      :ok = Instances.put({"coder", 10_600}, instance)
+
+      out = capture_io(fn -> Lifecycle.status(%{json: false}) end)
+
+      assert out =~ "coder"
+      assert out =~ "detached"
+      assert out =~ "10600"
+      # Y DOWN, no ON. El dueno de este registro esta vivo —es el propio test—
+      # pero no hay nadie escuchando en el puerto, que es lo que decia la
+      # columna. Antes salia ON porque el registro traia un `healthy: true`
+      # del momento del arranque y nunca se volvia a mirar. Un proceso vivo
+      # que no sirve ocupa GPU y ocupa puerto: tiene que verse como DOWN.
+      assert out =~ "DOWN"
     end
 
     test "an explicit --port is remembered for the next run" do
+      # El engine arranca DE VERDAD ahora —eso es lo que se arradio— y el
+      # binario de mentira sale con codigo 1. Arrea lo enlaza, el enlace mata
+      # al proceso de test y el fallo sale como `{:exit_status, 1}`, que no
+      # dice nada de un puerto ad-hoc. Con la trampa, la salida llega como
+      # mensaje y el test comprueba lo que dice comprobar.
+      Process.flag(:trap_exit, true)
+      on_exit(fn -> Process.flag(:trap_exit, false) end)
+
       model!(:coder)
       engine!()
 
-      capture_io(fn -> Lifecycle.run(["coder", "--port", "10500", "--detach"]) end)
+      # En el camino de foreground, que es donde se registra. El de detach lo
+      # hace el titular, en otro proceso, y un test unitario no puede observar
+      # eso sin lanzar un escript entero.
+      capture_io(fn -> Lifecycle.run_model(%{model: "coder", port: 10_500, detach: false}) end)
 
       assert 10_500 in Instances.ad_hoc_ports()
     end
@@ -394,14 +583,14 @@ defmodule Candil.CLITest do
       instance = Instances.build("coder", 9999, "llama_cpp", owner, true)
       :ok = Instances.put({"coder", 9999}, instance)
 
-      capture_io(fn -> Lifecycle.stop(["coder"]) end)
+      capture_io(fn -> Lifecycle.stop(%{model: "coder"}) end)
 
       refute Instances.alive?(%{pid: owner}), "the owner was signalled but is still alive"
       assert [] == Instances.read(), "the entry was not removed from instances.json"
     end
 
     test "says so when there is nothing to stop" do
-      out = capture_io(fn -> Lifecycle.stop(["nada"]) end)
+      out = capture_io(fn -> Lifecycle.stop(%{model: "nada"}) end)
       assert out =~ "no hay instancias"
     end
   end
@@ -418,7 +607,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> EnginePool.delete(:coder, 9999) end)
 
-      out = capture_io(fn -> Lifecycle.status(["--json"]) end)
+      out = capture_io(fn -> Lifecycle.status(%{json: true}) end)
       [row] = Jason.decode!(out)
 
       # There is a row, but nothing is serving on that port, so the honest
@@ -433,6 +622,17 @@ defmodule Candil.CLITest do
       pid when is_integer(pid) -> pid
       pid when is_binary(pid) -> String.to_integer(pid)
       pid when is_list(pid) -> List.to_integer(pid)
+    end
+  end
+
+  # Un proceso que arranca un engine y luego se queda esperando no avisa
+  # cuando ha terminado de hacerlo. Esperar a la condicion es lo unico que no
+  # convierte un test en una loteria con el ancho de banda de la maquina.
+  defp wait_for(fun, tries \\ 100) do
+    cond do
+      fun.() -> :ok
+      tries == 0 -> flunk("la condicion no se cumplio en 100 intentos")
+      true -> Process.sleep(20) && wait_for(fun, tries - 1)
     end
   end
 end

@@ -31,7 +31,7 @@ defmodule Candil.ContextBuilderTest do
       # was not asked, with no way for the caller to tell.
       long = [%{role: "user", content: String.duplicate("hola", 100)}]
 
-      assert {:error, :context_exceeded} =
+      assert {:error, {:context_exceeded, _cause}} =
                Builder.build(Session.new(:c, "s"), long, context_size: 4)
     end
 
@@ -61,10 +61,16 @@ defmodule Candil.ContextBuilderTest do
       long_b = String.duplicate("b", 3_000)
       session = session_with([long_a, long_b, "reciente"])
 
+      # `:compact` explicito: desde §3.4 el recorte es una POLITICA, no lo
+      # que pasa por defecto. Bajo `:strict` esto mismo devuelve
+      # `{:error, {:context_exceeded, :no_room_to_truncate}}`, que es lo que un
+      # contexto que pierde turnos en silencio no puede devolver. El orden del
+      # recorte —por delante, nunca por detras— no cambia.
       {:ok, messages} =
         Builder.build(session, [%{role: "user", content: "pregunta"}],
           context_size: 900,
-          margin_tokens: 100
+          margin_tokens: 100,
+          policy: :compact
         )
 
       texts = Enum.map(messages, & &1.content)

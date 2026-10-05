@@ -19,6 +19,7 @@ defmodule Candil.EngineTest do
   import Mox
 
   alias Candil.{Engine, EnginePool, HTTPAdapterMock}
+  alias Candil.Instances
 
   setup :verify_on_exit!
 
@@ -36,9 +37,12 @@ defmodule Candil.EngineTest do
       assert Engine.binary_dir(engine) == "/custom/path"
     end
 
-    test "falls back to ~/.candil/llm/bin when binary_dir is nil" do
+    test "falls back to <data_dir>/llm/bin when binary_dir is nil" do
+      # El valor literal "~/.candil/llm/bin" era el bug: general.data_dir
+      # puede estar en otro sitio, y entonces models pull escribia donde
+      # nadie miraba. Se compara contra data_dir, que es la verdad.
       engine = %Engine{alias: :test, binary_dir: nil}
-      expected = Path.join([System.user_home!(), ".candil", "llm", "bin"])
+      expected = Path.join([Instances.data_dir(), "llm", "bin"])
       assert Engine.binary_dir(engine) == expected
     end
   end
@@ -52,6 +56,32 @@ defmodule Candil.EngineTest do
     test "uses binary_dir from engine" do
       engine = %Engine{alias: :test, binary_dir: "/opt/llm"}
       assert Engine.binary_path(engine) == "/opt/llm/llama-server"
+    end
+
+    # El que faltaba, y el que por eso se colaba: `binary` se leia del toml,
+    # lo validaba el schema y se guardaba en el struct, y aun asi
+    # binary_path/1 lo ignoraba. En vez del binario configurado se usaba
+    # binary_dir <> "llama-server", que es lo que el engine.server lanzaba.
+    test "an explicit binary wins over binary_dir, filename included" do
+      engine = %Engine{alias: :test, binary: "/opt/llm/mi-servidor", binary_dir: "/otro/dir"}
+      assert Engine.binary_path(engine) == "/opt/llm/mi-servidor"
+    end
+
+    test "expands ~ in binary" do
+      engine = %Engine{alias: :test, binary: "~/.local/bin/llama-server"}
+
+      assert Engine.binary_path(engine) ==
+               Path.join(System.user_home!(), ".local/bin/llama-server")
+    end
+
+    test "refuses path traversal in binary" do
+      engine = %Engine{alias: :test, binary: "/opt/../../etc/llama-server"}
+      assert_raise ArgumentError, fn -> Engine.binary_path(engine) end
+    end
+
+    test "without binary_dir, follows general.data_dir instead of a hardcoded ~/.candil" do
+      engine = %Engine{alias: :test}
+      assert Engine.binary_dir(engine) == Path.join([Instances.data_dir(), "llm", "bin"])
     end
   end
 

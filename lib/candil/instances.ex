@@ -33,13 +33,19 @@ defmodule Candil.Instances do
   A read prunes entries whose pid no longer exists. `nohup` leaves zombies, and
   an unpruned file lies about exactly that.
   """
+  alias Apero.Atomic.File, as: AtomicFile
 
   @typedoc """
   Who owns an instance. One variant today; the second is the door to a daemon.
   """
   @type owner :: %{kind: :pid, pid: pos_integer()}
 
+  # `host` es opcional a proposito: hay registros en disco escritos antes de que
+  # existiera, y un `Map.get(instance, :host) || "127.0.0.1"` en la lectura es
+  # lo que evita que un `status` de la version nueva reviente con un
+  # KeyError por el `instances.json` de la version de ayer.
   @type instance :: %{
+          optional(:host) => binary(),
           model: binary(),
           port: pos_integer(),
           engine: binary() | nil,
@@ -87,6 +93,26 @@ defmodule Candil.Instances do
   """
   @spec log_dir() :: binary()
   def log_dir do
+    # `CANDIL_DATA_DIR` manda, y antes que el fichero. Sin esto, un test con
+    # `CANDIL_DATA_DIR` puesto seguia escribiendo en el log REAL de quien lo
+    # lanza: `data_dir/0` respeta la variable desde el principio y `log_dir/0`
+    # no, de modo que los logs de test y los de la sesion se mezclaban en el
+    # mismo fichero. Dos sitios que dicen donde esta el mismo sitio tienen que
+    # mirar lo mismo.
+    case System.get_env("CANDIL_LOG_DIR") do
+      nil -> configured_log_dir()
+      dir -> Path.expand(dir)
+    end
+  end
+
+  # El `log_dir` del toml gana SIEMPRE, y eso no es negociable: `doctor --fix`
+  # promete crear el directorio que el usuario ha configurado, no uno derivado.
+  # Lo que se anade es `CANDIL_LOG_DIR` como override explicito, para el caso
+  # —un test— en el que hace falta mirar a otro sitio sin tocar la
+  # configuracion de nadie. `CANDIL_DATA_DIR` NO lo sobrepasa, porque
+  # `data_dir` y `log_dir` son dos directorios distintos y mover uno no mueve
+  # el otro.
+  defp configured_log_dir do
     with {:ok, config} <- Candil.Config.File.load(),
          %{"general" => %{"log_dir" => dir}} <- config do
       Path.expand(dir)
@@ -118,10 +144,21 @@ defmodule Candil.Instances do
   and that is a perfectly good answer.
   """
   @spec read() :: [instance()]
-  def read do
+  def read, do: Enum.filter(all(), &alive?/1)
+
+  @doc """
+  Every record in the file, dead owners included.
+
+  `read/0` is the question ("what is running"); this is the file. They differ
+  exactly by the corpses, and the only thing that can tell one from the other
+  is someone comparing them — which is what `Candil.Instances.Reaper` does.
+  Writing the file back is the only way those corpses ever go away.
+  """
+  @spec all() :: [instance()]
+  def all do
     case File.read(path()) do
       {:ok, ""} -> []
-      {:ok, contents} -> decode(contents) |> Enum.filter(&alive?/1)
+      {:ok, contents} -> decode(contents)
       {:error, _} -> []
     end
   end
@@ -131,11 +168,8 @@ defmodule Candil.Instances do
   """
   @spec write([instance()]) :: :ok | {:error, File.posix()}
   def write(instances) do
-    target = path()
-    temp = target <> ".tmp"
-
-    case File.write(temp, Jason.encode!(instances)) do
-      :ok -> File.rename(temp, target)
+    case AtomicFile.write(path(), Jason.encode!(instances), fsync: true) do
+      :ok -> :ok
       {:error, reason} -> {:error, reason}
     end
   end
@@ -268,9 +302,9 @@ defmodule Candil.Instances do
   @doc """
   Builds an instance record from a running engine.
   """
-  @spec build(binary(), pos_integer(), binary() | nil, pos_integer() | nil, boolean()) ::
+  @spec build(binary(), pos_integer(), binary() | nil, pos_integer() | nil, boolean(), binary()) ::
           instance()
-  def build(model, port, engine, os_pid, healthy) do
+  def build(model, port, engine, os_pid, healthy, host \\ "127.0.0.1") do
     # `System.pid/0` answers a charlist on some OTP versions and an integer on
     # others, and Jason encodes a charlist as a JSON *string*. A pid written as
     # `"9742"` fails every `is_integer/1` check on the way back in, so the
@@ -280,6 +314,10 @@ defmodule Candil.Instances do
     %{
       model: to_string(model),
       port: port,
+      # El host va en el registro porque es lo unico que permite preguntar si
+      # hay alguien escuchando. Sin el, un `status` desde otro proceso solo
+      # puede decir "el dueno existe", que no es lo mismo que "sirve".
+      host: to_string(host),
       engine: engine && to_string(engine),
       pid: os_pid,
       owner: %{kind: :pid, pid: os_pid || 0},

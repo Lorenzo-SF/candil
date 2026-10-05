@@ -1,5 +1,5 @@
 #!/bin/bash
-# snapshot.sh — extrae el contenido de los proyectos del ecosistema cacafuti
+# snapshot.sh — extrae el contenido de los proyectos del ecosistema lasaca
 #
 # Genera, en el mismo directorio donde vive este script:
 #   - Un archivo por proyecto:  snap-<nombre>.txt
@@ -11,8 +11,8 @@
 #   ./snapshot.sh candil elpaso         # solo los indicados
 #
 # Proyectos cubiertos:
-#   ~/cacafuti/         apero, alaja, pote, arrea, trebejo, botica, candil, elpaso
-#   ~/cacafuti/lasaca/  ropero, gunter, arriero, posadero
+#   ~/workspace/github/         apero, alaja, pote, arrea, trebejo, botica, candil, elpaso
+#   ~/workspace/github/lasaca/  ropero, gunter, arriero, posadero
 
 
 # ═══════════════════════════════════════════════════════════════
@@ -40,21 +40,21 @@ rm -f "$SCRIPT_DIR"/snapshot-resumen-*.txt
 # Formato: "nombre:tipo:base_dir"
 #   tipo: elixir | go | bash
 
-CACAFUTI="$HOME/cacafuti"
-LASACA="$HOME/cacafuti/lasaca"
+LASACA="$HOME/workspace/github"
+LASACA="$HOME/workspace/github/lasaca"
 
 ALL_PROJECTS=(
-  # ── ~/cacafuti/ ──
-  "apero:elixir:$CACAFUTI"
-  "alaja:elixir:$CACAFUTI"
-  "pote:elixir:$CACAFUTI"
-  "arrea:elixir:$CACAFUTI"
-  "trebejo:elixir:$CACAFUTI"
-  "botica:elixir:$CACAFUTI"
-  "candil:elixir:$CACAFUTI"
-  "elpaso:elixir:$CACAFUTI"
+  # ── ~/workspace/github/ ──
+  "apero:elixir:$LASACA"
+  "alaja:elixir:$LASACA"
+  "pote:elixir:$LASACA"
+  "arrea:elixir:$LASACA"
+  "trebejo:elixir:$LASACA"
+  "botica:elixir:$LASACA"
+  "candil:elixir:$LASACA"
+  "elpaso:elixir:$LASACA"
 
-  # ── ~/cacafuti/lasaca/ ──
+  # ── ~/workspace/github/lasaca/ ──
   "ropero:bash:$LASACA"
   "gunter:bash:$LASACA"
   "arriero:go:$LASACA"
@@ -317,7 +317,7 @@ extract_bash() {
 # ═══════════════════════════════════════════════════════════════
 
 echo "═══════════════════════════════════════════════════════════"
-echo "  SNAPSHOT cacafuti"
+echo "  SNAPSHOT lasaca"
 echo "  Inicio:    $(date -Iseconds)"
 echo "  Output:    $SCRIPT_DIR"
 echo "  Proyectos: ${#PROYECTOS[@]}"
@@ -366,7 +366,7 @@ echo "→ Concatenando snapshot completo..."
 
 {
   echo "################################################################"
-  echo "## SNAPSHOT COMPLETO — ecosistema cacafuti"
+  echo "## SNAPSHOT COMPLETO — ecosistema lasaca"
   echo "## Generado:  $(date -Iseconds)"
   echo "## Proyectos: ${#PROYECTOS[@]}"
   echo "## Script:    $SCRIPT_DIR"

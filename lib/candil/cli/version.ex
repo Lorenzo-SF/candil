@@ -1,4 +1,6 @@
 defmodule Candil.CLI.Version do
+  alias Alaja.Printer, as: Say
+
   @moduledoc """
   The `candil version` command.
 
@@ -23,7 +25,7 @@ defmodule Candil.CLI.Version do
   """
   @spec run([binary()]) :: :ok
   def run(_argv \\ []) do
-    IO.puts(render(version()))
+    Say.print_raw(render(version()) <> "\n")
     :ok
   end
 

@@ -1,6 +1,14 @@
 # Fase 6 — Context compartido
 
-> Estado: **pendiente**. Depende de la 4. Carril C.
+> Estado: **CERRADA** (2026-10-05). La 4 y la 5 también.
+>
+> D8, §3.4+D4 y §3.6 cerradas. El criterio de cierre pasa — dos consumidores
+> con la misma `session_id` no se ven — y el estado medido es **786 tests +
+> 27 doctests, 0 fallos**, con los 8 gates en verde.
+>
+> Antes de tocar el arranque, lee
+> [`2026-10-05-bugs-de-arranque.md`](../auditoria/2026-10-05-bugs-de-arranque.md):
+> siete bugs del arranque que ningún smoke vio porque todos miraban exit codes.
 > Original: `candil-4.0-final.md` §18 y la Fase 6.
 > Effort: 4 d.
 >

@@ -26,6 +26,7 @@ defmodule Candil.Application do
 
   alias Candil.Config, as: CandilConfig
   alias Candil.Config.Hydrate, as: Hydrate
+  alias Candil.Engine.Log, as: EngineLog
 
   @impl true
   def start(_type, _args) do
@@ -34,8 +35,18 @@ defmodule Candil.Application do
     # the file is parsed by `Config.File` and then thrown away, and every
     # `candil models list` prints an empty table that looks like a broken
     # configuration.
+    # Antes de la lista de hijos, y no como uno mas: `attach/0` devuelve `:ok`
+    # y `:ok` no es un child spec. Es un enganche de telemetria que tiene que
+    # estar puesto ANTES de que arranque el primer engine, o el log de ese
+    # primer modelo sale vacio —que es justo el fallo que se está tapando.
+    EngineLog.attach()
+
     children = [
       {Registry, keys: :unique, name: Candil.Registry},
+      # Dead instance records are pruned in memory on every read, which means
+      # nothing ever removes them from the FILE. This is the only thing that
+      # does, and it kills nothing: it only forgets what the OS already did.
+      Candil.Instances.Reaper,
       # Store first: it owns the catalogue tables that the others read.
       Candil.Store,
       Candil.Context,

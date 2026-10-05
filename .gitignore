@@ -56,3 +56,19 @@ Thumbs.db
 # --- Dialyzer PLTs ---
 /priv/plts/
 graphify-out/
+
+# El escript construido. No va al repo: un binario obsoleto commiteado es
+# indistinguible de uno recien construido cuando un smoke corre
+# `mix escript.build 2>/dev/null || true` y falla por lo que sea, y entonces
+# "el binario responde" no demuestra nada. Se commitea el codigo; el binario
+# se construye.
+#
+# `/candil` y no `candil`. Sin la barra inicial git casa con cualquier fichero
+# **o directorio** llamado `candil` a cualquier nivel, y el primer directorio
+# que meetes es `lib/candil/`. Cuatro modulos nuevos —`Candil.Concurrency`,
+# `Candil.Doctor.Checks`, `Candil.Doctor.FixTable` y su test— no se
+# commitearon nunca, la rama no compilaba, y solo se vio cuando alguien la
+# probo en una maquina de verdad. Un patron sin anclar no es un descuido
+# pequeno: es un patron que se come el codigo.
+/candil
+/Arrea

@@ -24,6 +24,7 @@ defmodule Candil.Config.File do
   argument, and a directory literally named `~` is not what anyone meant.
   """
 
+  alias Apero.Atomic.File, as: AtomicFile
   alias Candil.Config.Schema
   alias Candil.Error
 
@@ -220,21 +221,25 @@ defmodule Candil.Config.File do
     end
   end
 
-  # tmp + rename, same directory so the rename is atomic rather than a copy.
-  # A crash mid-write leaves the previous file intact instead of a truncated
-  # one, and candil.toml is the source of truth for the whole catalogue.
+  # The tmp + rename dance is not ours to get right: `Apero.Atomic.File.write/3`
+  # does it in the same directory, removes the temp file on failure, and
+  # retries `:eagain` — which a desktop that woke from suspend hands out more
+  # often than anyone expects. `candil.toml` is the source of truth for the
+  # whole catalogue, so a truncated one is a silent loss of every model.
   defp write_atomic(contents, path) do
-    dir = Path.dirname(path)
-    tmp = Path.join(dir, ".#{Path.basename(path)}.#{System.unique_integer([:positive])}.tmp")
+    case Apero.File.ensure_dir(Path.dirname(path)) do
+      :ok ->
+        case AtomicFile.write(path, contents, fsync: true) do
+          :ok ->
+            :ok
 
-    with :ok <- File.mkdir_p(dir),
-         :ok <- File.write(tmp, contents),
-         :ok <- File.rename(tmp, path) do
-      :ok
-    else
+          {:error, reason} ->
+            {:error, Error.invalid_request("could not write #{path}: #{inspect(reason)}")}
+        end
+
       {:error, reason} ->
-        _ = File.rm(tmp)
-        {:error, Error.invalid_request("could not write #{path}: #{inspect(reason)}")}
+        {:error,
+         Error.invalid_request("could not create #{Path.dirname(path)}: #{inspect(reason)}")}
     end
   end
 

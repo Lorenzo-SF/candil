@@ -2,6 +2,12 @@
 
 > Este directorio es el mapa. Si acabas de abrir una sesión nueva y no sabes por
 > dónde empezar, empieza por aquí, y luego por el README de la fase siguiente.
+>
+> **Si lo que quieres es probar, no leer: [`PRUEBAS-MANUALES.md`](PRUEBAS-MANUALES.md).**
+> Qué comandos correr, qué tiene que salir en cada uno, y un script
+> (`scripts/manual-check.sh`) que hace las cuatro fases y te da un resumen. Sin
+> configuración no hay nada que arrancar, así que empieza por el §0 de ese
+> documento.
 
 ## Qué se está construyendo
 
@@ -87,8 +93,8 @@ mejora el resultado.
 | 3 | CLI, `Config.Hydrate` | ✅ integrada |
 | 4 | Instancias, `--detach`, `stop`, `status` | ✅ integrada |
 | 5 | **Doctor**, `--fix`, `--json`, precios a `priv/` | ✅ integrada |
-| 6 | Context compartido | 📄 doc listo, sin código |
-| 7 | Router | 📄 doc listo, sin código |
+| 6 | Context compartido | ✅ **cerrada** (D8 · §3.4+D4 · §3.6) |
+| 7 | Router | 🔶 **siguiente** |
 | 8 | Gateway OpenAI‑compatible | 📄 doc listo, sin código |
 | 9 | MCP servidor y cliente | 📄 doc listo, sin código |
 | 10 | RAG | 📄 doc listo, sin código |

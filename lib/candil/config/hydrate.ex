@@ -168,6 +168,11 @@ defmodule Candil.Config.Hydrate do
         port: spec["port"] || :auto,
         usage: Enum.map(spec["usage"] || ["chat"], &atom/1),
         model_args: spec["model_args"] || [],
+        # Directo del spec y no un `nil` fijo: un `nil` aqui pisaba el valor
+        # que el usuario habia escrito en el toml, y `derive_gpu_layers/2` solo
+        # rellena cuando NO hay entero. O sea: la mitad de los campos del
+        # mundo funcionan y el nuevo no.
+        gpu_layers: spec["gpu_layers"],
         tags: spec["tags"] || []
       }
       |> maybe_put(:engine, spec["engine"] && alias_of(spec["engine"]))
@@ -176,11 +181,110 @@ defmodule Candil.Config.Hydrate do
       |> maybe_put(:base_url, spec["base_url"])
       |> maybe_put(:model_dir, spec["model_dir"])
       |> maybe_put(:filename, spec["filename"])
+      |> then(&derive_gpu_layers(&1, spec))
+      |> then(&derive_file_location(&1, spec))
       |> maybe_put(:source, source(spec["source"]))
       |> maybe_put(:draft, source(spec["draft"]))
       |> maybe_put(:enabled, spec["enabled"])
 
     validate(Model, struct(Model, attrs))
+  end
+
+  # `gpu_layers` es un campo propio, y se lee de dos sitios por orden: el
+  # campo del toml si esta, y si no el `--n-gpu-layers` que alguien hubiera
+  # dejado dentro de `model_args`. Un valor escondido en una lista no se
+  # puede manipular de forma fiable, y `--cpu` necesita manipularlo.
+  defp derive_gpu_layers(model, spec) do
+    # El flag se quita SIEMPRE, tenga el campo lo que tenga. Dejarlo cuando
+    # el campo existe creates dos fuentes de verdad para el mismo numero, y
+    # una de las dos se cuela: llama-server se queda con una y Candil cree
+    # que manda la otra. Un solo sitio, y el otro vacio.
+    {in_args, without} = pop_n_gpu_layers(model.model_args || [])
+
+    layers =
+      case spec["gpu_layers"] do
+        n when is_integer(n) -> n
+        _ -> in_args || -1
+      end
+
+    %{model | gpu_layers: layers, model_args: without}
+  end
+
+  # Saca el flag Y su valor de una lista de strings, y devuelve lo que habia
+  # junto a la lista sin el. Sin este par, `--cpu` pondria un 0 que el 99 de
+  # `model_args` deshaceria, y el usuario volveria a ver `n_gpu_layers already
+  # set by user` sin entender de donde sale.
+  defp pop_n_gpu_layers(args) when is_list(args) do
+    case Enum.split_while(args, &(&1 != "--n-gpu-layers")) do
+      # `before` se CONSERVA. Devolver solo `after_flag` se come todo lo que
+      # habia antes del flag, que es donde suelen estar los que importan —
+      # `--alias`, `-fa`, `--log-verbosity`.asi `--n-gpu-layers -1` en medio
+      # de los args se llevaba por delante `--alias qwencoder`, y el modelo
+      # salia sin alias ni flash attention y con exit 1. Un test con el flag
+      # al principio del array no lo ve nunca, porque ahi `before` esta vacio.
+      {before, ["--n-gpu-layers", value | after_flag]} ->
+        {to_int(value), before ++ after_flag}
+
+      {_before, _rest} ->
+        {nil, args}
+    end
+  end
+
+  defp pop_n_gpu_layers(args), do: {nil, args}
+
+  defp to_int(value) when is_binary(value) do
+    case Integer.parse(value) do
+      {n, _} -> n
+      :error -> -1
+    end
+  end
+
+  defp to_int(n) when is_integer(n), do: n
+  defp to_int(_), do: -1
+
+  # `model_dir` y `filename` SIEMPRE vienen del `[model.X.source]`, que es donde
+  # el toml los declara — `file` y `dest` — y no de unas claves `model_dir` y
+  # `filename` que ningun toml escrito por una persona tiene.
+  #
+  # Sin esto, `Candil.Engine.Server` hacia `Path.join(nil, nil)` y el GenServer
+  # del engine se caia en su `init/1`. El sintoma era desconcertante porque
+  # `candil models info` SI teach la ruta —la sacaba del source— mientras el
+  # arranque no la tenia: una pantalla que dice una cosa y un arranque que
+  # hace otra, con `doctor` diciendo "6/6 descargados" entre las dos.
+  #
+  # Un `model_dir` explicito gana, porque quien lo escribe sabe algo que el
+  # source no dice.
+  defp derive_file_location(model, spec) do
+    # `Map.get/3` y no `model.model_dir`: un modelo remoto hidratado llega
+    # aqui sin esas claves, y leerlas con punto revienta. Que se note ahora y
+    # no con el engine ya en marcha.
+    if is_binary(Map.get(model, :model_dir)) and is_binary(Map.get(model, :filename)) do
+      model
+    else
+      # `Map.put` y no `%{model | ...}`: el mapa hidratado no siempre trae las
+      # claves, y la sintaxis de struct update levanta KeyError si faltan. Un
+      # modelo remoto sin source llega aqui sin `filename`, y ahi no hay nada
+      # que derivar tampoco.
+      case spec["source"] do
+        %{"dest" => dest} = src when is_binary(dest) ->
+          model
+          |> Map.put(:model_dir, dest)
+          |> Map.put(:filename, src["dest_name"] || src["file"])
+
+        %{"path" => path} when is_binary(path) ->
+          # `Path.dirname/1` y `Path.basename/1`, no partir la lista a mano:
+          # `Enum.split(-1)` devuelve una TUPLA, y desempaquetarla como lista da
+          # un MatchError en el arranque de un modelo.
+          expanded = Path.expand(path)
+
+          model
+          |> Map.put(:model_dir, Path.dirname(expanded))
+          |> Map.put(:filename, Path.basename(expanded))
+
+        _ ->
+          model
+      end
+    end
   end
 
   defp provider(name, spec) do
