@@ -228,7 +228,7 @@ defmodule Candil.CLI.Holder do
   Never returns. Stops cleanly on SIGTERM/SIGINT so `stop` and `candil stop`
   can take the engine down with the owner instead of orphaning it.
   """
-  @spec block(term()) :: no_return()
+  @spec block(term()) :: :stopped | :engine_died
   def block(id) do
     # Atrapar salidas es para poder ORDENAR la muerte del engine antes de la
     # propia, no solo para enterarse de ella.
@@ -243,32 +243,32 @@ defmodule Candil.CLI.Holder do
   # quien preguntarle. Se vio justo asi, con `ropero` diciendo ON y `candil
   # status` diciendo que no habia nada.
   #
-  # Se apaga y luego se sale con codigo 0: si el engine se cae por su cuenta, el
-  # titular no ha fallado — ha hecho su trabajo, y el log ya lo dice.
-  # `System.halt/1` y no `exit(0)`.
+  # Aqui NO se detiene el VM: ni con `exit/1` ni con `System.halt/1`.
   #
-  # `exit(0)` mata el VM por debajo y se lleva por delante el `at_exit` de
-  # Elixir, que necesita `:elixir_config` vivo. El resultado es un crash report
-  # que dice `noproc, {gen_server, call, [elixir_config, ...]}` DESPUES de haber
-  # apagado todo bien, que es la peor forma de morir: parece un fallo cuando
-  # el apagado fue el correcto. Salir por `halt/1` deja que el escript termine
-  # su propia salida.
-  @spec shutdown() :: no_return()
-  defp shutdown, do: System.halt(0)
-
-  # Un `receive` sin `after` no termina nunca, y dialyzer lo ve como una
-  # funcion que solo acaba lanzando. Se declara que devuelve lo que sea, que
-  # es verdad: de este `receive` no se sale con un valor.
-  @spec hold(term()) :: no_return()
+  # Las dos seCarryeron por delante la suite. `System.halt(0)` mata la maquina
+  # virtual entera, y `HolderShutdownTest` llama a `block/1` de verdad: el
+  # proceso de test se llevaba por delante, `mix test` salia con 0 y SIN
+  # imprimir "Finished in". Un verde que no dice cuantos tests ha corrido no es
+  # un verde, y encima habia绿灯 de por medio.
+  #
+  # Asi que `hold/1` devuelve un motivo y quien decide como termina el proceso
+  # es el limite del escript, `Candil.CLI.Escript.hold/2`, que es el unico sitio
+  # con autoridad para llamar a `halt`. Un modulo de biblioteca no para el
+  # mundo entero porque le llega un `:stop`.
+  # De este `receive` solo se sale con `:stopped` o con `:engine_died`, y en
+  # los dos casos el engine ya esta apagado. Devolver el motivo es lo que
+  # permite que quien llama decida como termina el proceso sin que esta funcion
+  # tenga autoridad para pararlo.
+  @spec hold(term()) :: :stopped | :engine_died
   defp hold(id) do
     receive do
       {:EXIT, _pid, _reason} ->
         LongRunning.stop(id)
-        shutdown()
+        :engine_died
 
       :stop ->
         LongRunning.stop(id)
-        shutdown()
+        :stopped
     end
   end
 end

@@ -138,6 +138,18 @@ defmodule Candil.Context do
   """
   @spec chat(atom(), String.t(), [Inference.message()], keyword()) ::
           {:ok, Inference.response()} | {:error, term()}
+  # Dialyzer infiere que `Inference.chat_local/3` solo devuelve
+  # `{:error, %Error{}}` y da por muerta la rama de exito. No es cierto: el
+  # criterio de cierre de la fase pasa y el modelo contesta. La inferencia llega
+  # igual porque `chat_local` encadena `Store.get_model/1` y dos guardas sobre
+  # el modelo antes de delegar, y esa cadena no la resuelve sin una factoria
+  # que aqui no existe.
+  #
+  # Se silencia SOLO esta funcion y no el modulo entero. Un aviso de dialyzer
+  # en una linea que se sabe falsa es ruido; silenciar el modulo entero tapa el
+  # resto, que es donde puede estar el fallo de verdad. La rama se ejercita con
+  # el criterio de cierre, que es donde se comprueba de verdad.
+  @dialyzer {:nowarn_function, chat: 4}
   def chat(model_alias, session_id, messages, opts \\ []) do
     consumer = Keyword.fetch!(opts, :consumer)
     build_opts = Keyword.take(opts, [:context_size, :system_prompt, :margin_tokens])
@@ -167,6 +179,14 @@ defmodule Candil.Context do
   # The response shape is the backend's, not ours: a string, or a struct with
   # `:content`. Guessing wrong here would write "nil" into somebody's history
   # and call it a conversation.
+  #
+  # Dialycer da estas clausulas por muertas porque `@type response` declara
+  # SIEMPRE un mapa con `content`. Lo es para los backends de hoy, y por eso
+  # hay mas clausulas: un backend nuevo que devuelva otra cosa debe escribir
+  # el texto en el historial de alguien, no reventar. Una clausula de
+  # seguridad que dialyzer marca como muerta se queda y se explica; lo que no
+  # se hace es borrarla porque un analizador no la ve.
+  @dialyzer {:nowarn_function, content_of: 1}
   defp content_of(%{content: content}) when is_binary(content), do: content
   defp content_of(response) when is_binary(response), do: response
   defp content_of(%{"content" => content}) when is_binary(content), do: content
