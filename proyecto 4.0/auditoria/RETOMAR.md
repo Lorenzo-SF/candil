@@ -3,7 +3,7 @@
 > **Documento de entrada para una sesión nueva.** Autosuficiente: no necesita
 > leer nada más para saber qué hacer en los primeros 30 minutos.
 >
-> Premisa: *en la sesión principal se ha trabajado hasta la fase 5*.
+> Premisa: _en la sesión principal se ha trabajado hasta la fase 5_.
 > **Lo que hay que hacer NO es reimplementar, sino medir y continuar.**
 
 ---
@@ -14,18 +14,18 @@
 
 Las enmiendas v4.1 son **aditivas**, y solo dos tocan fases ya cerradas:
 
-| Enmienda | Fase | ¿Toca trabajo ya hecho? |
-|---|---|---|
-| D1 `quality_class` | 7 | no |
-| D4 política de contexto | 6 | no |
-| D5 `reasoning_effort` | 8 | no |
-| D6 señal del router | 7 | no |
-| D8 `Conversation` | 6 | no |
-| D9 checks del doctor | 5, 6, 7, 8, 10 | no — en la F5 es el doctor que ya existe |
-| D10 issue de botica | 11 | no |
-| **D2** `EnginePool` interno | **4** | sí → **verificar**, 1 h |
-| **D3** launcher del engine | **2** | sí → **verificar**, 30 min |
-| **D7** paridad con ropero | **2**, 11 | sí → **verificar**, medio día |
+| Enmienda                    | Fase           | ¿Toca trabajo ya hecho?                  |
+| --------------------------- | -------------- | ---------------------------------------- |
+| D1 `quality_class`          | 7              | no                                       |
+| D4 política de contexto     | 6              | no                                       |
+| D5 `reasoning_effort`       | 8              | no                                       |
+| D6 señal del router         | 7              | no                                       |
+| D8 `Conversation`           | 6              | no                                       |
+| D9 checks del doctor        | 5, 6, 7, 8, 10 | no — en la F5 es el doctor que ya existe |
+| D10 issue de botica         | 11             | no                                       |
+| **D2** `EnginePool` interno | **4**          | sí → **verificar**, 1 h                  |
+| **D3** launcher del engine  | **2**          | sí → **verificar**, 30 min               |
+| **D7** paridad con ropero   | **2**, 11      | sí → **verificar**, medio día            |
 
 **Lo que significa, en una frase:** las fases 2 a 5 tienen el mismo objetivo que
 tenían, más una comprobación pendiente cada una. **Todo el trabajo nuevo vive de
@@ -48,7 +48,7 @@ implementar antes.**
 ### 1.1 El sondeo de 5 minutos
 
 ```bash
-cd ~/cacafuti/candil      # o donde esté
+cd ~/workspace/github/candil      # o donde esté
 
 # ¿en qué rama y con qué commit?
 git status -sb
@@ -86,33 +86,33 @@ se comprobaron.
 Rellena esta tabla **con la salida real de los comandos**, no de memoria. La
 columna de la derecha es la que decide qué haces después.
 
-| Fase | Cómo se comprueba | Sin modelos | Veredicto |
-|---|---|---|---|
-| **F2** Build | `mix test test/candil/build/ test/candil/source_test.exs`<br>`git tag \| grep 3.3.0` | ✅ | ✅ hecha y medida · `3 doctests, 59 tests, 0 failures` |
-| **F3** CLI | `mix escript.build && ./candil --help`<br>`git tag \| grep alpha.1` | ✅ | ✅ hecha y medida · `--help` lista 7 comandos · `version` = 4.0.0 |
-| **F4** Instancias | `mix test test/candil/instances_test.exs`<br>`./candil status` | ⚠️ parcial | ✅ hecha y medida · `15 tests, 0 failures` · criterio L4 **no ejecutado**: sin modelo |
-| **F5** Doctor | `mix test test/candil/doctor_test.exs`<br>`./candil doctor` | ✅ | ✅ hecha y medida · `17 tests, 0 failures` · `0 errores · 5 advertencias` |
-| **F6** Context | `mix test test/candil/context_test.exs test/candil/context_builder_test.exs` | ✅ | 🟡 parcial · 33 tests verdes; falta `chat_with_context/4`, la causa en el `reason` del Builder, y D4 y D8 |
-| **F7** Router | `mix test test/candil/router_test.exs` | ✅ | 🟡 parcial · `26 tests, 0 failures` · la clave de caché **sí** incluye el consumer |
-| **F8** Gateway | `mix test test/candil/gateway_test.exs` | ✅ | 🟡 parcial · `22 tests, 0 failures` · `Endpoint.listen/4` sigue stub (es la fase 8) |
-| **F9** MCP | `mix test test/candil/mcp_protocol_test.exs` | ✅ | 🔴 **bloqueada por A1** · 22 tests verdes contra `2025-11-25` (Legacy) |
-| **F10** RAG | `mix test test/candil/rag_test.exs` | ✅ | 🔴 **bloqueada por A2** · 16 tests verdes, las 5 funciones públicas son stub |
-| **F11** Cierre | `./candil doctor` + tag `4.0.0` | ✅ | 🔴 no empezada · **no existe el tag `4.0.0`** |
+| Fase              | Cómo se comprueba                                                                    | Sin modelos | Veredicto                                                                                                 |
+| ----------------- | ------------------------------------------------------------------------------------ | ----------- | --------------------------------------------------------------------------------------------------------- |
+| **F2** Build      | `mix test test/candil/build/ test/candil/source_test.exs`<br>`git tag \| grep 3.3.0` | ✅          | ✅ hecha y medida · `3 doctests, 59 tests, 0 failures`                                                    |
+| **F3** CLI        | `mix escript.build && ./candil --help`<br>`git tag \| grep alpha.1`                  | ✅          | ✅ hecha y medida · `--help` lista 7 comandos · `version` = 4.0.0                                         |
+| **F4** Instancias | `mix test test/candil/instances_test.exs`<br>`./candil status`                       | ⚠️ parcial  | ✅ hecha y medida · `15 tests, 0 failures` · criterio L4 **no ejecutado**: sin modelo                     |
+| **F5** Doctor     | `mix test test/candil/doctor_test.exs`<br>`./candil doctor`                          | ✅          | ✅ hecha y medida · `17 tests, 0 failures` · `0 errores · 5 advertencias`                                 |
+| **F6** Context    | `mix test test/candil/context_test.exs test/candil/context_builder_test.exs`         | ✅          | 🟡 parcial · 33 tests verdes; falta `chat_with_context/4`, la causa en el `reason` del Builder, y D4 y D8 |
+| **F7** Router     | `mix test test/candil/router_test.exs`                                               | ✅          | 🟡 parcial · `26 tests, 0 failures` · la clave de caché **sí** incluye el consumer                        |
+| **F8** Gateway    | `mix test test/candil/gateway_test.exs`                                              | ✅          | 🟡 parcial · `22 tests, 0 failures` · `Endpoint.listen/4` sigue stub (es la fase 8)                       |
+| **F9** MCP        | `mix test test/candil/mcp_protocol_test.exs`                                         | ✅          | 🔴 **bloqueada por A1** · 22 tests verdes contra `2025-11-25` (Legacy)                                    |
+| **F10** RAG       | `mix test test/candil/rag_test.exs`                                                  | ✅          | 🔴 **bloqueada por A2** · 16 tests verdes, las 5 funciones públicas son stub                              |
+| **F11** Cierre    | `./candil doctor` + tag `4.0.0`                                                      | ✅          | 🔴 no empezada · **no existe el tag `4.0.0`**                                                             |
 
 **Sobre la columna "sin modelos":** algunas cosas no se pueden comprobar sin los
 17 GB de GGUF. `./candil run coder --detach` con un `STATE` en `ON` es el criterio
 de la F4 y **no se puede ejecutar en un sandbox sin GPU**. Eso no significa que la
-fase esté mal: significa que el veredicto es *"verificada en todo lo verificable"*, y
+fase esté mal: significa que el veredicto es _"verificada en todo lo verificable"_, y
 se anota como tal. **Escribir un veredicto que no has medido es el único error
 irrecuperable de esta fase.**
 
 ### 2.1 Los tres veredictos que importan
 
-| Veredicto | Qué significa | Qué haces |
-|---|---|---|
-| **✅ Hecha y medida** | el criterio pasa y lo has ejecutado | no la toques. Sal a la siguiente |
-| **🟡 Parcial** | compila, algo pasa, falta parte | **lee el README de la fase**, que tiene la lista de lo que falta con su nivel |
-| **🔴 No empezada** | no hay ficheros, o son stubs | empieza por su §3, en orden |
+| Veredicto             | Qué significa                       | Qué haces                                                                     |
+| --------------------- | ----------------------------------- | ----------------------------------------------------------------------------- |
+| **✅ Hecha y medida** | el criterio pasa y lo has ejecutado | no la toques. Sal a la siguiente                                              |
+| **🟡 Parcial**        | compila, algo pasa, falta parte     | **lee el README de la fase**, que tiene la lista de lo que falta con su nivel |
+| **🔴 No empezada**    | no hay ficheros, o son stubs        | empieza por su §3, en orden                                                   |
 
 **⚠ El caso `🟡` es el que más engaña.** "Compila y los tests pasan" no es "está
 hecha": la F5 tenía los siete checks funcionando y **cero tests**, y eso no se ve
@@ -176,14 +176,14 @@ F6 → F7 → F8 → F9 → F10 → F11
 
 ### 4.1 Por fase, en orden
 
-| Orden | Fase | Empieza por | Nivel |
-|---|---|---|---|
-| 1 | **F6** Context | §3.1 particionar por consumer | `max` |
-| 2 | **F7** Router | §3.1 `pin/2` | `max` |
-| 3 | **F8** Gateway | §3.4 auth + model de la red | `max` |
-| 4 | **F9** MCP | **la puerta** (§6), luego §3.1 | `max` |
-| 5 | **F10** RAG | **la puerta** (§6), luego §3.2 chunker | `max` |
-| 6 | **F11** Cierre | §3.1 borrar `LLM.Ropero` | `max` |
+| Orden | Fase           | Empieza por                            | Nivel |
+| ----- | -------------- | -------------------------------------- | ----- |
+| 1     | **F6** Context | §3.1 particionar por consumer          | `max` |
+| 2     | **F7** Router  | §3.1 `pin/2`                           | `max` |
+| 3     | **F8** Gateway | §3.4 auth + model de la red            | `max` |
+| 4     | **F9** MCP     | **la puerta** (§6), luego §3.1         | `max` |
+| 5     | **F10** RAG    | **la puerta** (§6), luego §3.2 chunker | `max` |
+| 6     | **F11** Cierre | §3.1 borrar `LLM.Ropero`               | `max` |
 
 **Las cinco empiezan en `max` o en el bloqueo que las precede.** No es casualidad:
 son las fases con decisiones que el documento no contiene, y una sub-tarea que
@@ -230,10 +230,10 @@ Y una cuarta, que es la que hace que un doctor sirva:
 **No arranques estas dos fases con la decisión abierta.** Un agente que empieza
 sin ella la toma por su cuenta, y es un día de trabajo tirado.
 
-| | Decisión | Por qué bloquea |
-|---|---|---|
-| **F9** | ¿`2026-07-28` (Current) o `2025-11-25` (Legacy)? | En `2026-07-28` **no hay handshake `initialize`**: hay `server/discover` y la versión va en `_meta`. Es un día de diferencia de trabajo |
-| **F10** | ¿el diseño del README (SQLite FTS5 + chunking por función) o el del plan (memoria + chunker configurable)? | Ocho divergencias. Los dos documentos vivos producen dos RAG distintos |
+|         | Decisión                                                                                                   | Por qué bloquea                                                                                                                         |
+| ------- | ---------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------- |
+| **F9**  | ¿`2026-07-28` (Current) o `2025-11-25` (Legacy)?                                                           | En `2026-07-28` **no hay handshake `initialize`**: hay `server/discover` y la versión va en `_meta`. Es un día de diferencia de trabajo |
+| **F10** | ¿el diseño del README (SQLite FTS5 + chunking por función) o el del plan (memoria + chunker configurable)? | Ocho divergencias. Los dos documentos vivos producen dos RAG distintos                                                                  |
 
 Caben en **una mañana**. Se anotan en `HANDOFF.md` con un párrafo cada una, y los
 carriles arrancan.

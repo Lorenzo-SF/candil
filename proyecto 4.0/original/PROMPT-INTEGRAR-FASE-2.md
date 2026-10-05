@@ -74,7 +74,7 @@ sobre la versión anterior.
 ## Cómo integrarlo
 
 ```bash
-cd ~/cacafuti/candil
+cd ~/workspace/github/candil
 git fetch origin
 git checkout 4.0-f2-build
 git merge origin/main

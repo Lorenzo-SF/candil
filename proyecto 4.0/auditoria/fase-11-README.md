@@ -35,12 +35,12 @@ pueden hacer desde el repo de Candil.
 
 ## 3. Dónde
 
-| Sub-fase | Dónde | Effort |
-|---|---|---|
-| 11.1 Posadero | `~/cacafuti/lasaca/posadero` | 1.5 d |
-| 11.2 gunter / opencode | `~/bin/gunter` · `opencode.jsonc` | 0.5 d |
-| 11.3 Docs | `README.md`, `docs/` en el repo de Candil | 1 d |
-| 11.4 Cierre | el repo de Candil | 1 d |
+| Sub-fase               | Dónde                                     | Effort |
+| ---------------------- | ----------------------------------------- | ------ |
+| 11.1 Posadero          | `~/workspace/github/lasaca/posadero`      | 1.5 d  |
+| 11.2 gunter / opencode | `~/bin/gunter` · `opencode.jsonc`         | 0.5 d  |
+| 11.3 Docs              | `README.md`, `docs/` en el repo de Candil | 1 d    |
+| 11.4 Cierre            | el repo de Candil                         | 1 d    |
 
 **Carril H. El único que puede tocar `mix.exs`.**
 
@@ -55,7 +55,7 @@ puede hablar con los servidores de ropero. Se sustituye por
 `Candil.Store.get_model/1` + `Candil.embed/3`.
 
 ```bash
-cd ~/cacafuti/lasaca/posadero
+cd ~/workspace/github/lasaca/posadero
 git rm lib/posadero/llm/ropero.ex
 mix test                    # 0 failures
 grep -r "LLM.Ropero" lib/   # 0
@@ -184,29 +184,29 @@ mix test --cover         # ≥ 70 %
 **Los ocho gates de posadero también**, porque 11.1 los toca:
 
 ```bash
-cd ~/cacafuti/lasaca/posadero && mix test && mix credo --strict
+cd ~/workspace/github/lasaca/posadero && mix test && mix credo --strict
 ```
 
 ---
 
 ## 7. Capa 2 — Qué tiene que pasar al ejecutar
 
-| Qué | Qué tiene que ocurrir | Qué NO puede ocurrir |
-|---|---|---|
-| `mix test` en Candil | 0 fallos, cobertura ≥ 70 % | un `:skip` para hacer verde |
-| `mix test` en posadero | 0 fallos | que el borrado se "salte" el módulo y sus tests |
-| `grep -r "LLM.Ropero" lib/` en posadero | **0 resultados** | una referencia en un `.exs` o un `.ex` que no se borró |
-| `candil doctor` | **0 errores** | advertencias sin comando de arreglo |
-| `mix compile` con `groups_for_modules` | compila | un módulo en la lista que no existe |
-| `MIGRATION.md` | el bloque de código **se ejecuta** | que se documente una ruta que no funciona |
-| `README.md` | el ejemplo **se ejecuta** | que "parezca plausible" |
-| el tag | `candil-4.0.0` publicado | un tag con los gates en rojo |
+| Qué                                     | Qué tiene que ocurrir              | Qué NO puede ocurrir                                   |
+| --------------------------------------- | ---------------------------------- | ------------------------------------------------------ |
+| `mix test` en Candil                    | 0 fallos, cobertura ≥ 70 %         | un `:skip` para hacer verde                            |
+| `mix test` en posadero                  | 0 fallos                           | que el borrado se "salte" el módulo y sus tests        |
+| `grep -r "LLM.Ropero" lib/` en posadero | **0 resultados**                   | una referencia en un `.exs` o un `.ex` que no se borró |
+| `candil doctor`                         | **0 errores**                      | advertencias sin comando de arreglo                    |
+| `mix compile` con `groups_for_modules`  | compila                            | un módulo en la lista que no existe                    |
+| `MIGRATION.md`                          | el bloque de código **se ejecuta** | que se documente una ruta que no funciona              |
+| `README.md`                             | el ejemplo **se ejecuta**          | que "parezca plausible"                                |
+| el tag                                  | `candil-4.0.0` publicado           | un tag con los gates en rojo                           |
 
 ---
 
 ## 8. Capa 3 — Revisión manual del código
 
-- [ ] `grep -rn "LLM.Ropero" ~/cacafuti/lasaca/posadero/` → **0 en todo el
+- [ ] `grep -rn "LLM.Ropero" ~/workspace/github/lasaca/posadero/` → **0 en todo el
       repo**, no solo en `lib/`. Incluye tests, docs y moduledocs.
 - [ ] ¿Queda algún cliente HTTP a mano en posadero que debería ser
       `Candil.embed/3`?
@@ -229,7 +229,7 @@ Las cuatro, en orden, porque cada una depende de la anterior.
 ### 8.1 El borrado de posadero
 
 ```bash
-cd ~/cacafuti/lasaca/posadero
+cd ~/workspace/github/lasaca/posadero
 git rm lib/posadero/llm/ropero.ex
 mix test
 grep -r "LLM.Ropero" lib/   # → 0
@@ -305,13 +305,11 @@ reportar "0 errores" sin haberlos tenido.
 
 ---
 
-
 ## 12. El aviso de `HANDOFF.md`
 
 Cuando la 11 cierre, ese fichero pasa de ser un documento vivo a ser un
 histórico. **No lo borres**: es lo que explica por qué cada fase es como es.
 Actualiza su §2 con el estado real de 4.0.0 y déjalo ahí.
-
 
 ## 13. Cómo se ejecuta esta fase
 
@@ -347,14 +345,14 @@ Un worktree por sesión, un `_build` por carril.
 
 ### El nivel, sub-tarea por sub-tarea
 
-| Sub-tarea | Nivel | Verificación |
-|---|---|---|
-| 3.1 Cablear posadero y borrar `LLM.Ropero` | `max` | L4: `grep` a 0 y **el RAG responde** |
-| 3.2 gunter con `candil run --detach` | `medium` | L4: sobrevive a reiniciar la shell |
-| 3.3 Los seis documentos | `low` | L4: el README y el MIGRATION **se ejecutan** |
-| 3.4 Cierre: gates + doctor + tag | `low correr / high leer` | L4: `doctor` 0 errores; cobertura ≥70% o revisado |
-| D10 Issue en botica | `low` | Una issue abierta, con fecha y enlace a C11 |
-| Revisión final (sesión aparte) | `max` | Todo lo anterior, mirando sin el diff |
+| Sub-tarea                                  | Nivel                    | Verificación                                      |
+| ------------------------------------------ | ------------------------ | ------------------------------------------------- |
+| 3.1 Cablear posadero y borrar `LLM.Ropero` | `max`                    | L4: `grep` a 0 y **el RAG responde**              |
+| 3.2 gunter con `candil run --detach`       | `medium`                 | L4: sobrevive a reiniciar la shell                |
+| 3.3 Los seis documentos                    | `low`                    | L4: el README y el MIGRATION **se ejecutan**      |
+| 3.4 Cierre: gates + doctor + tag           | `low correr / high leer` | L4: `doctor` 0 errores; cobertura ≥70% o revisado |
+| D10 Issue en botica                        | `low`                    | Una issue abierta, con fecha y enlace a C11       |
+| Revisión final (sesión aparte)             | `max`                    | Todo lo anterior, mirando sin el diff             |
 
 **Y al final, siempre:** una sesión de revisión aparte, a `max`, leyendo el PR
 **sin el diff del autor**. Es la única tarea del plan donde el nivel base es el
@@ -363,12 +361,12 @@ escrito el módulo.
 
 ### Las 4 capas, en cada sub-tarea
 
-| Capa | Qué | Obligatoria |
-|---|---|---|
-| **L1** | `mix format --check-formatted` + `mix compile --force --warnings-as-errors` | siempre |
-| **L2** | `mix credo --strict` + `mix dialyzer` | si toca código compartido |
-| **L3** | `CANDIL_DATA_DIR=$(mktemp -d) mix test <ruta>/` con el caso nombrado | siempre |
-| **L4** | un comando con salida observable, **y qué NO puede ocurrir** | si es visible para el usuario |
+| Capa   | Qué                                                                         | Obligatoria                   |
+| ------ | --------------------------------------------------------------------------- | ----------------------------- |
+| **L1** | `mix format --check-formatted` + `mix compile --force --warnings-as-errors` | siempre                       |
+| **L2** | `mix credo --strict` + `mix dialyzer`                                       | si toca código compartido     |
+| **L3** | `CANDIL_DATA_DIR=$(mktemp -d) mix test <ruta>/` con el caso nombrado        | siempre                       |
+| **L4** | un comando con salida observable, **y qué NO puede ocurrir**                | si es visible para el usuario |
 
 La **aserción negativa** es la que importa: un criterio que solo dice "responde"
 pasa con un `[]` de respuesta.
@@ -379,6 +377,6 @@ pasa con un `[]` de respuesta.
 `deliverable.md` y sigue con la siguiente sub-tarea que no dependa de eso.
 
 **Y si un criterio no se ejecutó porque el entorno no lo permite, dilo.** Escribe
-*"criterio ejecutado: unitario, no integración"*. Un `deliverable.md` que dice
+_"criterio ejecutado: unitario, no integración"_. Un `deliverable.md` que dice
 "criterio ejecutado" cuando se ejecutó la mitad es una mentira, y la siguiente
 sesión la da por buena.

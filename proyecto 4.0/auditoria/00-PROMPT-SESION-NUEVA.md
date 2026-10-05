@@ -62,7 +62,7 @@ se leía. Un documento que miente es peor que un documento que no existe.
 
 Los comandos, en orden:
 
-    cd ~/cacafuti/candil          # o donde esté el repo
+    cd ~/workspace/github/candil          # o donde esté el repo
     git status -sb
     git log --oneline -20
     git tag | grep candil | sort -V        # ← el mapa de fases, 5 segundos
@@ -321,13 +321,13 @@ otro fichero. Si la sesión ya tiene contexto de Candil, puede empezar en
 
 **Los cinco ficheros que tiene que leer, y ninguno más hasta tener veredicto:**
 
-| # | Fichero | Por qué ese orden |
-|---|---|---|
-| 1 | `RETOMAR.md` | el mandato: medir antes de tocar |
-| 2 | `PLAN-EJECUCION.md` | el ciclo, los niveles, las 4 capas |
-| 3 | `fase-6-README.md` | la primera fase real, y el nivel de cada sub-tarea |
-| 4 | `00-INFORME-AUDITORIA.md` | solo si algo no cuadra con lo que sabes |
-| 5 | `v4.1/candil-4.0-DISENO-v4.1.md` | las enmiendas, al empezar F6 |
+| #   | Fichero                          | Por qué ese orden                                  |
+| --- | -------------------------------- | -------------------------------------------------- |
+| 1   | `RETOMAR.md`                     | el mandato: medir antes de tocar                   |
+| 2   | `PLAN-EJECUCION.md`              | el ciclo, los niveles, las 4 capas                 |
+| 3   | `fase-6-README.md`               | la primera fase real, y el nivel de cada sub-tarea |
+| 4   | `00-INFORME-AUDITORIA.md`        | solo si algo no cuadra con lo que sabes            |
+| 5   | `v4.1/candil-4.0-DISENO-v4.1.md` | las enmiendas, al empezar F6                       |
 
 `ORIGINAL/candil-4.0-final.md` son 3.000 líneas y **no se lee entero**: cada README
 de fase dice qué secciones mirar y de qué línea.

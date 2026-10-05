@@ -1,6 +1,5 @@
 # Fase 11 — Consumidores, docs y 4.0.0
 
-
 > **Para probar esta fase**: [`../PRUEBAS-MANUALES.md`](../PRUEBAS-MANUALES.md) — comandos, comportamiento esperado y el script `scripts/manual-check.sh`.
 
 > Estado: **pendiente**. Depende de todas. Carril H.
@@ -20,12 +19,12 @@ repo de Candil, y por eso es la única fase que no se cierra con un PR a `4.0`.
 
 ## Dónde
 
-| Sub-fase | Dónde | Effort |
-|---|---|---|
-| 11.1 Posadero | `~/cacafuti/lasaca/posadero` | 1.5 d |
-| 11.2 gunter / opencode | `~/bin/gunter` · `opencode.jsonc` | 0.5 d |
-| 11.3 Docs | `README.md`, `docs/` en el repo de Candil | 1 d |
-| 11.4 Cierre | el repo de Candil | 1 d |
+| Sub-fase               | Dónde                                     | Effort |
+| ---------------------- | ----------------------------------------- | ------ |
+| 11.1 Posadero          | `~/workspace/github/lasaca/posadero`      | 1.5 d  |
+| 11.2 gunter / opencode | `~/bin/gunter` · `opencode.jsonc`         | 0.5 d  |
+| 11.3 Docs              | `README.md`, `docs/` en el repo de Candil | 1 d    |
+| 11.4 Cierre            | el repo de Candil                         | 1 d    |
 
 **Carril H. El único que puede tocar `mix.exs`.**
 
@@ -38,7 +37,7 @@ para sortear H1. Se sustituye por `Candil.Store.get_model/1` +
 `Candil.embed/3`.
 
 ```bash
-cd ~/cacafuti/lasaca/posadero
+cd ~/workspace/github/lasaca/posadero
 git rm lib/posadero/llm/ropero.ex
 mix test                    # 0 failures
 grep -r "LLM.Ropero" lib/   # 0

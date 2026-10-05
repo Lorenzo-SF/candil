@@ -6,7 +6,7 @@
 >
 > **Fuentes**: dos documentos previos (`# Candil 4.0 — Diseño, migración…` y `# Candil 4.0 — Diseño, decisiones…`) + snapshots reales del código de Candil 3.0.0, ElPaso, Alaja, Ropero, Arrea, Apero, Trebejo, Botica y lasaca.
 >
-> **Destino**: `~/cacafuti/lasaca/PENDIENTE/principal/candil-4.md`
+> **Destino**: `~/workspace/github/lasaca/PENDIENTE/principal/candil-4.md`
 
 ---
 
@@ -40,7 +40,7 @@
 
 Candil 3.0.0 es **una base sólida con 9 bugs y una capa de producto sin construir**. Tiene 5.923 LOC, 41 módulos, 30 archivos de test, y una arquitectura limpia. Lo que falta no es reescribirla — es **terminarla**.
 
-**La misión de Candil 4.0** es convertirse en la **librería IA del ecosistema `cacafuti`**, absorbiendo:
+**La misión de Candil 4.0** es convertirse en la **librería IA del ecosistema `lasaca`**, absorbiendo:
 
 - **Ropero** (bash, ~15 scripts `.sh`) → se convierte en config TOML + `Candil.Config.Migrate`.
 - **ElPaso** (Elixir, 12.389 LOC) → se convierte en `Candil.Router` + `Candil.Gateway` (solo la parte de routing y gateway; se descarta su capa Ecto/Postgres obligatoria y su CLI con Mix tasks).
@@ -136,10 +136,10 @@ graph TB
 
 ### 3.3 Candil en el meta-repo `lasaca`
 
-Actualmente `candil` y `alaja` viven en `~/cacafuti/` (no bajo `~/cacafuti/lasaca/`). El documento asume esa topología:
+Actualmente `candil` y `alaja` viven en `~/workspace/github/` (no bajo `~/workspace/github/lasaca/`). El documento asume esa topología:
 
 ```
-~/cacafuti/
+~/workspace/github/
 ├── candil/                 ← proyecto
 ├── alaja/                  ← dependencia (path dep)
 ├── apero/
@@ -1036,7 +1036,7 @@ end
 **Comando**:
 
 ```bash
-mix candil.migrate --from-ropero ~/cacafuti/lasaca/ropero/ropero.d/ --output ~/.config/candil/candil.toml
+mix candil.migrate --from-ropero ~/workspace/github/lasaca/ropero/ropero.d/ --output ~/.config/candil/candil.toml
 ```
 
 **Algoritmo**:
@@ -1477,7 +1477,7 @@ Cada fase se compone de **tareas atómicas** con:
 ### 13.1 — Baseline
 
 ```bash
-cd ~/cacafuti/candil
+cd ~/workspace/github/candil
 mix deps.get
 mix compile --warnings-as-errors 2>&1 | tee docs/baseline/compile.txt
 mix test 2>&1 | tee docs/baseline/test.txt
@@ -2655,7 +2655,7 @@ end
 
 ```bash
 mix test test/candil/config/        # 0 failures
-mix candil.migrate --from-ropero ~/cacafuti/lasaca/ropero/ropero.d/ --dry-run | head -50
+mix candil.migrate --from-ropero ~/workspace/github/lasaca/ropero/ropero.d/ --dry-run | head -50
 # Debe imprimir un TOML válido con los modelos de ropero
 ```
 
@@ -4408,8 +4408,8 @@ candil rag query mydocs "how to configure X"
 ### 20.1 — Correr migración
 
 ```bash
-cd ~/cacafuti/candil
-mix candil.migrate --from-ropero ~/cacafuti/lasaca/ropero/ropero.d/ \
+cd ~/workspace/github/candil
+mix candil.migrate --from-ropero ~/workspace/github/lasaca/ropero/ropero.d/ \
   --output ~/.config/candil/candil.toml
 ```
 
@@ -4445,7 +4445,7 @@ Cada modelo arranca, responde, y se para.
 ### 20.4 — Borrar ropero
 
 ```bash
-cd ~/cacafuti/lasaca
+cd ~/workspace/github/lasaca
 # Editar repos.yaml: quitar la entrada de ropero
 ./lasaca.sh --status  # verificar
 git add repos.yaml
@@ -4459,7 +4459,7 @@ git commit -m "chore(ropero): delete directory"
 ```bash
 candil models list | grep -c "coder\|verifier\|analyst\|designer\|embed"
 # Debe salir >= 5
-ls ~/cacafuti/lasaca/ropero 2>&1 | grep -q "No such" && echo "ropero borrado"
+ls ~/workspace/github/lasaca/ropero 2>&1 | grep -q "No such" && echo "ropero borrado"
 ```
 
 ---
@@ -4472,7 +4472,7 @@ ls ~/cacafuti/lasaca/ropero 2>&1 | grep -q "No such" && echo "ropero borrado"
 
 ### 21.1 — Dep
 
-**Archivo**: `~/cacafuti/lasaca/posadero/mix.exs`.
+**Archivo**: `~/workspace/github/lasaca/posadero/mix.exs`.
 
 ```elixir
 {:candil, path: "../../candil"},
@@ -4483,7 +4483,7 @@ ls ~/cacafuti/lasaca/ropero 2>&1 | grep -q "No such" && echo "ropero borrado"
 Buscar en `posadero/lib/` los usos de `HTTPoison` o `localhost:9999`:
 
 ```bash
-cd ~/cacafuti/lasaca/posadero
+cd ~/workspace/github/lasaca/posadero
 grep -rln "localhost:9999\|HTTPoison\|:9998\|llama.cpp\|llama-server" lib/
 ```
 
@@ -4519,7 +4519,7 @@ Candil.MCP.Server.start_link(
 ### 21.5 — Criterio de done
 
 ```bash
-cd ~/cacafuti/lasaca/posadero
+cd ~/workspace/github/lasaca/posadero
 mix deps.get
 mix compile --warnings-as-errors
 mix test  # 0 failures
@@ -4577,8 +4577,8 @@ posadero ask "..."
 ### Criterio de done
 
 ```bash
-ls ~/cacafuti/lasaca/ | grep -E "ropero|arriero|gunter"  # nada
-grep -c "ropero\|arriero" ~/cacafuti/lasaca/repos.yaml  # 0
+ls ~/workspace/github/lasaca/ | grep -E "ropero|arriero|gunter"  # nada
+grep -c "ropero\|arriero" ~/workspace/github/lasaca/repos.yaml  # 0
 ```
 
 ---
@@ -4727,7 +4727,7 @@ No bloquean las fases 0-2. Se deciden antes de las fases 3+.
 ## Comandos de arranque — Fase 0
 
 ```bash
-cd ~/cacafuti/candil
+cd ~/workspace/github/candil
 
 # 1. Baseline
 mix deps.get
