@@ -107,22 +107,20 @@ defmodule Candil.Router.DecisionEngine do
         :miss
 
       alias ->
-        cond do
-          alias in candidates ->
-            {:ok,
-             %Decision{
-               model_alias: alias,
-               strategy: :forced,
-               score: 1.0,
-               reason: "forzado a mano con --model #{alias}; el resto de capas ni se miran",
-               alternatives: List.delete(candidates, alias),
-               degraded: degraded,
-               confidence: confidence(degraded),
-               timestamp: DateTime.utc_now()
-             }}
-
-          true ->
-            {:model_not_eligible, Error.model_not_in_candidates(alias, candidates)}
+        if alias in candidates do
+          {:ok,
+           %Decision{
+             model_alias: alias,
+             strategy: :forced,
+             score: 1.0,
+             reason: "forzado a mano con --model #{alias}; el resto de capas ni se miran",
+             alternatives: List.delete(candidates, alias),
+             degraded: degraded,
+             confidence: confidence(degraded),
+             timestamp: DateTime.utc_now()
+           }}
+        else
+          {:model_not_eligible, Error.model_not_in_candidates(alias, candidates)}
         end
     end
   end

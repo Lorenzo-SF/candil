@@ -13,7 +13,7 @@ defmodule Candil.CLI.Router do
   apagandolo.
   """
 
-  alias Alaja.Output
+  alias Alaja.Printer, as: Say
   alias Candil.Router
   alias Candil.Router.{Cache, Consumer}
 
@@ -25,7 +25,7 @@ defmodule Candil.CLI.Router do
     text = get(opts, :prompt)
 
     if blank?(text) do
-      Output.print_error("falta el prompt: candil route \"que le pregunto a quien\"")
+      Say.print_error("falta el prompt: candil route \"que le pregunto a quien\"")
       :error
     else
       decide(text, get(opts, :model), get(opts, :consumer))
@@ -43,24 +43,24 @@ defmodule Candil.CLI.Router do
         :ok
 
       {:error, error} ->
-        Output.print_error("no se pudo decidir: #{explain(error)}")
+        Say.print_error("no se pudo decidir: #{explain(error)}")
         :error
     end
   end
 
   defp show(decision) do
-    Output.print_success("-> #{decision.model_alias}")
-    Output.print("   estrategia  #{decision.strategy}")
-    Output.print("   score       #{decision.score}")
-    Output.print("   confianza   #{decision.confidence}")
-    Output.print("   reason      #{decision.reason}")
+    Say.print_success("-> #{decision.model_alias}")
+    Say.print("   estrategia  #{decision.strategy}")
+    Say.print("   score       #{decision.score}")
+    Say.print("   confianza   #{decision.confidence}")
+    Say.print("   reason      #{decision.reason}")
 
     if decision.degraded != [] do
-      Output.print_warning("   NO se miraron: #{Enum.join(decision.degraded, ", ")}")
+      Say.print_warning("   NO se miraron: #{Enum.join(decision.degraded, ", ")}")
     end
 
     unless decision.alternatives == [] do
-      Output.print("   otras       #{inspect(decision.alternatives)}")
+      Say.print("   otras       #{inspect(decision.alternatives)}")
     end
 
     :ok
@@ -86,22 +86,22 @@ defmodule Candil.CLI.Router do
       nil ->
         case Consumer.pinned(consumer) do
           {:ok, alias} ->
-            Output.print("pin de #{consumer}: #{alias}")
+            Say.print("pin de #{consumer}: #{alias}")
             :ok
 
           :error ->
-            Output.print("pin de #{consumer}: ninguno")
+            Say.print("pin de #{consumer}: ninguno")
             :ok
         end
 
       model ->
         case Router.pin(consumer, to_alias(model)) do
           :ok ->
-            Output.print_success("pin de #{consumer}: #{to_alias(model)}")
+            Say.print_success("pin de #{consumer}: #{to_alias(model)}")
             :ok
 
           {:error, error} ->
-            Output.print_error("no se pudo pinear: #{explain(error)}")
+            Say.print_error("no se pudo pinear: #{explain(error)}")
             :error
         end
     end
@@ -114,7 +114,7 @@ defmodule Candil.CLI.Router do
   def unpin(opts \\ []) do
     consumer = normalize_consumer(get(opts, :consumer))
     :ok = Router.unpin(consumer)
-    Output.print_success("pin de #{consumer}: ninguno")
+    Say.print_success("pin de #{consumer}: ninguno")
     Cache.flush()
     :ok
   end
@@ -125,7 +125,11 @@ defmodule Candil.CLI.Router do
     String.downcase(to_string(name)) |> String.replace("-", "_") |> String.to_atom()
   end
 
-  defp to_alias(name), do: name |> to_string() |> String.to_atom()
+  # `to_existing_atom` y no `to_atom`: el alias viene de la linea de comandos y
+  # crear atomos desde ahi es una denegacion de servicio que uno mismo se
+  # cura. Si el alias no existe en el catalogo, lo dira el router al no
+  # encontrarlo entre los candidatos.
+  defp to_alias(name), do: name |> to_string() |> String.to_existing_atom()
 
   defp blank?(nil), do: true
   defp blank?(text), do: String.trim(to_string(text)) == ""

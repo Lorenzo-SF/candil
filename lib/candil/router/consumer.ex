@@ -82,28 +82,92 @@ defmodule Candil.Router.Consumer do
     end
   end
 
+  defp atomize(map) when is_map(map) do
+    Map.new(map, fn
+      {key, value} when is_binary(key) ->
+        case Enum.find([:models, :model_default], &(Atom.to_string(&1) == key)) do
+          nil -> {String.to_atom(key), value}
+          atom -> {atom, value}
+        end
+
+      other ->
+        other
+    end)
+  end
+
+  defp atomize(other), do: other
+
   defp configured_models(consumer) do
     consumer
     |> settings()
     |> Map.get(:models, [])
     |> List.wrap()
+    |> Enum.map(&model_alias!/1)
   end
 
   defp default_candidate(consumer) do
     case settings(consumer)[:model_default] do
       nil -> []
-      alias -> [alias]
+      alias -> [model_alias!(alias)]
     end
   end
+
+  # El TOML da `"coder"` y el resto del router compara con `:coder`. Sin esta
+  # conversion el candidato es un string, no casa con nada, y el unico sintoma
+  # es que el router no encuentra modelos que si estan cargados.
+  defp model_alias!(alias) when is_atom(alias), do: alias
+  defp model_alias!(alias) when is_binary(alias), do: String.to_existing_atom(alias)
+  defp model_alias!(alias), do: alias
 
   # The config file is not parsed until phase 1 wires it up, so this reads
   # from the application environment that config.exs still uses. It keeps the
   # Router's contract testable now without pretending the TOML is wired.
+  # De `[consumer.X]` del fichero de configuracion, y no del app env. Estaba en
+  # el app env "hasta que la fase 1 conectase el TOML", y ese momento llego y
+  # nadie lo cambio: un `[consumer.default] model_default = "coder"` escrito
+  # con el toml correcto era INVISIBLE, y el router contestaba
+  # `no_models_for_consumer` con un catalogo de siete modelos cargado.
+  #
+  # Es el mismo disease que `enable_llm_classifier` devolviendo constantes, y
+  # sale por el mismo sitio: un flag o un ajuste que parece configurable y no
+  # lo esta.
   defp settings(consumer) do
-    :candil
-    |> Application.get_env(Candil.Router, [])
-    |> Keyword.get(:consumers, %{})
-    |> Map.get(consumer, %{})
+    from_env =
+      :candil
+      |> Application.get_env(Candil.Router, [])
+      |> Keyword.get(:consumers, %{})
+      |> Map.get(consumer, %{})
+
+    case Candil.Config.File.load() do
+      {:ok, %{"consumer" => consumers}} when is_map(consumers) ->
+        # El env gana si esta puesto: es lo que ponen los tests, y un test
+        # tiene que poder fijar la configuracion sin escribir un fichero.
+        case Map.get(consumers, to_string(consumer)) do
+          nil ->
+            from_env
+
+          config when map_size(from_env) == 0 ->
+            # El TOML da las claves como STRINGS. Buscar `[:model_default]` en
+            # `%{"model_default" => "coder"}` devuelve nil, el consumidor se
+            # queda sin candidatos y el router contesta
+            # `no_models_for_consumer` con siete modelos cargados. Es el mismo
+            # fallo que en `[router]`, y en los dos casos el sintoma es
+            # "`no_models`" o "`no hace nada`", nunca un error de clave.
+            atomize(config)
+
+          _ ->
+            from_env
+        end
+
+      _ ->
+        from_env
+    end
+  rescue
+    _kind ->
+      :candil
+      |> Application.get_env(Candil.Router, [])
+      |> Keyword.get(:consumers, %{})
+      |> Map.get(consumer, %{})
   end
 
   @doc false
