@@ -86,7 +86,10 @@ defmodule Candil.Router.Consumer do
     Map.new(map, fn
       {key, value} when is_binary(key) ->
         case Enum.find([:models, :model_default], &(Atom.to_string(&1) == key)) do
-          nil -> {String.to_atom(key), value}
+          # El TOML es un fichero de texto y sus claves son strings. Crear un
+          # atomo por cada clave que aparezca ahi es denegacion de servicio con
+          # un fichero de configuracion en la mano.
+          nil -> {String.to_existing_atom(key), value}
           atom -> {atom, value}
         end
 

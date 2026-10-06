@@ -122,7 +122,13 @@ defmodule Candil.CLI.Router do
   defp normalize_consumer(nil), do: :default
 
   defp normalize_consumer(name) do
-    String.downcase(to_string(name)) |> String.replace("-", "_") |> String.to_atom()
+    # `to_existing_atom/1` y no `to_atom/1`: el alias viene de la linea de
+    # comandos, y crear atomos desde ahi es una denegacion de servicio que uno
+    # mismo se cura. Si el alias no existe en el catalogo, el router lo dira
+    # al no encontrarlo entre los candidatos.
+    String.downcase(to_string(name))
+    |> String.replace("-", "_")
+    |> String.to_existing_atom()
   end
 
   # `to_existing_atom` y no `to_atom`: el alias viene de la linea de comandos y

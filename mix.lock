@@ -1,7 +1,7 @@
 %{
   "alaja": {:git, "https://github.com/Lorenzo-SF/alaja.git", "1ce3c08e8d6e04b4f3fe99152b9f0152afeb10cd", [branch: "main"]},
   "apero": {:git, "https://github.com/Lorenzo-SF/apero.git", "e4275e7c50bbd307f0f00aee965a56600145cfc2", [branch: "main"]},
-  "arrea": {:git, "https://github.com/Lorenzo-SF/arrea.git", "f410b4f08cd0cf1f576e5585d59c2c56b353af24", [branch: "main"]},
+  "arrea": {:git, "https://github.com/Lorenzo-SF/arrea.git", "82a9adada24141f199bfaa5af20cda4aba225892", [branch: "main"]},
   "bandit": {:hex, :bandit, "1.12.5", "af205a8e550f304caae09a97d29fd3c79a7f337526ea7cd772d2ff11d2f7c800", [:mix], [{:hpax, "~> 1.0", [hex: :hpax, repo: "hexpm", optional: false]}, {:plug, "~> 1.18", [hex: :plug, repo: "hexpm", optional: false]}, {:telemetry, "~> 0.4 or ~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}, {:thousand_island, "~> 1.5", [hex: :thousand_island, repo: "hexpm", optional: false]}, {:websock, "~> 0.5", [hex: :websock, repo: "hexpm", optional: false]}], "hexpm", "c5684ca062fa407cac115aec3256383f3e2ec9fdced7904d59cf5a7bb7ed6181"},
   "batamanta": {:git, "https://github.com/Lorenzo-SF/Batamanta.git", "bc5e1533fffe0ebcaa94e9c2f36baee12fea24e7", []},
   "benchee": {:hex, :benchee, "1.5.1", "b95cbc36c4b98969a5c592a246e171041eb683c56bad1cb4f49a3b081ba66087", [:mix], [{:deep_merge, "~> 1.0", [hex: :deep_merge, repo: "hexpm", optional: false]}, {:statistex, "~> 1.1", [hex: :statistex, repo: "hexpm", optional: false]}, {:table, "~> 0.1.0", [hex: :table, repo: "hexpm", optional: true]}], "hexpm", "a539301f8dfd4efc5c5123bfb9d47ebde20092a863a5b5b16c2a60d2243dfce7"},

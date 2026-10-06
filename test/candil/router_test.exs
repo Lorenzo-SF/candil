@@ -455,6 +455,12 @@ defmodule Candil.RouterTest do
   # justo despues. Los dos tienen razon y son la misma cosa mal dicha.
   describe "un solo candidato NO es un pin" do
     test "sin pin, un unico candidato se marca default y lo dice" do
+      # El pin vive en una tabla ETS que sobrevive entre tests del mismo VM, y
+      # ExUnit cambia el orden con la semilla. Sin este `on_exit`, este test
+      # cogia el pin del otro cuando le tocaba despues, y era ROJO DEPENDIENDO
+      # DE LA SEMILLA. Un test que a veces es verde no es un test.
+      on_exit(fn -> Consumer.unpin(:otro_consumer) end)
+
       # SIN pin, a proposito. Un consumidor con `model_default = "coder"` en el
       # toml deja UN candidato, y eso no es un pin: es que no habia donde
       # elegir. El `reason` de un pin de verdad dice "pin de ... a ..."; si
@@ -471,6 +477,7 @@ defmodule Candil.RouterTest do
     end
 
     test "con pin, la estrategia es pinned y el reason lo dice" do
+      on_exit(fn -> Consumer.unpin(:otro_consumer) end)
       Consumer.pin(:otro_consumer, :coder)
 
       assert {:ok, decision} =
