@@ -329,4 +329,49 @@ defmodule Candil.RouterTest do
       assert decision.model_alias == :verifier
     end
   end
+
+  describe "3.4 · el clasificador LLM encendido y sin modelo" do
+    test "el flag se lee de [router] del fichero, no de unas constantes" do
+      # Este SÍ se puede probar aqui, porque no depende del catalogo: `settings/0`
+      # devolvia constantes duras y no habia forma de encender la cuarta capa.
+      tmp =
+        Path.join(System.tmp_dir!(), "candil-router-test-#{System.unique_integer([:positive])}")
+
+      File.mkdir_p!(tmp)
+
+      File.write!(
+        Path.join(tmp, "candil.toml"),
+        "[general]\ndata_dir = \"#{tmp}\"\n[router]\nenable_llm_classifier = true\n"
+      )
+
+      System.put_env("CANDIL_CONFIG", Path.join(tmp, "candil.toml"))
+
+      on_exit(fn ->
+        System.delete_env("CANDIL_CONFIG")
+        File.rm_rf(tmp)
+      end)
+
+      assert Router.settings().enable_llm_classifier
+    end
+
+    test "el error de clasificador lleva el modelo que se buscaba" do
+      # Solo se comprueba el contrato del error —que este NOMBRADO y que diga
+      # que modelo se buscaba—, no el texto del hint. El hint lo construye el
+      # router, y comprobarlo aqui seria duplicar la cadena en el test y que
+      # los dos se pudiesen desincronizar.
+      #
+      # Y el camino entero —flag encendido, sin modelo, prompt que no casa— no
+      # se puede probar aqui: `Candil.Store` es ETS GLOBAL y compartido, y
+      # deregistrar `coder` y `verifier` no deja el catalogo vacio: otros
+      # ficheros de test han dejado modelos con `usage: [:chat]`, el
+      # clasificador los encuentra y devuelve `:miss` en vez de fallar. Es un
+      # test que depende del orden, y un test que depende del orden miente.
+      # Ese camino lo comprueba `scripts/router-check.exs`, que monta su
+      # catalogo y lo demuestra.
+      error = Candil.Error.no_classifier_model(:coder, "hint de ejemplo")
+
+      assert error.reason == :no_classifier_model
+      assert error.context.model_alias == :coder
+    end
+  end
 end

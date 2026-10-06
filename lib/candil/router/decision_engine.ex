@@ -58,6 +58,13 @@ defmodule Candil.Router.DecisionEngine do
 
   defp finish({:ok, decision}, _messages, _candidates, _settings, _degraded), do: {:ok, decision}
 
+  # La capa LLM encendida y sin modelo se propaga TAL CUAL. Sin esta clausula
+  # el error caia en el `FunctionClauseError` de abajo, que es peor que el
+  # fallo que queria comunicar: el llamante recibia un crash por una capa
+  # apagada, en vez de un `{:classifier_unavailable, error}` con el motivo.
+  defp finish({:classifier_unavailable, error}, _messages, _candidates, _settings, _degraded),
+    do: {:classifier_unavailable, error}
+
   defp finish(:miss, _messages, candidates, _settings, degraded) do
     # The last candidate, not the first. The list is ordered most preferred
     # first, and when nothing scored, the most conservative choice is the one
