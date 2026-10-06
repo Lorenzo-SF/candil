@@ -24,7 +24,7 @@ Cache.flush()
 Consumer.unpin(:smoke)
 
 importados = Candil.Store.list_models()
-Enum.each(importados, &Candil.Store.deregister_model/1)
+Enum.each(importados, &Store.deregister_model(&1.alias))
 IO.puts("catalogo propio: se han fuera #{length(importados)} modelo(s) del toml real")
 IO.puts("  #{inspect(Enum.map(importados, & &1.alias))}")
 
