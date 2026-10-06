@@ -9,8 +9,24 @@
 alias Candil.{Engine, Model, Router, Store}
 alias Candil.Router.{Cache, Consumer, DecisionEngine}
 
+# ESTE SCRIPT TIENE QUE SER EL DUEÑO DEL CATALOGO, o no comprueba nada.
+#
+# `mix run` arranca la aplicacion ANTES de ejecutar el script, y al arrancar se
+# hidrata `~/.config/candil/candil.toml` en el `Store`. Sin esta limpieza, el
+# primer caso decia ":full" con `embed` presente en el toml real del usuario, y
+# el del clasificador encontraba un modelo de chat del toml real y devolvia
+# `:miss` en vez de fallar. Los dos casos parecian bugs del router y eran del
+# script: un chequeo que depende del entorno no comprueba el entorno que cree.
+#
+# El script imprime el catalogo con el que DECIDIO trabajar, que es la unica
+# forma de que el resultado signifique algo.
 Cache.flush()
 Consumer.unpin(:smoke)
+
+importados = Candil.Store.list_models()
+Enum.each(importados, &Candil.Store.deregister_model/1)
+IO.puts("catalogo propio: se han fuera #{length(importados)} modelo(s) del toml real")
+IO.puts("  #{inspect(Enum.map(importados, & &1.alias))}")
 
 :ok = Store.register_engine(%Engine{alias: :llama_cpp, binary: "llama-server"})
 
