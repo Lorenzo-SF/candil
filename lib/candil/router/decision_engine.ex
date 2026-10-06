@@ -13,7 +13,7 @@ defmodule Candil.Router.DecisionEngine do
   """
 
   alias Candil.{Error, Router, Store}
-  alias Candil.Router.{Cache, Decision, Scorer}
+  alias Candil.Router.{Cache, Consumer, Decision, Scorer}
 
   @doc """
   Decides, or explains why it cannot.
@@ -35,7 +35,7 @@ defmodule Candil.Router.DecisionEngine do
     # corra ninguna otra cosa.
     with :miss <- forced_model(candidates, opts, degraded),
          :miss <- cached(messages, opts, settings),
-         :miss <- pinned(candidates, degraded),
+         :miss <- pinned(consumer(opts), candidates, degraded),
          :miss <- forced(messages, candidates, opts, settings, degraded),
          :miss <- by_rules(messages, candidates, settings, degraded) do
       # `||` NO vale aqui: solo funciona con booleanos, y estas capas devuelven
@@ -125,15 +125,43 @@ defmodule Candil.Router.DecisionEngine do
     end
   end
 
-  defp pinned(candidates, degraded) do
-    case candidates do
-      [only] ->
+  # Un pin, y solo un pin. La version anterior miraba si `candidates` quedaba
+  # en UN SOLO elemento, que no es lo mismo: un consumidor con
+  # `model_default = "coder"` en el toml tiene un unico candidato SIN tener
+  # ningun pin, y se anunciaba como "pinned" con el motivo inventado de que
+  # ，有一个 pin que lo saca todo. Se vio en la maquina del usuario asi:
+  #
+  #     $ candil route ask "lo que sea"   ->  estrategia: pinned
+  #     $ candil route pin                ->  pin de default: ninguno
+  #
+  # Mientes sobre COMO se decidio, que es justo lo que el decision dice que
+  # existe para. Un `reason` que no se corresponde con la realidad hace falta
+  # para depurar, y el `force_model` se apoya en el mismo campo.
+  defp pinned(consumer, candidates, degraded) do
+    case {Consumer.pinned(consumer), candidates} do
+      {{:ok, pinned_alias}, _} ->
+        {:ok,
+         %Decision{
+           model_alias: pinned_alias,
+           strategy: :pinned,
+           score: 1.0,
+           reason: "pin de #{consumer} a #{pinned_alias}; gana a todas las capas",
+           degraded: degraded,
+           confidence: confidence(degraded),
+           timestamp: DateTime.utc_now()
+         }}
+
+      {_, [only]} ->
+        # Un solo candidato sin pin: no es un pin, es que no habia donde elegir.
+        # Se marca como `default`, que es lo que es, para que la diferencia con
+        # un pin de verdad se vea en el `reason`.
         {:ok,
          %Decision{
            model_alias: only,
-           strategy: :pinned,
+           strategy: :default,
            score: 1.0,
-           reason: "the consumer has a pin, and it outranks every other signal",
+           reason:
+             "este consumidor solo tiene un candidato, #{only}; no hay pin ni decision que tomar",
            degraded: degraded,
            confidence: confidence(degraded),
            timestamp: DateTime.utc_now()

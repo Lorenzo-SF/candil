@@ -449,4 +449,39 @@ defmodule Candil.RouterTest do
       assert :verifier in decision.alternatives
     end
   end
+
+  # Este fallo lo vio el usuario en su maquina, no un test: `route ask`
+  # anunciaba "pinned" SIN que hubiera pin, y `route pin` decia "ninguno"
+  # justo despues. Los dos tienen razon y son la misma cosa mal dicha.
+  describe "un solo candidato NO es un pin" do
+    test "sin pin, un unico candidato se marca default y lo dice" do
+      # SIN pin, a proposito. Un consumidor con `model_default = "coder"` en el
+      # toml deja UN candidato, y eso no es un pin: es que no habia donde
+      # elegir. El `reason` de un pin de verdad dice "pin de ... a ..."; si
+      # aqui dijera eso, estariamos mintiendo sobre COMO se decidio.
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide([%{role: "user", content: "hola"}], [:coder],
+                 consumer: :otro_consumer
+               )
+
+      assert decision.model_alias == :coder
+      refute decision.strategy == :pinned
+      assert decision.strategy == :default
+      assert decision.reason =~ "no hay pin"
+    end
+
+    test "con pin, la estrategia es pinned y el reason lo dice" do
+      Consumer.pin(:otro_consumer, :coder)
+
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(
+                 [%{role: "user", content: "hola"}],
+                 [:coder, :verifier],
+                 consumer: :otro_consumer
+               )
+
+      assert decision.strategy == :pinned
+      assert decision.reason =~ "pin de otro_consumer"
+    end
+  end
 end
