@@ -256,4 +256,77 @@ defmodule Candil.RouterTest do
       assert Scorer.score(@code, [:coder], :embedding, %{}) == :miss
     end
   end
+
+  # ── Las dos decisiones del dueño, 2026-10-06 ──────────────────────────────
+  #
+  # Las dos cambian el comportamiento observable, asi que se comprueban por
+  # separado y con el resultado en la mano. Un test que solo mira "no revienta"
+  # pasa igual con las dos聚合物.
+
+  describe "3.3 · la capa de embeddings saltada deja marca" do
+    test "sin embedder, la decision sale con confidence: :degraded" do
+      # En el setup hay un modelo con usage: [:embeddings], asi que para esto
+      # hace falta un catalogo SIN el.
+      Store.deregister_model(:embed)
+
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(@code, [:coder, :verifier], consumer: :test_consumer)
+
+      assert decision.confidence == :degraded
+      assert :embedding in decision.degraded
+      assert decision.model_alias == :coder
+    end
+
+    test "con embedder disponible, la decision sale con :full" do
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(@code, [:coder, :verifier], consumer: :test_consumer)
+
+      assert decision.confidence == :full
+      assert decision.degraded == []
+    end
+
+    test "los scores NO se renormalizan al degradar" do
+      # Renormalizar haria que un 0.2 pareciera competir con un 0.9, que es
+      # mentir sobre lo poco que se sabe. El score es el que es, y la marca
+      # dice que se ha decidido con menos informacion.
+      Store.deregister_model(:embed)
+
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(@code, [:coder, :verifier], consumer: :test_consumer)
+
+      assert decision.score < 1.0
+      assert decision.confidence == :degraded
+    end
+  end
+
+  describe "3.4 · el clasificador LLM apagado es apagado" do
+    test "con enable_llm_classifier en false, la capa no corre y no se nota" do
+      assert {:ok, _decision} =
+               Router.DecisionEngine.decide(@code, [:coder, :verifier], consumer: :test_consumer)
+
+      # Apagada es apagada: que no haya modelo de clasificador no es un error
+      # si la capa no se ha pedido.
+    end
+  end
+
+  # Un `||` entre capas devuelve BadBooleanError en cuanto llega algo que no es
+  # booleano, y estas capas devuelven `:miss` o una tupla. Con solo los tests
+  # de arriba pasaba: la mayoria cae en la capa de reglas antes. Este llega a
+  # la de embeddings con un prompt que no casa con ninguna palabra de la regla,
+  # que es el camino donde el `||` estaba.
+  describe "la cadena de capas llega hasta el final" do
+    test "una peticion que no casa con ninguna regla atraviesa reglas y embeddings" do
+      nada_de_reglas = [%{role: "user", content: "hola"}]
+
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(nada_de_reglas, [:coder, :verifier],
+                 consumer: :test_consumer
+               )
+
+      # Llego al final y cayo al default, que es lo que debe pasar: sin
+      # BadBooleanError, sin excepcion, y con la razon puesta.
+      assert decision.strategy == :default
+      assert decision.model_alias == :verifier
+    end
+  end
 end

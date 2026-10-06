@@ -47,6 +47,12 @@ defmodule Candil.Router do
               score: 0.0,
               reason: nil,
               alternatives: [],
+              # Las capas que se SALTAN se anotan en vez de desaparecer. Un
+              # router que decide con menos informacion y no lo dice se
+              # parece a uno que decide con la misma informacion, y la
+              # diferencia se descubre cuando ya no enruta bien.
+              degraded: [],
+              confidence: :full,
               timestamp: nil
 
     @type t :: %__MODULE__{
@@ -55,6 +61,8 @@ defmodule Candil.Router do
             score: float(),
             reason: String.t() | nil,
             alternatives: [{atom(), float()}],
+            degraded: [:rule | [atom()]],
+            confidence: :full | :degraded,
             timestamp: DateTime.t() | nil
           }
   end

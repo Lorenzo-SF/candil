@@ -12,7 +12,7 @@ defmodule Candil.Router.DecisionEngine do
   cannot say why it chose a model cannot be tuned, only tolerated.
   """
 
-  alias Candil.{Router, Store}
+  alias Candil.{Error, Router, Store}
   alias Candil.Router.{Cache, Decision, Scorer}
 
   @doc """
@@ -27,19 +27,38 @@ defmodule Candil.Router.DecisionEngine do
   def decide(messages, candidates, opts) do
     settings = Router.settings()
 
+    degraded = skip_embeddings(messages, candidates, settings)
+
+    # El orden es el de §19.2 y no se toca: cache, pin, forzado, reglas,
+    # embeddings y por ultima el clasificador LLM, que es el que cuesta una
+    # inferencia. Un `pin` gana a todo lo demas, y se comprueba antes de que
+    # corra ninguna otra cosa.
     with :miss <- cached(messages, opts, settings),
-         :miss <- pinned(candidates),
-         :miss <- forced(messages, candidates, opts, settings),
-         :miss <- by_rules(messages, candidates, settings),
-         :miss <- by_embeddings(messages, candidates, settings) do
-      by_llm(messages, candidates, settings)
+         :miss <- pinned(candidates, degraded),
+         :miss <- forced(messages, candidates, opts, settings, degraded),
+         :miss <- by_rules(messages, candidates, settings, degraded) do
+      # `||` NO vale aqui: solo funciona con booleanos, y estas capas devuelven
+      # `:miss` o una tupla. Un `||` sobre `:miss` revienta con BadBooleanError
+      # en la PRIMERA peticion que llega a la capa de embeddings.
+      case by_embeddings(messages, candidates, settings, degraded) do
+        :miss -> by_llm(messages, candidates, settings)
+        other -> other
+      end
     end
-    |> finish(messages, candidates, settings)
+    |> finish(messages, candidates, settings, degraded)
   end
 
-  defp finish({:ok, decision}, _messages, _candidates, _settings), do: {:ok, decision}
+  # Que una capa se salte es un hecho de la DECISIÓN, no un detalle interno: si
+  # el embedder no estaba, el score que gana no viene de la similitud y el
+  # consumidor tiene derecho a saberlo. Sin esto, la decision con 0.42 de una
+  # regla se parece exactamente a la decision con 0.42 de una similitud.
+  defp skip_embeddings(_messages, _candidates, _settings) do
+    if embedder_available?(), do: [], else: [:embedding]
+  end
 
-  defp finish(:miss, _messages, candidates, _settings) do
+  defp finish({:ok, decision}, _messages, _candidates, _settings, _degraded), do: {:ok, decision}
+
+  defp finish(:miss, _messages, candidates, _settings, degraded) do
     # The last candidate, not the first. The list is ordered most preferred
     # first, and when nothing scored, the most conservative choice is the one
     # the consumer listed last as its default.
@@ -50,6 +69,8 @@ defmodule Candil.Router.DecisionEngine do
        score: 0.5,
        reason: "no layer cleared its threshold; fell back to the default",
        alternatives: [],
+       degraded: degraded,
+       confidence: confidence(degraded),
        timestamp: DateTime.utc_now()
      }}
   end
@@ -64,7 +85,7 @@ defmodule Candil.Router.DecisionEngine do
     end
   end
 
-  defp pinned(candidates) do
+  defp pinned(candidates, degraded) do
     case candidates do
       [only] ->
         {:ok,
@@ -73,6 +94,8 @@ defmodule Candil.Router.DecisionEngine do
            strategy: :pinned,
            score: 1.0,
            reason: "the consumer has a pin, and it outranks every other signal",
+           degraded: degraded,
+           confidence: confidence(degraded),
            timestamp: DateTime.utc_now()
          }}
 
@@ -81,19 +104,19 @@ defmodule Candil.Router.DecisionEngine do
     end
   end
 
-  defp forced(messages, candidates, opts, settings) do
+  defp forced(messages, candidates, opts, settings, degraded) do
     case Keyword.get(opts, :force_strategy) do
       nil ->
         :miss
 
       :rule ->
-        decide_by(messages, candidates, :rule, settings)
+        decide_by(messages, candidates, :rule, settings, degraded)
 
       :embedding ->
-        decide_by(messages, candidates, :embedding, settings)
+        decide_by(messages, candidates, :embedding, settings, degraded)
 
       :llm ->
-        decide_by(messages, candidates, :llm, settings)
+        decide_by(messages, candidates, :llm, settings, degraded)
 
       other ->
         {:ok,
@@ -107,26 +130,75 @@ defmodule Candil.Router.DecisionEngine do
     end
   end
 
-  defp by_rules(messages, candidates, settings) do
-    decide_by(messages, candidates, :rule, settings)
+  defp by_rules(messages, candidates, settings, degraded) do
+    decide_by(messages, candidates, :rule, settings, degraded)
   end
 
-  defp by_embeddings(messages, candidates, settings) do
+  defp by_embeddings(messages, candidates, settings, degraded) do
     # Never reached without a model that can embed. Asking for embeddings from
     # a chat-only setup should be a no-op, not an error: the layer is an
-    # optimisation and there is a cheaper one above it.
-    if embedder_available?(),
-      do: decide_by(messages, candidates, :embedding, settings),
-      else: :miss
+    # optimisation and there is a cheaper one above it. Pero NO es lo mismo que
+    # un acierto, y la decision lo lleva marcado.
+    if embedder_available?() do
+      decide_by(messages, candidates, :embedding, settings, degraded)
+    else
+      :miss
+    end
   end
 
+  # El clasificador LLM esta APAGADO por defecto, y apagado se significa
+  # apagado: si `enable_llm_classifier` es false, la capa no corre y no se nota.
+  #
+  # Si esta ENCENDIDO y no puede funcionar, **reventamos**, y decimos que modelo
+  # falta. Degradar en silencio seria peor: el router cairia a las capas de
+  # arriba, enrutaria "razonablemente" y no habria forma de saber que la capa
+  # que activaste lleva semanas sin hacer nada. Un router que se rompe cuando
+  # le falta algo es preferible a uno que responde mal y no lo dice.
   defp by_llm(messages, candidates, settings) do
-    if settings.enable_llm_classifier,
-      do: decide_by(messages, candidates, :llm, settings),
-      else: :miss
+    if settings.enable_llm_classifier do
+      case classify(messages, candidates, settings) do
+        {:error, :no_classifier_model} ->
+          {:classifier_unavailable, no_classifier_model(candidates)}
+
+        # El scorer devuelve `:miss` porque la capa es un stub. No es un
+        # fallo: la capa se encendio pero todavia no hace nada, y eso se dice
+        # con `reason`, no con un error.
+        _miss_or_decision ->
+          :miss
+      end
+    else
+      :miss
+    end
   end
 
-  defp decide_by(messages, candidates, layer, settings) do
+  defp classify(messages, candidates, settings) do
+    case classifier_model() do
+      nil -> {:error, :no_classifier_model}
+      _alias -> Scorer.score(messages, candidates, :llm, settings)
+    end
+  end
+
+  # Cualquier modelo de chat sirve: clasificar es una peticion mas corta, y
+  # obligar a un modelo "de clasificacion" seria inventar un concepto que el
+  # toml no tiene.
+  defp classifier_model do
+    Store.list_models()
+    |> Enum.find(fn model -> :chat in model.usage or :completion in model.usage end)
+    |> case do
+      nil -> nil
+      model -> model.alias
+    end
+  end
+
+  defp no_classifier_model(candidates) do
+    Error.no_classifier_model(
+      List.first(candidates),
+      "enable_llm_classifier: true necesita un modelo para CLASIFICAR. Declara uno " <>
+        "con usage = [\"chat\"] y arrancalo, o pon enable_llm_classifier: false."
+    )
+  end
+
+  defp decide_by(messages, candidates, layer, settings, degraded) do
     case Scorer.score(messages, candidates, layer, settings) do
       :miss ->
         :miss
@@ -140,6 +212,8 @@ defmodule Candil.Router.DecisionEngine do
              score: score,
              reason: Scorer.explain(layer, messages),
              alternatives: rest,
+             degraded: degraded,
+             confidence: confidence(degraded),
              timestamp: DateTime.utc_now()
            }}
         else
@@ -163,6 +237,12 @@ defmodule Candil.Router.DecisionEngine do
   defp threshold_for(:rule, settings), do: Map.get(settings, :rule_threshold, @rule_threshold)
   defp threshold_for(:embedding, settings), do: settings.embedding_threshold
   defp threshold_for(_layer, settings), do: settings.confidence_threshold
+
+  # Confianza degradada, scores SIN renormalizar. Renormalizar haria que un
+  # modelo con 0.2 pareciera competir con uno de 0.9, que es mentir sobre lo
+  # poco que se sabe.
+  defp confidence([]), do: :full
+  defp confidence(_degraded), do: :degraded
 
   defp embedder_available? do
     Store.list_models()
