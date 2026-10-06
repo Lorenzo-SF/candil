@@ -30,7 +30,7 @@ defmodule Candil.Router do
   alias Candil.{Error, Model, Store}
   alias Candil.Router.{Cache, Consumer, DecisionEngine}
 
-  @type strategy :: :cache | :rule | :embedding | :llm | :default | :pinned
+  @type strategy :: :cache | :rule | :embedding | :llm | :default | :pinned | :forced
 
   defmodule Decision do
     @moduledoc """

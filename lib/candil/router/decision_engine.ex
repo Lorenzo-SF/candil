@@ -33,7 +33,8 @@ defmodule Candil.Router.DecisionEngine do
     # embeddings y por ultima el clasificador LLM, que es el que cuesta una
     # inferencia. Un `pin` gana a todo lo demas, y se comprueba antes de que
     # corra ninguna otra cosa.
-    with :miss <- cached(messages, opts, settings),
+    with :miss <- forced_model(candidates, opts, degraded),
+         :miss <- cached(messages, opts, settings),
          :miss <- pinned(candidates, degraded),
          :miss <- forced(messages, candidates, opts, settings, degraded),
          :miss <- by_rules(messages, candidates, settings, degraded) do
@@ -65,6 +66,9 @@ defmodule Candil.Router.DecisionEngine do
   defp finish({:classifier_unavailable, error}, _messages, _candidates, _settings, _degraded),
     do: {:classifier_unavailable, error}
 
+  defp finish({:model_not_eligible, error}, _messages, _candidates, _settings, _degraded),
+    do: {:error, error}
+
   defp finish(:miss, _messages, candidates, _settings, degraded) do
     # The last candidate, not the first. The list is ordered most preferred
     # first, and when nothing scored, the most conservative choice is the one
@@ -89,6 +93,37 @@ defmodule Candil.Router.DecisionEngine do
       not settings.enable_cache -> :miss
       Keyword.get(opts, :skip_cache, false) -> :miss
       true -> Cache.get(messages, consumer(opts))
+    end
+  end
+
+  # `--model` gana a TODO, pin incluido. Es por peticion y explicito, asi que
+  # va por delante del pin, que es del consumidor y dura mas.
+  #
+  # Y DICE POR QUE, como todo lo demas: un forzado sin motivo es una decision
+  # que hay que debugar apagando el forzado, que es peor que no forzar.
+  defp forced_model(candidates, opts, degraded) do
+    case Keyword.get(opts, :force_model) do
+      nil ->
+        :miss
+
+      alias ->
+        cond do
+          alias in candidates ->
+            {:ok,
+             %Decision{
+               model_alias: alias,
+               strategy: :forced,
+               score: 1.0,
+               reason: "forzado a mano con --model #{alias}; el resto de capas ni se miran",
+               alternatives: List.delete(candidates, alias),
+               degraded: degraded,
+               confidence: confidence(degraded),
+               timestamp: DateTime.utc_now()
+             }}
+
+          true ->
+            {:model_not_eligible, Error.model_not_in_candidates(alias, candidates)}
+        end
     end
   end
 

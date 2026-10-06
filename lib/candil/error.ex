@@ -54,6 +54,21 @@ defmodule Candil.Error do
   end
 
   @doc """
+  A model was forced and it is not one this consumer can use.
+
+  Se LISTA lo que podia, no solo lo que se pidio. "unknown model: gpt4o" deja
+  al usuario adivinando; la lista le dice que puede forzar sin tocar el
+  catalogo.
+  """
+  @spec model_not_in_candidates(term(), [term()]) :: t()
+  def model_not_in_candidates(model_alias, candidates) do
+    %__MODULE__{
+      reason: :model_not_in_candidates,
+      context: %{model_alias: model_alias, candidates: candidates}
+    }
+  end
+
+  @doc """
   Creates the error the router raises when the LLM classifier is enabled and
   there is nothing to classify with.
 

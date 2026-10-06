@@ -374,4 +374,79 @@ defmodule Candil.RouterTest do
       assert error.context.model_alias == :coder
     end
   end
+
+  # ── El override: la salida de seguridad del sistema estatico ───────────────
+  describe "forzar un modelo a mano" do
+    test "gana a las reglas, y DICE por que" do
+      # Sin esto, un fallo del estatico es un callejon sin salida y obliga a
+      # acertar a la primera. Con el, fallaste, lo fuerzas, ves que paso.
+      codigo = [%{role: "user", content: "refactoriza este modulo de Elixir y arregla el bug"}]
+
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(codigo, [:coder, :verifier],
+                 consumer: :test_consumer,
+                 force_model: :verifier
+               )
+
+      assert decision.model_alias == :verifier
+      assert decision.strategy == :forced
+      # Y lo dice. Un router que calla como decidio hay que debugarlo apagandolo.
+      assert decision.reason =~ "forzado a mano"
+      assert decision.reason =~ "verifier"
+    end
+
+    test "gana al pin, que es del consumidor y dura mas" do
+      Consumer.pin(:test_consumer, :coder)
+      codigo = [%{role: "user", content: "hola"}]
+
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(codigo, [:coder, :verifier],
+                 consumer: :test_consumer,
+                 force_model: :verifier
+               )
+
+      assert decision.model_alias == :verifier
+    end
+
+    test "sin force_model, el pin sigue mandando como antes" do
+      # Lo de antes no se rompe: el forzado es NUEVO, no sustituye al pin.
+      Consumer.pin(:test_consumer, :verifier)
+
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(
+                 [%{role: "user", content: "hola"}],
+                 [:coder, :verifier],
+                 consumer: :test_consumer
+               )
+
+      assert decision.strategy == :pinned
+      assert decision.model_alias == :verifier
+    end
+
+    test "forzar un modelo que no puede usar este consumidor dice cuales puede" do
+      assert {:error, error} =
+               Router.DecisionEngine.decide([%{role: "user", content: "hola"}], [:coder],
+                 consumer: :test_consumer,
+                 force_model: :otro
+               )
+
+      assert error.reason == :model_not_in_candidates
+      # Listar lo que SI puede usar es la mitad del mensaje: "unknown model"
+      # deja al usuario adivinando.
+      assert error.context.candidates == [:coder]
+    end
+
+    test "las alternativas son los otros candidatos, no el forzado" do
+      assert {:ok, decision} =
+               Router.DecisionEngine.decide(
+                 [%{role: "user", content: "hola"}],
+                 [:coder, :verifier],
+                 consumer: :test_consumer,
+                 force_model: :coder
+               )
+
+      refute :coder in decision.alternatives
+      assert :verifier in decision.alternatives
+    end
+  end
 end
