@@ -15,6 +15,10 @@
 
 ---
 
+> **[El diseño cerrado del motor de decisiones esta en
+> [`DISENO-MOTOR.md`](DISENO-MOTOR.md).](DISENO-MOTOR.md)** Este documento explica
+> el modulo entero; ese explica la parte que se rehace, y por que esa forma.
+
 ## Antes de empezar · lo que ya existe (contado, no recordado)
 
 Todo lo de esta tabla está leído del código. Las rutas son reales.
