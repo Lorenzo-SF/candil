@@ -30,7 +30,7 @@ defmodule Candil.CLI.InitTest do
     test "el texto que se escribe parsea con el parser de Candil" do
       path = Path.join(@tmp, "plantilla.toml")
       File.mkdir_p!(@tmp)
-      assert :ok == File.write(path, Template.render())
+      assert :ok == File.write(path, template())
 
       # Sin esto, la prueba de "escribe un fichero" y la de "escribe algo
       # utilizable" serian la misma, y soloARIAN estar la segunda.
@@ -39,7 +39,7 @@ defmodule Candil.CLI.InitTest do
     end
 
     test "menciona cada seccion configurable del schema" do
-      text = Template.render()
+      text = template()
 
       for section <- ~w(general engine model provider) do
         assert text =~ "[#{section}", "la plantilla no documenta [#{section}]"
@@ -49,7 +49,7 @@ defmodule Candil.CLI.InitTest do
     test "avisa de que un flag y su valor son dos elementos, que es el error que se repite" do
       # El bug real: "--n-gpu-layers -1" en un elemento. Se documento aqui
       # porque es el error que se ha-commitado dos veces.
-      assert Template.render() =~ "son DOS elementos"
+      assert template() =~ "son DOS elementos"
     end
   end
 
@@ -57,7 +57,7 @@ defmodule Candil.CLI.InitTest do
     test "escribe la plantilla en la ruta indicada" do
       path = Path.join(@tmp, "nuevo.toml")
       assert :ok == Init.run(%{path: path, force: false})
-      assert File.read!(path) == Template.render()
+      assert File.read!(path) == template()
     end
 
     test "no pisa una configuracion existente" do
@@ -75,7 +75,7 @@ defmodule Candil.CLI.InitTest do
       File.write!(path, "# lo que escribi yo\n")
 
       assert :ok == Init.run(%{path: path, force: true})
-      assert File.read!(path) == Template.render()
+      assert File.read!(path) == template()
     end
 
     test "el fichero escrito se puede leer como configuracion de verdad" do
@@ -88,5 +88,13 @@ defmodule Candil.CLI.InitTest do
       File.write!(path, text)
       assert {:ok, %{"model" => %{"coder" => %{"type" => "local"}}}} = ConfigFile.load(path)
     end
+  end
+
+  # `Template.render/0` devuelve `{:ok, contenido} | {:error, razon}` porque el
+  # esqueleto se valida a si mismo. Los tests que comparan CONTENIDO usan
+  # `build/0`, que es el cuerpo sin validar: lo que se compara es el texto.
+  defp template do
+    {:ok, contents} = Candil.Config.Template.render()
+    contents
   end
 end

@@ -1,0 +1,111 @@
+# candil.toml — un ejemplo que funciona, para tests y para quien empieza.
+#
+# NO es la configuración de nadie. Es un fichero inventado para dos cosas:
+#
+#   1. Que `hydrate_test.exs` tenga un TOML real contra el que comprobar que la
+#      hidratación hace lo que dice: expande rutas, convierte `kind` a átomo,
+#      guarda el plan de compilación y enlaza modelo remoto con su proveedor.
+#
+#   2. Que quien no tiene ninguna configuración vea algo que Understand en un
+#      vistazo. Por eso tiene un motor con sus flags, un modelo local con su
+#      fichero, uno remoto con su proveedor, y un consumidor.
+#
+# Lo que tu configuración real es, está en `~/.config/candil/candil.toml`, que
+# no vive en este repo. La plantilla con TODAS las opciones comentadas está en
+# `docs/05-cli/config/candil.toml` y la escribe `candil init`.
+
+[general]
+data_dir = "~/.candil"
+log_dir = "~/.candil/logs"
+default_consumer = "default"
+
+# ── engine ────────────────────────────────────────────────────────────────────
+[engine.llama_cpp]
+binary    = "~/.candil/llm/bin/llama-server"
+host      = "127.0.0.1"
+base_port = 10000
+  [engine.llama_cpp.auth]
+  api_key_env = "LLAMA_API_KEY"
+
+  [engine.llama_cpp.install]
+  strategy  = "source"
+  repo      = "https://github.com/ggml-org/llama.cpp"
+  ref       = "b4561"
+  src_dir   = "~/.candil/src/llama.cpp"
+  build_dir = "~/.candil/build/llama.cpp"
+  generator = "ninja"
+  dir       = "~/.candil/llm/bin"
+  binaries  = ["llama-server", "llama-cli"]
+  cmake_args = ["-DCMAKE_BUILD_TYPE=Release", "-DGGML_NATIVE=ON"]
+
+# ── provider ──────────────────────────────────────────────────────────────────
+[provider.openai]
+type     = "openai"
+base_url = "https://api.openai.com"
+api_key    = { env = "OPENAI_API_KEY" }
+
+# ── model ─────────────────────────────────────────────────────────────────────
+
+# Local y de texto. Es el que la prueba manual arranca.
+[model.coder]
+type         = "local"
+engine       = "llama_cpp"
+context_size = 131072
+port         = 9999
+gpu_layers   = -1
+
+  [model.coder.source]
+  kind = "huggingface"
+  repo = "Qwen/Qwen3-Coder-30B-A3B-Instruct"
+  file = "Qwen3-Coder-30B-A3B-Instruct-Q4_K_XL.gguf"
+  dest = "~/.candil/models/coder"
+
+# Local y de embeddings. Un alias distinto, un puerto distinto: dos motores
+# pueden convivir, que es justo lo que `gpu_layers` y el pool de la fase 8b van
+# a tener que repartir.
+[model.embed]
+type         = "local"
+engine       = "llama_cpp"
+context_size = 8192
+port         = 9990
+gpu_layers   = -1
+
+  [model.embed.source]
+  kind = "huggingface"
+  repo = "nomic-ai/nomic-embed-text"
+  file = "nomic-embed-text-v1.5.Q4_K_XL.gguf"
+  dest = "~/.candil/models/embed"
+
+# Local con `draft`: el fichero que se puede arrancar mientras el grande baja.
+# Comprueba que un modelo con draft tambien expande su ruta.
+[model.quick]
+type         = "local"
+engine       = "llama_cpp"
+context_size = 32768
+port         = 9991
+
+  [model.quick.source]
+  kind = "huggingface"
+  repo = "Qwen/Qwen3-4B-Instruct"
+  file = "Qwen3-4B-Instruct-Q4_K_XL.gguf"
+  dest = "~/.candil/models/quick"
+
+  [model.quick.draft]
+  kind = "huggingface"
+  repo = "Qwen/Qwen3-0.6B"
+  file = "Qwen3-0.6B-Q4_K_XL.gguf"
+  dest = "~/.candil/models/quick-draft"
+
+# Remoto. Comprueba que el modelo remoto se lleva su proveedor y el proveedor
+# se lleva su clave de entorno.
+[model.gpt4o]
+type      = "remote"
+provider  = "openai"
+name      = "gpt-4o"
+base_url  = "https://api.openai.com/v1"
+
+# ── consumer ──────────────────────────────────────────────────────────────────
+[consumer.default]
+model_default  = "coder"
+models         = ["coder", "gpt4o"]
+context_policy = "strict"
