@@ -30,7 +30,7 @@ defmodule Candil.Router do
   alias Candil.{Error, Model, Store}
   alias Candil.Router.{Cache, Consumer, DecisionEngine}
 
-  @type strategy :: :cache | :rule | :embedding | :llm | :default | :pinned
+  @type strategy :: :cache | :rule | :embedding | :llm | :default | :pinned | :forced
 
   defmodule Decision do
     @moduledoc """
@@ -47,6 +47,12 @@ defmodule Candil.Router do
               score: 0.0,
               reason: nil,
               alternatives: [],
+              # Las capas que se SALTAN se anotan en vez de desaparecer. Un
+              # router que decide con menos informacion y no lo dice se
+              # parece a uno que decide con la misma informacion, y la
+              # diferencia se descubre cuando ya no enruta bien.
+              degraded: [],
+              confidence: :full,
               timestamp: nil
 
     @type t :: %__MODULE__{
@@ -55,6 +61,8 @@ defmodule Candil.Router do
             score: float(),
             reason: String.t() | nil,
             alternatives: [{atom(), float()}],
+            degraded: [:rule | [atom()]],
+            confidence: :full | :degraded,
             timestamp: DateTime.t() | nil
           }
   end
@@ -185,18 +193,57 @@ defmodule Candil.Router do
   @doc """
   The thresholds and feature flags, with the defaults filled in.
   """
+  @defaults %{
+    # See Candil.Router.DecisionEngine.threshold_for/2: the rule layer is a
+    # keyword ratio and the semantic layers are similarities, and they do
+    # not share a scale.
+    confidence_threshold: @default_threshold,
+    rule_threshold: 0.20,
+    embedding_threshold: @default_embedding_threshold,
+    enable_llm_classifier: false,
+    enable_cache: true,
+    cache_ttl_seconds: 300
+  }
+
   @spec settings() :: map()
   def settings do
-    %{
-      # See Candil.Router.DecisionEngine.threshold_for/2: the rule layer is a
-      # keyword ratio and the semantic layers are similarities, and they do
-      # not share a scale.
-      confidence_threshold: @default_threshold,
-      rule_threshold: 0.20,
-      embedding_threshold: @default_embedding_threshold,
-      enable_llm_classifier: false,
-      enable_cache: true,
-      cache_ttl_seconds: 300
-    }
+    @defaults
+    |> Map.merge(config_settings())
   end
+
+  # Los flags tienen que poder ACTIVARSE. Esta funcion devolvia constantes
+  # duras y no leia nada, de modo que `enable_llm_classifier` era `false` para
+  # siempre y no habia forma de encender la cuarta capa — el mismo disease que
+  # `--cpu` en el arranque: un flag que parece una opcion y no hace nada.
+  #
+  # Se lee de `[router]` en la configuracion, con estos valores por defecto. Un
+  # flag que no se puede poner a `true` no es una opcion, es decoracion.
+  defp config_settings do
+    case Candil.Config.File.load() do
+      {:ok, %{"router" => router}} when is_map(router) ->
+        # El TOML da claves como STRINGS y los defaults son ATOMOS, asi que un
+        # `Map.take/2` directo devuelve `%{}` siempre y el flag se queda en su
+        # valor por defecto sin decir por que. Convertir de uno en otro antes.
+        router
+        |> Enum.reduce(%{}, fn {key, value}, acc ->
+          case safe_key(key) do
+            nil -> acc
+            key -> Map.put(acc, key, value)
+          end
+        end)
+        |> Map.take(Map.keys(@defaults))
+
+      _ ->
+        %{}
+    end
+  rescue
+    # Sin fichero de configuracion se usan los defaults, que es lo de antes.
+    _kind -> %{}
+  end
+
+  defp safe_key(key) when is_binary(key) do
+    Enum.find(Map.keys(@defaults), &(Atom.to_string(&1) == key))
+  end
+
+  defp safe_key(key), do: key
 end

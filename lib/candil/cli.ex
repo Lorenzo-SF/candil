@@ -52,7 +52,7 @@ defmodule Candil.CLI do
     # that `doctor` had.
     catch_all: {Candil.CLI.Escript, :unknown}
 
-  alias Candil.CLI.{Doctor, Help, Lifecycle, Models, Version}
+  alias Candil.CLI.{Doctor, Help, Lifecycle, Models, Router, Version}
 
   # The name aliases (`-v`, `--version`, `model`) are rewritten in
   # `Candil.CLI.Escript` before dispatch: `command/3` has no `aliases:`, only
@@ -72,6 +72,31 @@ defmodule Candil.CLI do
   # subcommand falls through to trying to run the group itself, and Alaja says
   # "command 'models' has no handler defined" — which is a message about
   # Candil's internals, shown to a user who typed a model command wrong.
+  subcommand "route", "Which model would answer this prompt" do
+    run({Router, :unknown})
+
+    command "ask", "Route one prompt and say which model wins and why" do
+      argument(:prompt, :string, required: true, help: "the prompt to route")
+
+      flag(:model, :string, help: "force a model, and skip every other layer")
+      flag(:consumer, :string, default: "default", help: "which consumer is asking")
+
+      run({Router, :run})
+    end
+
+    command "pin", "Show the pinned model, or pin one" do
+      argument(:model, :string, required: false, help: "model alias; omit to just show")
+      flag(:consumer, :string, default: "default", help: "which consumer")
+
+      run({Router, :pin})
+    end
+
+    command "unpin", "Forget the pinned model" do
+      flag(:consumer, :string, default: "default", help: "which consumer")
+      run({Router, :unpin})
+    end
+  end
+
   subcommand "models", "Inspect, pull and remove models" do
     run({Models, :unknown})
 
