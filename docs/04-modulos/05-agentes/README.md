@@ -22,26 +22,30 @@
 
 ---
 
-> ## ⚠️ MEDIDO · este módulo describe algo que NO funcionaba
+> ## ⚠️ Este módulo se escribió sobre un bucle que NO funcionaba
 >
-> La [fase 0.2 lo ejecutó por primera vez contra un backend real](../../01-inventario/HALLAZGOS-FASE-0.md),
-> y encontró que **el bucle ReAct no cerraba jamás**:
+> La [fase 0.2 lo ejecutó por primera vez contra un backend
+> real](../../01-inventario/HALLAZGOS-FASE-0.md), y encontró que **el bucle
+> ReAct no cerraba jamás**: la observación se metía con `role: "user"`, así que
+> el modelo recibía su propio resultado como si el usuario lo hubiera dicho,
+> volvía a pedir la herramienta, y otra vez hasta agotar los pasos.
 >
-> - `invoke_tools/3` metía la observación con `role: "user"`, así que el modelo
->   receive su propio resultado como si el usuario lo hubiera dicho. Volvía a
->   pedir la herramienta, y otra vez, hasta agotar los pasos.
-> - `resolve_backend/1` devolvía `nil` y el bucle hacía `nil.chat(...)`.
-> - El `@type step` declara `:observation`, que el bucle nunca emite.
-> - `Conversation.add_message/3` no aceptaba `role: "tool"` en su guard.
+> **Arreglado en `1e60ab6`** y verificado con un backend de verdad.
 >
-> **Arreglado y verificado** en `1e60ab6`. Lo que sigue describe el diseño
-> sobre un bucle que **entonces no cerraba**, y esa es la parte que hay que leer
-> con reservas: las hipótesis sobre cómo escalar a multi-agente se hicieron sin
-> poder ejecutar ni un paso.
+> ### Qué se sostiene y qué hay que releer
 >
-> **Lo que hay que releer antes de implementar**: §5 (el paso a paso de escribir
-> un agente) y las fases que dependen del bucle. El resto — la taxonomía de cinco
-> tipos y la frontera con Arrea — se sostiene.
+> | | |
+> |---|---|
+> | ✅ **Se sostiene** | La taxonomía de los cinco tipos, la frontera con Arrea, y el análisis de qué falta en `Arrea`. Nada de eso depende de que el bucle funcione |
+> | ⚠️ **Releer con reservas** | **§5.3** (escribir un agente paso a paso) y **§4** (los tests primero). Las hipótesis sobre cómo escalar a multi-agente se hicieron **sin poder ejecutar ni un solo paso** |
+>
+> §5.3 lleva ahora, al principio, **las cuatro reglas del contrato** que no
+> estaban en ninguna versión anterior de este documento: el backend es
+> obligatorio, la llamada va en el texto, el resultado vuelve con `role: "tool"`
+> y las herramientas se registran con `Candil.Tool.define/1`. Sin esas cuatro el
+> bucle no cierra, y sin ellas el paso a paso no funciona.
+
+---
 
 ## 1 · Qué es
 
@@ -359,7 +363,7 @@ Lista cerrada. Todo lo demás está fuera de esta fase.
 | `lib/candil/agents/supervisor.ex` | **[PROPUESTO]** enganche con `Arrea.Agent.Supervisor` | no existe |
 | `lib/candil/agents/step_router.ex` | **[PROPUESTO]** la decisión de routing **por paso** (§2.7) | no existe |
 | `lib/candil/agent_test.exs` | los tres tests que hay, **más** los de la F5.0 | existe |
-| `test/candil/agents/simple_reflex_test.exs` | **[PROPUESTO]** | no existe |
+| `test/candil/agent/simple_reflex_test.exs` | **[PROPUESTO]** | no existe |
 | `test/candil/agent/contract_test.exs` | **[PROPUESTO]** el test de contrato del §4 | no existe |
 
 ### 3.3 · Lo que NO toca esta fase
@@ -374,8 +378,20 @@ pequeño. `lib/candil/application.ex` solo se toca en la F5.3, y solo para añad
 
 ## 4 · Los tests primero
 
-Cuatro tests. Los cuatro son **rojos hoy**, y cada uno nombra un fallo concreto de
-§2.3. Patrón de los cuatro: **de contrato** (los tres primeros) y **de orden** (el
+Cuatro tests **escritos, no ejecutados**. Los ficheros
+(`test/candil/agent/contract_test.exs` y compañía) **no existen todavía**: esto es
+el guion de la fase, no su estado.
+
+> Una versión anterior de este documento decía «los cuatro son rojos hoy», y no
+> era cierto: un test escrito en un markdown no está rojo, **no está**. El
+> primero que existe de verdad es
+> [`real_test.exs`](../../../test/candil/agent/real_test.exs), y lo escribió la
+> fase 0.2 porque no había otra manera de saber si el bucle cerraba.
+
+Y los que había de verdad, la fase 0.2 los encontró **verdes y falsos**: el
+bucle estaba roto y los tests no lo veían.
+
+Patrón de los cuatro: **de contrato** (los tres primeros) y **de orden** (el
 cuarto, porque `Candil.Tool` es estado global y hay que limpiarlo).
 
 > Orden real de la F5.0: escribe el test, **ejecuta**, lee el rojo, luego el
@@ -464,7 +480,7 @@ test entra en la fase precisamente para que el Test 2 tenga a quién morder.
 ### Y el primero de todos, el de la F5.3
 
 ```elixir
-# test/candil/agents/simple_reflex_test.exs
+# test/candil/agent/simple_reflex_test.exs
 defmodule Candil.Agents.SimpleReflexTest do
   use ExUnit.Case, async: false
 
@@ -696,14 +712,34 @@ end
 Para alguien que nunca ha encendido un ordenador. Si ya sabes Elixir, esto te
 sobra; si no, esto es lo que hay que hacer.
 
+#### Antes de nada: el contrato real, y son cuatro cosas
+
+Esto no estaba en ninguna versión anterior de este documento, y costó horas
+descubrirlo ejecutando. Un agente de Candil **no** se escribe solo: hay cuatro
+cosas que hay que saber o el bucle no cierra.
+
+| # | Regla | Qué pasa si no la sabes |
+|---|---|---|
+| 1 | **El backend es obligatorio**: `Agent.run(input, backend: MiBackend)` | `resolve_backend/1` devuelve `nil` y el bucle hace `nil.chat(...)` → `UndefinedFunctionError` |
+| 2 | **La llamada a herramienta va en el TEXTO**: `<tool_call>{"name":"…","args":{…}}</tool_call>` | Un LLM real la pone en `content`, no en un campo. `Candil.Tools.parse_tool_calls/1` la saca de ahí |
+| 3 | **El resultado vuelve con `role: "tool"`** | Es lo que espera un LLM de verdad. Con `role: "user"` el modelo recibe su propio resultado como si el usuario lo hubiera dicho, y **vuelve a pedir la herramienta para siempre** |
+| 4 | **Las herramientas se registran con `Candil.Tool.define/1`** | `use Candil.Agent, tools: [MiTool]` **no registra nada**: espera `%Tool{}` ya construidos y revienta |
+
+> Las cuatro están comprobadas en
+> [`test/candil/agent/real_test.exs`](../../../test/candil/agent/real_test.exs),
+> que es el test que se escribió para encontrarlas. Y el tag `<tool_call>`
+> **se construye con `<<60>>` y `<<62>>`**, porque escrito a mano se cuela un
+> carácter invisible entre el `<` y el nombre, el parser no ve la llamada, y el
+> agente se queda en `max_steps_exhausted` sin decir por qué.
+
 **Paso 1 · Abrir el repo y ver que está.**
 
 ```bash
 cd /workspace/repos/candil
 git branch --show-current
 ```
-Debe imprimir `docs-v2`. Si imprime otra cosa, no sigas: estás en otra rama y
-vas a perder el trabajo.
+Esta documentación está en `main` desde el 2026-10-08. Si no imprime `main`,
+no sigas: estás en otra rama y vas a perder el trabajo.
 
 ```bash
 mix --version
@@ -717,17 +753,17 @@ documento eso está **sin medir** (§ cabecera).
 ```bash
 mix test test/candil/agent_test.exs
 ```
-Se espera ver `3 tests, 0 failures`. **Si ves muchos fallos y no sabes por qué,
+Se espera ver `8 tests, 0 failures` (`agent_test.exs` + `real_test.exs`). **Si ves muchos fallos y no sabes por qué,
 mira §5 de `docs/03-convenciones/README.md`**: un `MIX_BUILD_PATH` sucio produce
 `Mox.Server` sin arrancar y un montón de rojos que no son tuyos.
 
 **Paso 3 · Escribir el test ROJO primero.**
 
-Crear el fichero `test/candil/agents/simple_reflex_test.exs` con el test del §4.
-Ahora existe un directorio que no existía (`test/candil/agents/`).
+Crear el fichero `test/candil/agent/simple_reflex_test.exs` con el test del §4.
+Ahora existe un directorio que no existía (`test/candil/agent/`).
 
 ```bash
-mix test test/candil/agents/simple_reflex_test.exs
+mix test test/candil/agent/simple_reflex_test.exs
 ```
 Se espera ver un error de **compilación**: `Candil.Agents.SimpleReflex` no existe.
 **Ese es el rojo correcto.** Un test que se pone rojo porque el módulo no existe
@@ -773,7 +809,7 @@ warning.
 **Paso 6 · Ver el test en verde, y luego verlo fallar.**
 
 ```bash
-mix test test/candil/agents/simple_reflex_test.exs
+mix test test/candil/agent/simple_reflex_test.exs
 ```
 Verde. **Y ahora, lo importante**: rompe el código a propósito —saca el `steps: 0`
 del estado, o cambia `FINAL_ANSWER` por otra cosa— y vuelve a correr. **Si sigue
@@ -1072,9 +1108,14 @@ Que quede escrito antes, y no como sorpresa en la revisión.
 está lista.)*
 
 **1 · ¿Cómo sé que está roto?**
-Los cuatro tests del §4, y están rojos hoy: el `@type result/0` no cuadra, sin
-`:backend` se revienta, un alias inventado no da error, y la puerta pública
-`use Candil.Agent` no la ha ejecutado nadie.
+Los cuatro tests del §4 —**que están escritos en este documento y no existen
+como ficheros**—. Y antes de ellos, uno que ya existe y sí encontró cosas:
+[`real_test.exs`](../../../test/candil/agent/real_test.exs), que ejecuta
+`use Candil.Agent` contra un backend de verdad.
+
+> La respuesta honesta a «¿cómo sé que está roto?» hoy es: **escribiendo el
+> test**, porque los que había no lopillaban. Y el primero que se escribió de
+> verdad encontró tres bugs en el mismo día.
 
 **2 · ¿Cómo sé que está bien?**
 Un `SimpleReflex` que responde a un estímulo desde un proceso vivo, con el
