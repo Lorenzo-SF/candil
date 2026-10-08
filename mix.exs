@@ -42,53 +42,44 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      # ── Sibling deps, straight from GitHub, always tracking main @ HEAD ──
-      # No version bumps to track, no publish ordering between packages.
+      # ── Sibling deps ──
       #
-      # The explicit `branch: "main"` is deliberate: without it a dep silently
-      # follows whatever the remote HEAD is, and a branch rename or a
-      # default-branch change breaks the build in a way that looks unrelated.
+      # Seis de siete vienen de Hex con version. El motivo es el que carries
+      # desde el principio: **una dependencia que nunca falla nunca esta
+      # comprobada**, y `branch: "main"` es una dependencia que no puede fallar
+      # porque no tiene version con la que dejar de resolver.
       #
-      # `override: true` is required, not decorative. arrea, trebejo and alaja
-      # all declare each other without a `branch:`, so Mix sees
-      # `github: ".../apero", branch: "main"` and `github: ".../apero"` as two
-      # different deps and aborts with "is overriding a child dependency".
-      # Ours is the authoritative declaration — we pin the branch, they don't —
-      # so we override rather than negotiate.
-      {:apero, github: "Lorenzo-SF/apero", branch: "main", override: true},
-      {:arrea, github: "Lorenzo-SF/arrea", branch: "main", override: true},
+      # Y no es teorico. Ayer Arrea publico 3.1.0 sin tag y sin subir su
+      # `mix.exs`, y ese commit llego a Candil entero, porque la dep estaba en
+      # `main`. Con version eso es imposible: o esta publicado, o no esta.
+      #
+      # El coste es real: Candil ya no recoge automaticamente un fix de apero o
+      # de alaja. Entra cuando se publica una version nueva. Para un ecosistema
+      # donde todo cambia cada dia, es el precio de poder decir "esto funciona"
+      # en vez de "esto funciona hoy".
+      #
+      # Los dos `override: true` que quedan NO son decorativos, y estan ahi por
+      # un motivo concreto y unico: Botica sigue en git y declara apero y arrea
+      # por git, y Hex lo ve como otras dependencias. `override` significa "usa
+      # la mia". Cuando Botica se migre, los dos se borran y no queda ninguno.
+      #
+      {:apero, "~> 4.1", optional: true, override: true},
+      {:arrea, "~> 3.1", override: true},
+      {:trebejo, "~> 2.1"},
+      {:batamanta, "~> 3.1", optional: true, runtime: false},
+      {:alaja, "~> 3.2"},
 
-      # Trebejo: OS introspection. Candil calls Trebejo.OS.arch/0 directly in
-      # Candil.Detector.safe_arch/0, so it must be a direct dep and not only
-      # transitive (it also arrives via botica). Its supervision tree is empty
-      # by design — see Trebejo.Application — so runtime: false is correct and
-      # keeps it out of Candil's own boot sequence.
-      {:trebejo,
-       github: "Lorenzo-SF/Trebejo",
-       branch: "main",
-       optional: true,
-       runtime: false,
-       override: true},
-      {:batamanta,
-       github: "Lorenzo-SF/Batamanta", optional: true, runtime: false, override: true},
-
-      # Alaja: the CLI framework, the tables, the colour.
+      # Botica es la excepcion, y por algo concreto: `botica 2.1.0` en Hex es de
+      # hace dos meses —todo lo demas es de hace horas— yTodavia pide
+      # `trebejo ~> 1.0`, que no resuelve con el Trebejo 2 que necesita Candil.
       #
-      # It used to be described as "used only by lib/candil/cli/** and
-      # lib/candil/doctor.ex", which was true of the *calls* and false of the
-      # dependency: `Candil.CLI` is a module in `lib/candil/`, it declares the
-      # whole command line through `use Alaja.CLI.Definition`, and every
-      # command's flags, help and dispatch belong to it now. The one thing
-      # Candil keeps is the escript boundary — `Candil.CLI.Escript` — because
-      # the alias table and the terminal decision are not the DSL's to make.
-      #
-      # Alaja marks its own `batamanta` dep optional+runtime:false and never
-      # references it from lib/, so no `mix batamanta` step is needed here.
-      {:alaja, github: "Lorenzo-SF/alaja", branch: "main", override: true},
-
-      # Botica: health checks and fixes, used only by `candil doctor` for the
-      # generic memory/disk checks. Optional so that Candil's core never
-      # depends on a diagnostics library being present.
+      # Por eso siguen haciendo falta DOS `override: true`, y solo por eso:
+      # Botica declara `apero` y `arrea` por git, y Hex lo ve como otras
+      # dependencias. Cuando Botica se migre a Hex, los dos se borran.
+      # Botica es la excepcion, y por algo concreto: `botica 2.1.0` en Hex es de
+      # hace dos meses (todo lo demas es de hace horas) yTodavia pide
+      # `trebejo ~> 1.0`, que no resuelve con el Trebejo 2 que necesita Candil.
+      # El `override: true` sigue siendo necesario por eso, y solo por eso.
       {:botica, github: "Lorenzo-SF/botica", branch: "main", optional: true, override: true},
       {:jason, "~> 1.4"},
       {:toml, "~> 0.7"},
