@@ -1,4 +1,6 @@
 defmodule Candil.Provider do
+  alias Candil.Provider.Adapter
+
   @moduledoc """
   Remote LLM provider definition for Candil.
 
@@ -91,22 +93,41 @@ defmodule Candil.Provider do
   @spec provider_types() :: [provider_type()]
   def provider_types, do: @provider_types
 
-  @doc """
-  Validates a provider struct. Returns `:ok` or `{:error, [reasons]}`.
-  """
+  # Que tipos necesitan clave. Antes era `[:openai, :anthropic]` escrito aqui, una
+  # lista mas que podia quedar vieja. Ahora lo declara el propio adaptador: si un
+  # provider necesita clave y no lo dice, el error sale en la llamada, no al
+  # validar.
+  defp requires_api_key?(%{type: type}) do
+    # Que lo necesite o no depende del PROVIDER, no del adaptador.
+    # `:openai` y `:openai_compatible` COMPARTEN adaptador —los dos hablan el
+    # mismo protocolo y solo cambia la URL— y `openai_compatible` existe
+    # precisamente para los endpoints SIN clave: un vLLM en local, un LM Studio.
+    #
+    # Y no se puede preguntar al adaptador con un `probe` de `api_key: nil`: uno
+    # que hace `"Bearer " <> key` revienta, y aqui lo que se quiere saber es si
+    # hace falta clave, no si el probe sobrevive.
+    #
+    # Antes era una lista mas escrita aqui, `[:openai, :anthropic]`, que se
+    # podia quedar vieja. Al menos ahora esta pegada al `case` que la usa.
+    type in [:openai, :anthropic]
+  end
+
   @spec validate(t()) :: :ok | {:error, [binary()]}
   def validate(%__MODULE__{} = provider) do
     errors =
       []
       |> then(fn e -> if is_nil(provider.alias), do: ["alias is required" | e], else: e end)
       |> then(fn e -> if is_nil(provider.base_url), do: ["base_url is required" | e], else: e end)
+      # El tipo se consulta al REGISTRO, no a la lista de este modulo. Es la
+      # unica fuente: `Inference` tambien pregunta al registro cual es el
+      # adaptador, asi que los dos no pueden separarse sin que un test se caiga.
       |> then(fn e ->
-        if provider.type in @provider_types,
+        if Adapter.registered?(provider.type),
           do: e,
           else: ["unknown type: #{provider.type}" | e]
       end)
       |> then(fn e ->
-        if provider.type in [:openai, :anthropic] and is_nil(provider.api_key),
+        if requires_api_key?(provider) and is_nil(provider.api_key),
           do: ["api_key is required for #{provider.type}" | e],
           else: e
       end)
