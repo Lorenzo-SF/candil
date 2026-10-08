@@ -1,7 +1,7 @@
 defmodule Candil.RAGTest do
   use ExUnit.Case, async: true
 
-  alias Candil.RAG
+  alias Candil.{Model, RAG, Store}
   alias Candil.RAG.Chunk
 
   doctest Candil.RAG
@@ -73,7 +73,12 @@ defmodule Candil.RAGTest do
 
   describe "embedder/1" do
     test "reads the configured model as an atom" do
-      # The TOML gives a string; Store is keyed by atoms.
+      # El TOML da una string y el Store se indexa por atomos. Este test
+      # REGISTRA los dos modelos porque `embedder/1` consulta al Store: que un
+      # alias exista como atomo y exista en el catalogo son dos cosas, y
+      # `String.to_existing_atom/1` solo comprobaba la primera.
+      register(:embed)
+      register(:coder)
       assert RAG.embedder(%{embedder: "embed"}) == {:ok, :embed}
       assert RAG.embedder(%{embedder: "coder"}) == {:ok, :coder}
     end
@@ -116,5 +121,17 @@ defmodule Candil.RAGTest do
     test "a score is absent until retrieval sets it" do
       assert %Chunk{id: "c1", text: "t"}.score == nil
     end
+  end
+
+  defp register(alias) do
+    :ok =
+      Store.register_model(%Model{
+        alias: alias,
+        type: :local,
+        engine: :llama_cpp,
+        context_size: 8192,
+        model_dir: "/tmp/#{alias}",
+        filename: "#{alias}.gguf"
+      })
   end
 end
