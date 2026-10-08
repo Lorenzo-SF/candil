@@ -5,26 +5,32 @@ defmodule Candil.Agent.RealTest do
 
   ## Por qué este test existe
 
-  `use Candil.Agent` es el patron mas parecido a un framework que hay en todo
-  Candil, y tiene **cero usos** fuera de sus propios tests: nunca se ha
-  ejecutado contra un backend que hable de verdad.
+  `use Candil.Agent` es lo más parecido a un framework que hay en Candil, y
+  tenía **cero usos** fuera de sus propios tests: nunca se había ejecutado
+  contra un backend que hable de verdad.
 
-  Y al ejecutarlo aparece lo que。建立
-  `resolve_backend/1` devuelve `nil` cuando no se le pasa `:backend`, y el bucle
-  hace `backend.chat(model, messages, ...)` sin comprobar nada. Con `nil` eso es
-  un `UndefinedFunctionError` que nadie captura: el agente revienta con una
-  excepcion de Erlang en lugar de decir "no tengo backend".
+  ## El contrato de una llamada a herramienta, que no es el que parece
 
-  ## El backend de aqui
+  Dos cosas que un LLM de verdad da por hechas y aquí se trampearon:
 
-  Un modulo con `chat/3` que devuelve respuestas escritas a mano: primero pide
-  una herramienta, luego le da el resultado. Es exactamente lo que hace un LLM
-  en un bucle ReAct, y es lo que hay que comprobar de verdad.
+  1. La llamada va en el **texto** del `content`, dentro de
+     `<tool_call>{...}</tool_call>`. No es un campo `tool_calls` del mapa.
+
+  2. El resultado vuelve en un mensaje con **`role: "tool"`**. El agente lo
+     ponía con `role: "user"`, así que el modelo receive su propio resultado
+     como si lo hubiera dicho el usuario: volvía a pedir la herramienta, y otra
+     vez, hasta agotar los pasos. **El bucle ReAct no cerraba jamás contra un
+     backend real.**
+
+  Las dos cosas están arregladas. Este test es lo que las destapa, y lo que
+  impide que vuelvan.
   """
 
   use ExUnit.Case, async: false
 
   alias Candil.{Agent, Tool}
+
+  @global_calls :candil_agent_real_calls
 
   # ── una herramienta de verdad ────────────────────────────────────────────────
 
@@ -50,33 +56,25 @@ defmodule Candil.Agent.RealTest do
 
   defmodule Backend do
     @moduledoc false
-    # Un LLM de mentira que SI SABE lo que hace un LLM: pide la herramienta, y
-    # cuando le llega el resultado responde con la palabra final.
+
     def chat(_model, messages, _opts) do
-      # HALLAZGO: `invoke_tools/3` mete la observacion con `role: "user"`, NO
-      # con `role: "tool"`. Es decir, el agente le ENSENA al modelo su propio
-      # resultado como si lo hubiera dicho el usuario. Un LLM de verdad recibe
-      # el resultado de una herramienta en un mensaje de rol `tool`, y este
-      # bucle ReAct, contra un backend real, no llega a cerrar nunca.
-      #
-      # Aqui se busca el "user" con la respuesta dentro, que es lo que un
-      # backend real tendria que hacer para no morder este lazo.
-      if Enum.any?(
-           messages,
-           &(&1.role == "user" and String.contains?(to_string(&1.content), "weather"))
-         ) do
+      # El agente mete el resultado de la herramienta con `role: "tool"`. Un LLM
+      # de verdad lo espera así; antes el agente lo ponía como "user" y el bucle
+      # no cerraba nunca con un backend de verdad.
+      if Enum.any?(messages, &(&1.role == "tool")) do
         {:ok, %{content: "FINAL_ANSWER: hace 18 grados"}}
       else
         Candil.Agent.RealTest.record(:pidio_tool)
-
-        # Un LLM real NO devuelve `tool_calls` como campo: lo pone en el
-        # TEXTO, dentro de `<tool_call>{...}</tool_call>`, y es
-        # `Candil.Tools.parse_tool_calls/1` quien lo saca de ahi. Por eso este
-        # backend mete la llamada en el `content` y no en un campo aparte: es
-        # lo que un modelo de verdad haria.
         json = ~s({"name":"weather","args":{"city":"Madrid"}})
-        abre = String.duplicate("<", 1) <> "tool_call" <> String.duplicate(">", 1)
-        cierra = String.duplicate("<", 1) <> "/tool_call" <> String.duplicate(">", 1)
+
+        # El tag se construye con los bytes 60 y 62 A PROPOSITO. Escribirlo a
+        # mano hace que un invisible se cuele entre el `<` y el nombre, el
+        # parser no encuentra la llamada, y el agente se queda en
+        # `max_steps_exhausted` sin dar ninguna pista de por qué.
+        lt = <<60>>
+        gt = <<62>>
+        abre = lt <> "tool_call" <> gt
+        cierra = lt <> "/tool_call" <> gt
         {:ok, %{content: abre <> json <> cierra}}
       end
     end
@@ -86,10 +84,11 @@ defmodule Candil.Agent.RealTest do
 
   defmodule Meteorologo do
     @moduledoc false
-    # `tools:` espera `%Tool{}` YA CONSTRUIDOS, no modulos. El `use` parece
-    # que registra tus herramientas y NO lo hace: esto es un hallazgo mas de
-    # este test. Para que el agente vea la herramienta hay que llamar a
-    # `Candil.Tool.define/1` (que se hace en el setup de abajo).
+
+    # `tools:` espera `%Tool{}` YA CONSTRUIDOS, no módulos: el `use` parece que
+    # registra tus herramientas y NO lo hace. Para que el agente vea la
+    # herramienta hay que llamar a `Candil.Tool.define/1`, que se hace en el
+    # setup de abajo.
     use Candil.Agent,
       name: "meteorologo",
       goal: "responde el tiempo",
@@ -98,26 +97,21 @@ defmodule Candil.Agent.RealTest do
   end
 
   # ── quien mira lo que pasa ──────────────────────────────────────────────────
-  #
-  # El agente corre en este proceso (es sincrono), asi que basta con un
-  # proceso en el proceso global que apunte a este test.
-  @global_calls :candil_agent_real_calls
 
   def record(what), do: send(:persistent_term.get(@global_calls, self()), {:llamo, what})
 
   setup do
     Tool.reset()
-
-    # El agente corre en este proceso, asi que basta con decirde donde es.
     :persistent_term.put(@global_calls, self())
+
+    # Y la herramienta se REGISTRA de verdad, que es lo que hace el registro.
+    :ok = Tool.define(Weather.__tool__())
 
     on_exit(fn ->
       :persistent_term.erase(@global_calls)
       Tool.reset()
     end)
 
-    # Y la herramienta se REGISTRA de verdad, que es lo que hace el `use`.
-    :ok = Tool.define(Weather.__tool__())
     :ok
   end
 
@@ -125,32 +119,29 @@ defmodule Candil.Agent.RealTest do
     test "pide la herramienta, la recibe, y responde" do
       assert {:ok, respuesta, trace} = Meteorologo.run("¿qué tiempo hace?", backend: Backend)
 
-      # El contenido, no el codigo de salida.
+      # El contenido, no el código de salida.
       assert respuesta =~ "18 grados"
 
-      # Y el rastro deja ver que PIZO la herramienta: sin eso, un agente que
-      # se limitase a alucinar la respuesta tambien pasaria este test.
+      # Y la traza deja ver que PIDIÓ la herramienta. Sin esto, un agente que
+      # se limitase a alucinar la respuesta también pasaría este test.
       kinds = Enum.map(trace, & &1.kind)
-      # Lo que importa: hay un `:action`, o sea, PIDIO la herramienta. Y el
-      # `@type step` declara `:observation`, pero el bucle NUNCA lo emite — la
-      # observacion va dentro de un `:action`. El tipo miente; aqui se fija lo
-      # que el bucle REALMENTE hace.
       assert :action in kinds
+      # El `@type step` declara `:observation`, pero el bucle nunca lo emite: la
+      # observación va dentro de un `:action`. El tipo miente; aquí se fija lo que
+      # el bucle REALMENTE hace.
       refute :observation in kinds
     end
 
-    test "la herramienta se llamo de verdad, con sus argumentos" do
+    test "la herramienta se llamó de verdad, con sus argumentos" do
       Meteorologo.run("¿qué tiempo hace?", backend: Backend)
 
       assert_received {:llamo, "Madrid"}
-      # Y que se pidio la herramienta, no que se contesto de memoria.
       assert_received {:llamo, :pidio_tool}
     end
 
     test "el rastro es legible y ordenado" do
       {:ok, _respuesta, trace} = Meteorologo.run("¿qué tiempo hace?", backend: Backend)
 
-      # Cada paso deja una entrada, y el bucle no se inventa pasos de mas.
       assert length(trace) <= 3
       assert Enum.all?(trace, &is_map/1)
       assert Enum.all?(trace, &(&1.kind in [:thought, :action, :final]))
@@ -161,29 +152,19 @@ defmodule Candil.Agent.RealTest do
 
       assert cfg.name == "meteorologo"
       assert cfg.goal == "responde el tiempo"
-      # Y el campo que genera es `tool_schemas`, NO `tools`: las herramientas
-      # no se declaran en el `use`, se registran en el registro de Candil.Tool.
+      # Y el campo que genera el `use` es `tool_schemas`, NO `tools`.
       assert is_list(cfg.tool_schemas)
     end
   end
 
   describe "lo que NO hace" do
-    test "sin backend, en vez de reventar con una excepcion de Erlang" do
-      # Esto es lo que descubre este test. `resolve_backend/1` devuelve `nil`
-      # y el bucle hace `nil.chat(...)`.
-      #
-      # Lo que hay que decidir NO es que falle —sin backend no hay respuesta—
-      # sino COMO falla. Una excepcion de Erlang en un bucle de ReAct significa
-      # que el agente muere por un error de configuracion, y eso es justo lo
-      # que un framework no puede permitirse: quien lo usa ni se entera de que
-      # le falta algo hasta que algo se rompe en produccion.
-      #
-      # Lo que se fija aqui es el COMPORTAMIENTO QUE HAY: revienta. Se deja a
-      # proposito, y ver que este test esta en rojo al cambiarlo es lo que
-      # avisara de que hay que arreglar `resolve_backend/1`.
-      assert_raise UndefinedFunctionError, fn ->
-        Meteorologo.run("¿qué tiempo hace?")
-      end
+    test "sin backend, en vez de reventar con una excepción de Erlang" do
+      # `resolve_backend/1` devolvía `nil` y el bucle hacía `nil.chat(...)`.
+      # Un agente que muere por un error de configuración es justo lo que un
+      # framework no puede permitirse: quien lo usa no se entera de que le
+      # falta algo hasta que algo se rompe en producción.
+      assert {:error, {:error, :no_backend}, _trace} =
+               Meteorologo.run("¿qué tiempo hace?")
     end
   end
 end

@@ -36,7 +36,7 @@ defmodule Candil.Agent do
 
   alias Candil.{Cancellation, Conversation, Telemetry, Tool, Tools}
 
-  @type step :: %{kind: :thought | :action | :observation | :final, content: term()}
+  @type step :: %{kind: :thought | :action | :final, content: term()}
   @type trace :: [step()]
   @type result :: {:ok, String.t(), trace()} | {:error, term()}
 
@@ -107,6 +107,9 @@ defmodule Candil.Agent do
           trace()
         ) ::
           trace()
+  defp loop(_conv, _cfg, nil, _model, _steps_left, _ref, trace),
+    do: trace ++ [%{kind: :final, content: {:error, :no_backend}}]
+
   defp loop(_conv, _cfg, _backend, _model, 0, _ref, trace),
     do: trace ++ [%{kind: :final, content: :max_steps_exhausted}]
 
@@ -169,7 +172,10 @@ defmodule Candil.Agent do
   defp invoke_tools(calls, conv) do
     Enum.reduce(calls, {[], conv}, fn %{name: name, args: args}, {acc, c} ->
       result = Tool.call(name, args)
-      conv = Conversation.add_message(c, "user", observation_message(name, result))
+      # Con `role: "user"`, el modelo recibe su propio resultado como si lo
+      # hubiera dicho el usuario: vuelve a pedir la herramienta, y otra vez, y
+      # el bucle nunca cierra. Un LLM de verdad espera `role: "tool"`.
+      conv = Conversation.add_message(c, "tool", observation_message(name, result))
       {[{name, result} | acc], conv}
     end)
     |> case do

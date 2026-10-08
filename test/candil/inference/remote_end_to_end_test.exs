@@ -99,7 +99,8 @@ defmodule Candil.Inference.RemoteEndToEndTest do
       {status, reply} =
         cond do
           not authenticated? ->
-            {401, %{"error" => %{"message" => "falta la clave", "type" => "invalid_request_error"}}}
+            {401,
+             %{"error" => %{"message" => "falta la clave", "type" => "invalid_request_error"}}}
 
           conn.request_path == "/v1/chat/completions" ->
             {200, openai_reply()}
