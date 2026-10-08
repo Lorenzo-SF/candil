@@ -21,7 +21,7 @@ un protocolo por el que se le piden y por el que contesta.
 
 **Por qué ahora**: porque la fase 4 de [`docs/02-orden/`](../../02-orden/README.md)
 —`candil serve`— es la primera vez que Candil va a tener un endpoint. Y
-[`docs/01-inventario/README.md`](../01-inventario/README.md) §6 avisa de que el
+[`docs/01-inventario/README.md`](../../01-inventario/README.md) §6 avisa de que el
 router está terminado **y sin consumidor**: MCP es el segundo sitio donde ponerlo.
 
 **Las dos mitades, y no son la misma mitad:**
@@ -49,7 +49,7 @@ que existe.
 
 Y el test de eso está escrito literalmente en §4. Es el test que decide si la
 fase 6 está hecha. Sin él, la columna «framework» de
-[`docs/01-inventario/`](../01-inventario/README.md) §2 es una intención.
+[`docs/01-inventario/`](../../01-inventario/README.md) §2 es una intención.
 
 ### ⚠️ Y aquí está lo que hay que decir de entrada
 
@@ -68,7 +68,7 @@ en tres sitios y se documentan en §2.4:
 | Dónde | Qué hace |
 |---|---|
 | `lib/candil/rag.ex:142-151` | `String.to_existing_atom/1` y `rescue ArgumentError -> {:error, {:unknown_embedder, name}}` |
-| `lib/candil/config/hydrate.ex` | el puente TOML → `Store`, que está en la lista de decisiones abiertas de [`docs/01-inventario/`](../01-inventario/README.md) §7 |
+| `lib/candil/config/hydrate.ex` | el puente TOML → `Store`, que está en la lista de decisiones abiertas de [`docs/01-inventario/`](../../01-inventario/README.md) §7 |
 | `docs/03-convenciones/` §4 | *«un nombre que no existe tiene que ser un fallo ruidoso, no un `nil`»* |
 
 **El riesgo real de los átomos no está en Candil todavía.** Está en el otro
@@ -158,7 +158,7 @@ array vacío **también** es un batch, porque es un array).
 
 ### 2.4 · Átomos: un nombre de fuera **nunca** se convierte con `String.to_atom/1`
 
-La regla de [`docs/03-convenciones/`](../03-convenciones/README.md) §4 es
+La regla de [`docs/03-convenciones/`](../../03-convenciones/README.md) §4 es
 *«`String.to_existing_atom/1`, nunca `String.to_atom/1`»*, y
 `lib/candil/rag.ex:142-151` ya la cumple con un `rescue` que devuelve
 `{:error, {:unknown_embedder, nombre}}`.
@@ -563,7 +563,7 @@ mix compile                   # debe decir "Compiled N files", 0 errores
 mix test                      # debe decir: 27 doctests, 800 tests, 0 failures
 ```
 
-Esos dos números son los de [`docs/01-inventario/`](../01-inventario/README.md),
+Esos dos números son los de [`docs/01-inventario/`](../../01-inventario/README.md),
 medidos el 2026-10-07. **Si los tuyos no son, para aquí.**
 
 ### 5.2 · Escribir el test, y verlo ROJO
@@ -667,7 +667,7 @@ no criterio.
 ## 6 · Las puertas
 
 Las mismas siete, en el mismo orden
-([`docs/03-convenciones/`](../03-convenciones/README.md) §5), y qué falla si no
+([`docs/03-convenciones/`](../../03-convenciones/README.md) §5), y qué falla si no
 pasan **en MCP**:
 
 ```bash

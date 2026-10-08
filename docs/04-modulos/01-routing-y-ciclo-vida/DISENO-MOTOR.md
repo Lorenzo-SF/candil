@@ -163,6 +163,29 @@ la razón.
 
 ---
 
+## 7.5 · ⚠️ El refusal NO está escrito
+
+> **Antes de leer §8: la política que ese capítulo describe todavía no existe.**
+
+```
+grep -rn 'Instances' lib/candil/router.ex   →  NADA
+grep -rln 'Instances' lib/                   →  solo CLI, doctor y holder
+```
+
+**El router no mira si un modelo está cargado.** Un pin a un modelo apagado
+devuelve exactamente la misma tupla que un pin a uno encendido. Y las únicas
+razones por las que puede negarse son `no_models_for_consumer` y
+`model_not_in_candidates` — **ninguna es «el modelo que quieres no está
+arriba»**.
+
+Por eso **esta fase no puede empezar por §6**: sin una razón nueva de error, el
+refusal no tiene dónde apoyarse. `Instances.alive?/1` existe y funciona; lo que
+falta es que el router la consulte.
+
+Medido en la [fase 0.4](../../01-inventario/HALLAZGOS-FASE-0.md), con un test
+que **certifica la ausencia**: se pondrá rojo el día que alguien lo escriba, y
+eso es lo que tiene que pasar.
+
 ## 8 · El circuito breaker va en el filtro, no en la puntuación
 
 Esto lo dijo el usuario y es lo más importante que se ha decidido aquí:

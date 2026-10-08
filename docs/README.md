@@ -6,7 +6,13 @@
 > algo está en otro sitio y también aquí, es un error: una verdad, un sitio.
 >
 > **Rama**: `docs-v2` · **Base**: `main` en `e168ccd` (fase 7 mergeada)
-> **Medido**: 88 módulos · 65 ficheros de test · **800 tests + 27 doctests, 0 fallos**
+> **Medido**: 88 módulos · 65 ficheros de test · **824 tests + 27 doctests, 0 fallos**
+>
+> ⚠️ **[La fase 0 ya se hizo, y encontró cuatro cosas que el plan daba por
+> buenas.](01-inventario/HALLAZGOS-FASE-0.md)** El proveedor remoto nunca había
+> salido a la red, el bucle ReAct de los agentes no cerraba jamás, el RAG son
+> cinco stubs, y **el refusal de VRAM no existe**. Ningún test lo vio: pasaban
+> porque probaban lo que el test puesto al lado hacía.
 
 ---
 
@@ -110,7 +116,7 @@ Ninguna cerrada. Todas están marcadas en su sitio, y **la primera bloquea la
 fase que ordena todo lo demás**.
 
 1. **¿Round-robin justo o FIFO con VIP?** — decide qué es la línea de cajas.
-   Está en [`02-orden` §7](../02-orden/README.md).
+   Está en [`02-orden` §7](02-orden/README.md).
 2. **¿La memoria compartida comparte historial o solo patrones?**
 3. **¿Quién escribe la verdad de la VRAM, Candil o Arrea?**
 4. **¿`Candil.Provider` es un registro o una lista cerrada?**

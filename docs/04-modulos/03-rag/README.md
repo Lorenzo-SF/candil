@@ -6,6 +6,13 @@
 > `lib/candil/rag.ex` —tipos congelados y cinco stubs— en algo que recupera.
 >
 > **Base**: rama `docs-v2`, `main` en `e168ccd` · **Medido el**: 2026-10-07
+>
+> **[Medido en la fase 0.3](../../01-inventario/HALLAZGOS-FASE-0.md):** esto no
+> es un RAG a medio hacer. Son **cinco stubs** y el struct `Chunk` con los tipos
+> congelados. Y el `@moduledoc` de este mismo fichero promete «coseno sobre un
+> escaneo lineal» que **no tiene una línea de código**. Que `search/3` exista no
+> significa que el escaneo exista, y esa confusion es justo lo que hay que
+> evitar aquí.
 > **Fase en el orden global**: la **7** de [`docs/02-orden/`](../../02-orden/README.md),
 > más la tarea **0.3** (RAG mínimo) de la fase 0.
 > **Estado**: **nada de esto está escrito.** Este documento es el plano, no el
@@ -189,7 +196,7 @@ probado en `test/candil/rag_test.exs:9-53`, incluido el caso del empate real.
 
 > **Si alguien lo reescribe de otra manera, el `@moduledoc` de
 > `lib/candil/rag.ex` tiene que decir por qué.** La convención de
-> [`docs/03-convenciones/`](../03-convenciones/README.md) §4 dice que el
+> [`docs/03-convenciones/`](../../03-convenciones/README.md) §4 dice que el
 > contrato va primero y que la razón del «por qué» va con el código. Un RRF
 > reimplementado sin ese comentario es una regresión silenciosa.
 
@@ -276,7 +283,7 @@ que hacerlo.
 
 ## 4 · Los tests primero
 
-Los cuatro patrones de [`docs/03-convenciones/`](../03-convenciones/README.md) §3,
+Los cuatro patrones de [`docs/03-convenciones/`](../../03-convenciones/README.md) §3,
 y cuál usa cada fase:
 
 | Fase | Patrón | Por qué |
@@ -475,7 +482,7 @@ mix test                      # debe decir: 27 doctests, 800 tests, 0 failures
 ```
 
 Los números `27 doctests` y `800 tests` son los de
-[`docs/01-inventario/`](../01-inventario/README.md), medidos el 2026-10-07. **Si
+[`docs/01-inventario/`](../../01-inventario/README.md), medidos el 2026-10-07. **Si
 los tuyos no son esos, para aquí**: lo que sigue no vale hasta saber por qué.
 
 ### 5.2 · Escribir el test, y verlo ROJO
@@ -514,7 +521,7 @@ mix test test/candil/rag/chunker_test.exs      # debe decir: 1 failure, Y DECIR 
 ```
 
 **Si sale `0 failures` con el código roto, el test es decoracion**
-([`docs/03-convenciones/` §3](../03-convenciones/README.md)). Vuelve a escribirlo.
+([`docs/03-convenciones/` §3](../../03-convenciones/README.md)). Vuelve a escribirlo.
 
 ### 5.6 · Refactorizar con el test en verde
 
@@ -555,7 +562,7 @@ MIX_BUILD_PATH=/tmp/build-candil mix test
 
 > **Ninguna fase de este bloque se cierra con el resultado de una orden.** Se
 > cierra con los `mix run -e '…'` de §7, y con que alguien lo haya ejecutado en su
-> máquina. [`docs/01-inventario/`](../01-inventario/README.md) §9: *«los tres
+> máquina. [`docs/01-inventario/`](../../01-inventario/README.md) §9: *«los tres
 > fallos de esta semana salieron ejecutando el binario en la máquina del dueño,
 > con los 800 tests en verde»*.
 
@@ -563,7 +570,7 @@ MIX_BUILD_PATH=/tmp/build-candil mix test
 
 ## 6 · Las puertas
 
-Las siete de [`docs/03-convenciones/`](../03-convenciones/README.md) §5, en
+Las siete de [`docs/03-convenciones/`](../../03-convenciones/README.md) §5, en
 **este** orden, y qué falla si no pasan:
 
 ```bash
@@ -611,7 +618,7 @@ MIX_BUILD_PATH=/tmp/build-candil mix test
 
 **Y cómo se sabe que falla.** Las dos columnas, porque un test que solo sabe
 decir «verde» no sabe decir nada — es la razón por la que la sección 7 no se
-puede quitar de [`docs/03-convenciones/`](../03-convenciones/README.md) §1.
+puede quitar de [`docs/03-convenciones/`](../../03-convenciones/README.md) §1.
 
 ### 7.1 · Que funciona
 
@@ -867,7 +874,7 @@ pasa cuando falla es un contrato que no existe*.
 
 ## Anexo III · Lo que queda SIN MEDIR
 
-[`docs/01-inventario/`](../01-inventario/README.md) §1: *«todo número sale de
+[`docs/01-inventario/`](../../01-inventario/README.md) §1: *«todo número sale de
 ejecutarlo»*. Esto es lo que **no** está ejecutado:
 
 | | Sin medir | Por qué importa |

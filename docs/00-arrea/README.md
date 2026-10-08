@@ -129,7 +129,7 @@ vuelve a decir `:ok`.
 
 ## 8 · Lo que sigue
 
-En [`02-orden/`](../02-orden/) está el orden de integración, con lo que hay que
+En [`02-orden/`](../../02-orden/) está el orden de integración, con lo que hay que
 hacer en Arrea y lo que hay que hacer en Candil, y qué prerrequisito va antes
 de cuál.
 

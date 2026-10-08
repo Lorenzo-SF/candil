@@ -22,6 +22,27 @@
 
 ---
 
+> ## ⚠️ MEDIDO · este módulo describe algo que NO funcionaba
+>
+> La [fase 0.2 lo ejecutó por primera vez contra un backend real](../../01-inventario/HALLAZGOS-FASE-0.md),
+> y encontró que **el bucle ReAct no cerraba jamás**:
+>
+> - `invoke_tools/3` metía la observación con `role: "user"`, así que el modelo
+>   receive su propio resultado como si el usuario lo hubiera dicho. Volvía a
+>   pedir la herramienta, y otra vez, hasta agotar los pasos.
+> - `resolve_backend/1` devolvía `nil` y el bucle hacía `nil.chat(...)`.
+> - El `@type step` declara `:observation`, que el bucle nunca emite.
+> - `Conversation.add_message/3` no aceptaba `role: "tool"` en su guard.
+>
+> **Arreglado y verificado** en `1e60ab6`. Lo que sigue describe el diseño
+> sobre un bucle que **entonces no cerraba**, y esa es la parte que hay que leer
+> con reservas: las hipótesis sobre cómo escalar a multi-agente se hicieron sin
+> poder ejecutar ni un paso.
+>
+> **Lo que hay que releer antes de implementar**: §5 (el paso a paso de escribir
+> un agente) y las fases que dependen del bucle. El resto — la taxonomía de cinco
+> tipos y la frontera con Arrea — se sostiene.
+
 ## 1 · Qué es
 
 **Un agente no es una tarea: es un proceso que no sabe todavía qué va a hacer.**
@@ -929,7 +950,7 @@ agente se colgó».
 ## Anexo I · Desglose en fases (Módulo 5)
 
 Cada fase lleva su **prerrequisito explícito**. Esto alimenta
-[`02-orden/`](../02-orden/), que es donde vive el orden de verdad.
+[`02-orden/`](../../02-orden/README.md), que es donde vive el orden de verdad.
 
 ```
 F5.0 ──▶ F5.1 ──▶ F5.2 ──▶ F5.3 ──▶ F5.4 ──┬──▶ F5.5

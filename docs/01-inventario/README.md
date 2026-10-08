@@ -61,18 +61,21 @@ embedder, chunker, provider, clasificador del router, y política de scheduler.
 | **`candil init`** | plantilla generada desde el schema, **que se valida a sí misma** |
 | **Proveedor externo** | `[provider.X]` acepta cualquier proveedor. `chat_remote/4` existe |
 
-## 4 · Lo que existe pero NO está probado
+## 4 · Lo que existe pero NO está probado — MEDIDO el 2026-10-08
 
-| | Cómo está |
-|---|---|
-| **Proveedor externo de punta a punta** | `chat_remote/4` tiene **2 usos** en todo el suite. No hay un test que hable con uno real y compruebe el resultado |
-| **RAG** | Los **tipos están congelados** (`RAG.Chunk` con `@type t`) y hay 5 stubs. Ni `Chunker`, ni `Embedder`, ni `Index`, ni `Retrieval`, ni `Rerank` |
-| **`Candil.Agent`** | El `use Candil.Agent` existe y funciona **en teoría**. **Cero usos** fuera de sus tests, y nunca se ha ejecutado contra un modelo de verdad |
-| **Instalar motores** | `Candil.Installer` existe y tiene tests, pero **solo sabe llama.cpp**. Ollama, vLLM, AirLLM, MLX, TensorRT-LM y FLM no existen |
-| **`Chat.do_chat_local` con ref** | `Context.chat/4` tiene un `@dialyzer :nowarn` justificado. El camino está ejercitado por el criterio de cierre, no por un test |
+> **Las cuatro tienen respuesta ya.** Ver
+> [`HALLAZGOS-FASE-0.md`](HALLAZGOS-FASE-0.md).
 
-> **«Existe» y «probado» son columnas distintas.** Las cuatro primeras filas de
-> esta tabla están en la de arriba, solo que sin la columna de la derecha.
+| | Cómo está | **Medido** |
+|---|---|---|
+| **Proveedor externo** | `chat_remote/4` con 2 usos, ambos contra un mock | **Ninguno de los 800 tests salía a la red**: todo el suite intercepta HTTP con un Mox. Ahora hay un test con un servidor real |
+| **`Candil.Agent`** | el `use` funciona y tiene tests | **El bucle ReAct no cerraba jamás**: la observación se metía con `role: "user"` y el modelo pedía la herramienta para siempre. Arreglado |
+| **RAG** | tipos congelados y 5 stubs | **Cinco stubs y un struct.** El `@moduledoc` promete un escaneo coseno que no existe |
+| **Instalar motores** | `Installer` con tests | Solo sabe llama.cpp. ollama, vllm, airllm, mlx, tensorrt y FLM no existen |
+
+> **«Existe» y «probado» eran la misma columna y no lo son.** Las cuatro estaban
+> en «hecho» en el plan, y tres de las cuatro tenían además una suposición de
+> diseño detrás.
 
 ## 5 · Lo que NO existe
 
