@@ -42,45 +42,40 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      # ── Sibling deps ──
+      # ── Sibling deps: las siete desde Hex, con version ──
       #
-      # Seis de siete vienen de Hex con version. El motivo es el que carries
-      # desde el principio: **una dependencia que nunca falla nunca esta
-      # comprobada**, y `branch: "main"` es una dependencia que no puede fallar
-      # porque no tiene version con la que dejar de resolver.
+      # El motivo es el de siempre, aplicado a las dependencias: **una
+      # dependencia que nunca falla nunca esta comprobada**, y `branch: "main"`
+      # es una dependencia que no puede fallar porque no tiene version con la
+      # que dejar de resolver.
       #
-      # Y no es teorico. Ayer Arrea publico 3.1.0 sin tag y sin subir su
-      # `mix.exs`, y ese commit llego a Candil entero, porque la dep estaba en
-      # `main`. Con version eso es imposible: o esta publicado, o no esta.
+      # Y no es teorico. El 2026-10-07 Arrea publico 3.1.0 sin tag y sin subir
+      # su `mix.exs`, y ese commit llego a Candil ENTERO, porque la dep
+      # estaba en `main` y el lock guarda el SHA de lo que hubiera ayer. Con
+      # version eso es imposible: **o esta publicado, o no esta**.
       #
-      # El coste es real: Candil ya no recoge automaticamente un fix de apero o
-      # de alaja. Entra cuando se publica una version nueva. Para un ecosistema
-      # donde todo cambia cada dia, es el precio de poder decir "esto funciona"
-      # en vez de "esto funciona hoy".
+      # NO queda ni un `override: true`. Ese flag solo hacia falta mientras una
+      # hermana se quedase en git declarando a las demas por git, y Hex lo
+      # lo enian como otras dependencias. Siempre significaba "usa la mia"; con las
+      # siete de Hex, Mix resuelve solo y no hay nada que imponer.
       #
-      # Los dos `override: true` que quedan NO son decorativos, y estan ahi por
-      # un motivo concreto y unico: Botica sigue en git y declara apero y arrea
-      # por git, y Hex lo ve como otras dependencias. `override` significa "usa
-      # la mia". Cuando Botica se migre, los dos se borran y no queda ninguno.
+      # Y al pasarlo aparecio el conflicto que `main` llevaba meses tapando:
+      # `botica 2.1.0` pedia `trebejo ~> 1.0` y no resolvia con el Trebejo 2 que
+      # necesita Candil. Con ramas cada repo tenia su realidad y nadie se
+      # enteraba. Con versiones aparecio en 0,34 segundos, con un mensaje que decia
+      # quien miente. Arreglado en botica 2.2.0.
       #
-      {:apero, "~> 4.1", optional: true, override: true},
-      {:arrea, "~> 3.1", override: true},
+      # El coste sigue siendo real: Candil no recoge automaticamente un fix de
+      # una hermana. Entra cuando se publica una version nueva. Para un
+      # ecosistema donde todo cambia cada dia, es el precio de poder decir
+      # "esto funciona" en vez de "esto funciona hoy".
+      #
+      {:apero, "~> 4.1", optional: true},
+      {:arrea, "~> 3.1"},
       {:trebejo, "~> 2.1"},
       {:batamanta, "~> 3.1", optional: true, runtime: false},
       {:alaja, "~> 3.2"},
-
-      # Botica es la excepcion, y por algo concreto: `botica 2.1.0` en Hex es de
-      # hace dos meses —todo lo demas es de hace horas— yTodavia pide
-      # `trebejo ~> 1.0`, que no resuelve con el Trebejo 2 que necesita Candil.
-      #
-      # Por eso siguen haciendo falta DOS `override: true`, y solo por eso:
-      # Botica declara `apero` y `arrea` por git, y Hex lo ve como otras
-      # dependencias. Cuando Botica se migre a Hex, los dos se borran.
-      # Botica es la excepcion, y por algo concreto: `botica 2.1.0` en Hex es de
-      # hace dos meses (todo lo demas es de hace horas) yTodavia pide
-      # `trebejo ~> 1.0`, que no resuelve con el Trebejo 2 que necesita Candil.
-      # El `override: true` sigue siendo necesario por eso, y solo por eso.
-      {:botica, github: "Lorenzo-SF/botica", branch: "main", optional: true, override: true},
+      {:botica, "~> 2.2", optional: true},
       {:jason, "~> 1.4"},
       {:toml, "~> 0.7"},
       {:plug, "~> 1.16"},
