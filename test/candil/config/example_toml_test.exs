@@ -7,7 +7,7 @@ defmodule Candil.Config.ExampleTomlTest do
   """
   use ExUnit.Case, async: true
 
-  @example Path.join([File.cwd!(), "proyecto 4.0", "candil.toml"])
+  @example Path.expand("../../fixtures/config/ejemplo.toml", __DIR__)
 
   test "it exists" do
     assert File.exists?(@example), "el ejemplo no esta en #{@example}"

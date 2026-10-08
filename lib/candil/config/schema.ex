@@ -16,6 +16,17 @@ defmodule Candil.Config.Schema do
   @sections ~w(general engine model provider consumer)
 
   @doc """
+  The section names the schema knows about.
+
+  Public because the documentation test uses it to assert that the checked-in
+  skeleton mentions every one of them: a section added here and forgotten in
+  the skeleton would otherwise go unnoticed for months, because a TOML without
+  a key still parses.
+  """
+  @spec sections() :: [String.t()]
+  def sections, do: @sections
+
+  @doc """
   Validates a decoded TOML document.
 
   Returns `{:ok, config}` or `{:error, problems}`.

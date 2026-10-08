@@ -51,7 +51,24 @@ defmodule Candil.CLI.Init do
   end
 
   defp write(path) do
-    case AperoFile.write(path, Template.render()) do
+    case Template.render() do
+      {:ok, contents} -> write_contents(path, contents)
+      {:error, reason} -> template_broken(path, reason)
+    end
+  end
+
+  # El esqueleto se valida a si mismo antes de salir, asi que `{:error, _}` aqui
+  # solo pasa si el GENERADOR esta roto. Y entonces lo que hay que decir es eso
+  # y no "no se pudo escribir": son dos fallos distintos, y el usuario arregla
+  # cada uno de una manera distinta.
+  defp template_broken(path, reason) do
+    Say.print_error("candil: el esqueleto esta roto: #{reason}")
+    Say.print_error("candil: no he escrito nada en #{path}")
+    :error
+  end
+
+  defp write_contents(path, contents) do
+    case AperoFile.write(path, contents) do
       :ok ->
         Say.print_message(:success, "escrita #{path}")
         Say.print("")

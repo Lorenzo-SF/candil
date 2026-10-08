@@ -144,9 +144,13 @@ defmodule Candil.Conversation do
   Useful for agent loops that manage their own backend calls. Returns the
   updated conversation.
   """
+  # `role` admite "tool" porque el bucle de `Candil.Agent` mete ahi el
+  # resultado de una herramienta. Antes no cabia, y el agente lo esquivaba
+  # metiendolo como "user" — con lo que el modelo receive su propio resultado
+  # como si el usuario lo hubiera dicho.
   @spec add_message(t(), binary(), binary()) :: t()
   def add_message(%__MODULE__{} = conv, role, content)
-      when role in ["user", "assistant", "system"] do
+      when role in ["user", "assistant", "system", "tool"] do
     %{conv | messages: conv.messages ++ [%{role: role, content: content}]}
   end
 

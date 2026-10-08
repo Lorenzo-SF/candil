@@ -21,11 +21,36 @@ defmodule Candil.Config.Template do
   model pointing at a 17 GB download — turns a first run into an afternoon.
   """
 
+  alias Toml
+
   @doc """
   The template, as a string.
   """
-  @spec render() :: binary()
+  # Devuelve `{:ok, contenido} | {:error, reason}` en vez de un binario suelto.
+  #
+  # El esqueleto se valida a si mismo antes de salir, porque un esqueleto que no
+  # parsea es peor que no tener esqueleto: `candil init` escribiria un fichero
+  # roto y el usuario no lo sabria hasta el siguiente comando.
+  #
+  # Esto protege mas que un test, porque el que protege es la maquina de quien
+  # lo ejecuta, no el CI. Un test puede estar verde mientras el fichero que
+  # genera le esta esperando al usuario.
+  @spec render() :: {:ok, binary()} | {:error, binary()}
   def render do
+    contents = build()
+
+    case Toml.decode(contents) do
+      {:ok, _parsed} ->
+        {:ok, contents}
+
+      {:error, reason} ->
+        {:error, "el esqueleto generado no parsea: #{inspect(reason)}"}
+    end
+  end
+
+  @doc false
+  @spec build() :: binary()
+  def build do
     """
     # candil.toml — la configuracion de Candil.
     #
@@ -144,20 +169,42 @@ defmodule Candil.Config.Template do
     # se declara aqui, no el secreto.
     #
     # [provider.openai]
-    #   type = "openai_compat"
-    #   base_url = "https://api.openai.com/v1"
-    #   key_env = "OPENAI_API_KEY"
+    #   type = "openai"
+    #   base_url = "https://api.openai.com"
+    #   # El NOMBRE de la variable, no el secreto. Sin esto, un provider
+    #   # openai o anthropic no valida.
+    #   api_key_env = "OPENAI_API_KEY"
 
     # Para registrar un modelo de verdad tienes dos caminos:
     #
     #   A. editar este fichero: descomenta [model.<alias>] y su [.source],
     #      y luego `candil models pull <alias>` para bajar el .gguf.
     #
-    #   B. partir de un ejemplo que ya funciona:
-    #        cp "proyecto 4.0/candil.toml" ~/.config/candil/candil.toml
-    #      Ese trae siete modelos declarados, con sus flags.
+    #   B. copiar este fichero a tu sitio y descomentar lo que necesites:
+    #        cp docs/05-cli/config/candil.toml ~/.config/candil/candil.toml
     #
     # Y en cualquier momento, `candil doctor` te dice que falta.
+
+    # ── consumer.<nombre> ───────────────────────────────────────────────────
+    #
+    # Quien pregunta. Cada uno puede tener sus propios modelos y su propia
+    # politica de contexto, y el router elige entre los suyos: un consumer
+    # cuya lista no incluye el modelo que le ha tocado se queda sin respuesta
+    # en vez de hablar con el que no era.
+    #
+    # [consumer.default]
+    #   # Modelos que le sirven a este, en orden de preferencia. Si no pones
+    #   # nada, se usa `default_consumer` de [general] y su model_default.
+    #   models = ["coder", "verifier"]
+    #
+    #   # Que pasa cuando el historial no cabe en la ventana del modelo.
+    #   #   "strict"    -> error. No recorta nunca, y no degrada nunca.
+    #   #   "compact"   -> recorta los turnos viejos.
+    #   #   "summarize" -> los resume. Si el resumen falla, degrada a compact.
+    #   context_policy = "strict"
+    #
+    # Con esto, `candil route pin <model>` y `candil route ask --consumer`
+    # tienen sobre que trabajar.
     """
   end
 end

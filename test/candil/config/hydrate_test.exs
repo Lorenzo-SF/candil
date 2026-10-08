@@ -4,7 +4,7 @@ defmodule Candil.Config.HydrateTest do
   alias Candil.{Build, Model, Source, Store}
   alias Candil.Config.{File, Hydrate}
 
-  @ropero Path.expand("../../../proyecto 4.0/candil.toml", __DIR__)
+  @ropero Path.expand("../../fixtures/config/ejemplo.toml", __DIR__)
 
   setup do
     # The Store is application state and the supervisor starts it for the
@@ -20,28 +20,24 @@ defmodule Candil.Config.HydrateTest do
     config
   end
 
-  describe "the real ropero configuration" do
+  describe "el ejemplo de test/fixtures/config" do
     test "every section registers without a single error" do
       result = Hydrate.hydrate(load!())
 
+      # Properties, not the aliases of somebody's file. This fixture exists to
+      # check that hydration WORKS, and an assertion that names `coder_lite`
+      # would be asserting that the file still has `coder_lite` in it — which is
+      # a test that rots the moment anyone edits the example.
       assert result.engines == [:llama_cpp]
       assert result.providers == [:openai]
-
-      assert result.models == [
-               :analyst,
-               :coder,
-               :coder_lite,
-               :designer,
-               :embed,
-               :gpt4o,
-               :verifier
-             ]
+      assert :coder in result.models
+      assert Enum.sort(result.models) == Enum.sort([:coder, :embed, :quick, :gpt4o])
     end
 
     test "the models land in the Store" do
       Hydrate.hydrate(load!())
 
-      assert 7 = length(Store.list_models())
+      assert 4 = length(Store.list_models())
       assert 1 = length(Store.list_engines())
       assert 1 = length(Store.list_providers())
     end
@@ -55,7 +51,8 @@ defmodule Candil.Config.HydrateTest do
 
       assert {:ok, coder} = Store.get_model(:coder)
       assert coder.source.kind == :huggingface
-      assert Model.file_path(coder) =~ "Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf"
+      assert Model.file_path(coder) =~ "coder"
+      refute Model.file_path(coder) == ""
     end
 
     test "paths are expanded, so no literal tilde survives" do
@@ -79,7 +76,7 @@ defmodule Candil.Config.HydrateTest do
       {:ok, engine} = Store.get_engine(:llama_cpp)
       assert engine.install.strategy == :source
       assert engine.install.generator == :ninja
-      assert "-DCMAKE_CUDA_ARCHITECTURES=120a" in engine.install.cmake_args
+      assert Enum.any?(engine.install.cmake_args, &(&1 =~ "CMAKE_BUILD_TYPE"))
       assert engine.install.binaries == ["llama-server", "llama-cli"]
     end
 
@@ -105,10 +102,10 @@ defmodule Candil.Config.HydrateTest do
     test "the draft of a model with a source is expanded too" do
       Hydrate.hydrate(load!())
 
-      assert {:ok, analyst} = Store.get_model(:analyst)
-      assert analyst.draft.kind == :huggingface
-      assert Source.dest_path(analyst.draft) =~ "mtp-Qwen3.8-27B-Q4_0.gguf"
-      refute Source.dest_path(analyst.draft) =~ "~"
+      assert {:ok, quick} = Store.get_model(:quick)
+      assert quick.draft.kind == :huggingface
+      assert Source.dest_path(quick.draft) =~ "Qwen3-0.6B-Q4_K_XL.gguf"
+      refute Source.dest_path(quick.draft) =~ "~"
     end
   end
 
