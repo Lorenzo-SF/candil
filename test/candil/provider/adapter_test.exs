@@ -33,7 +33,7 @@ defmodule Candil.Provider.AdapterTest do
   o un programa con muchos modulos.
   """
 
-  use ExUnit.Case, async: false
+  use Candil.StoreCase
 
   alias Candil.Provider
   alias Candil.Provider.Adapter
