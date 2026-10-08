@@ -12,7 +12,7 @@ defmodule Candil.Engine.ForModelTest do
   Every smoke test before that checked exit codes. This checks the thing that
   was actually wrong.
   """
-  use ExUnit.Case, async: false
+  use Candil.StoreCase
 
   alias Candil.{Engine, Model, Store}
 

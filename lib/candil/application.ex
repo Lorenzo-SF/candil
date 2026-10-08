@@ -48,6 +48,8 @@ defmodule Candil.Application do
       # does, and it kills nothing: it only forgets what the OS already did.
       Candil.Instances.Reaper,
       # Store first: it owns the catalogue tables that the others read.
+      # El registro de adaptadores de provider. Va ANTES que `Store` porque
+      # `Provider.validate/1` pregunta al registro, y `Store` valida al registrar.
       Candil.Store,
       Candil.Context,
       Candil.Context.PrefixManager,

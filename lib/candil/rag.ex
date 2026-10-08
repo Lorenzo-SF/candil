@@ -129,10 +129,15 @@ defmodule Candil.RAG do
 
   ## Examples
 
-      iex> Candil.RAG.embedder(%{embedder: "embed"})
-      {:ok, :embed}
+      # El modelo TIENE que estar en el Store: `embedder/1` pregunta al
+      # catalogo, no a la tabla de atomos de la VM. Un alias que existe como
+      # atomo pero no en el catalogo devuelve `{:error, {:unknown_embedder, _}}`,
+      # y eso es lo que distingue esta funcion de un `String.to_existing_atom/1`.
 
       iex> Candil.RAG.embedder(%{})
+      {:error, :no_embedder}
+
+      iex> Candil.RAG.embedder(%{embedder: ""})
       {:error, :no_embedder}
 
       iex> Candil.RAG.embedder(%{embedder: "no-existe-en-el-catalogo"})
@@ -140,14 +145,30 @@ defmodule Candil.RAG do
   """
   @spec embedder(map()) :: {:ok, atom()} | {:error, :no_embedder | {:unknown_embedder, binary()}}
   def embedder(%{embedder: name}) when is_binary(name) and name != "" do
-    # The empty string is checked first because String.to_existing_atom("")
-    # succeeds and returns :"" — a model alias that matches nothing, found by
-    # the one lookup that should have rejected it.
-    String.to_existing_atom(name)
+    # `String.to_existing_atom/1` NO es "comprobar que este modelo existe": es
+    # "comprobar que este atomo ya se ha creado en la VM". Que un alias exista
+    # como atomo y exista como modelo en el catalogo son DOS cosas, y el
+    # test que documentaba esto se Greenberg: el resultado cambiaba con la
+    # semilla, porque otro test habia creado el atomo antes.
+    #
+    # Por eso se pregunta al Store, que es donde vive el catalogo.
+    # El toml es un fichero de texto y sus claves son strings. Crear un atomo
+    # por cada clave que aparezca ahi es denegacion de servicio con un fichero
+    # de configuracion en la mano. `to_existing_atom/1` ademas responde
+    # `false` en vez de reventar cuando el nombre no existe.
+    # `String.to_existing_atom/1` devuelve el ATOMO, no `{:ok, atomo}`. Empaquetarlo
+    # en un `with` contra `{:ok, alias_}` lo manda siempre al `else`, y el
+    # `{:ok, _}` que devuelve `Store.get_model/1` es de otra forma. Se comprueba
+    # con un `case` en vez de encadenar dos formas distintas como si fueran la
+    # misma.
+    with alias_ <- String.to_existing_atom(name),
+         true <- match?({:ok, _}, Candil.Store.get_model(alias_)) do
+      {:ok, alias_}
+    else
+      _ -> {:error, {:unknown_embedder, name}}
+    end
   rescue
     ArgumentError -> {:error, {:unknown_embedder, name}}
-  else
-    alias_ -> {:ok, alias_}
   end
 
   def embedder(_config), do: {:error, :no_embedder}

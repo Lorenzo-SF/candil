@@ -89,7 +89,8 @@ defmodule Candil.Inference.Chat do
   defp response_parser(:openai_compatible), do: &parse_openai_response/1
   defp response_parser(:azure_openai), do: &parse_openai_response/1
 
-  defp parse_openai_response({:ok, %{status: status, body: body}}) when status in 200..299 do
+  @doc false
+  def parse_openai_response({:ok, %{status: status, body: body}}) when status in 200..299 do
     choice = get_in(body, ["choices", Access.at(0)])
 
     {:ok,
@@ -103,11 +104,13 @@ defmodule Candil.Inference.Chat do
      }}
   end
 
-  defp parse_openai_response({:ok, %{status: status, body: body}}) do
+  @doc false
+  def parse_openai_response({:ok, %{status: status, body: body}}) do
     {:error, Error.http_error(status, body["error"]["message"] || inspect(body))}
   end
 
-  defp parse_openai_response({:error, reason}), do: {:error, reason}
+  @doc false
+  def parse_openai_response({:error, reason}), do: {:error, reason}
 
   defp parse_openai_tool_calls(nil), do: nil
   defp parse_openai_tool_calls([]), do: nil
@@ -129,7 +132,8 @@ defmodule Candil.Inference.Chat do
     end)
   end
 
-  defp parse_anthropic_response({:ok, %{status: status, body: body}}) when status in 200..299 do
+  @doc false
+  def parse_anthropic_response({:ok, %{status: status, body: body}}) when status in 200..299 do
     content =
       body
       |> Map.get("content", [])
@@ -148,13 +152,16 @@ defmodule Candil.Inference.Chat do
      }}
   end
 
-  defp parse_anthropic_response({:ok, %{status: status, body: body}}) do
+  @doc false
+  def parse_anthropic_response({:ok, %{status: status, body: body}}) do
     {:error, Error.http_error(status, body["error"]["message"] || inspect(body))}
   end
 
-  defp parse_anthropic_response({:error, reason}), do: {:error, reason}
+  @doc false
+  def parse_anthropic_response({:error, reason}), do: {:error, reason}
 
-  defp parse_ollama_response({:ok, %{status: status, body: body}}) when status in 200..299 do
+  @doc false
+  def parse_ollama_response({:ok, %{status: status, body: body}}) when status in 200..299 do
     msg = body["message"] || %{}
 
     {:ok,
@@ -167,11 +174,13 @@ defmodule Candil.Inference.Chat do
      }}
   end
 
-  defp parse_ollama_response({:ok, %{status: status, body: body}}) do
+  @doc false
+  def parse_ollama_response({:ok, %{status: status, body: body}}) do
     {:error, Error.http_error(status, inspect(body))}
   end
 
-  defp parse_ollama_response({:error, reason}), do: {:error, reason}
+  @doc false
+  def parse_ollama_response({:error, reason}), do: {:error, reason}
 
   defp parse_usage(nil), do: nil
 
