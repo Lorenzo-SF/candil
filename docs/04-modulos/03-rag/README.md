@@ -62,6 +62,36 @@ cosas es la forma más rápida de no sacar nunca nada.
 
 ---
 
+## 3.5 · ⚠️ MEDIDO · cuánto cuesta cortar
+
+> `mix bench chunker` · 0,9 MiB de un documento real de biblioteca · OTP 28.5 /
+> Elixir 1.19.5 · Xeon 8163, **un core**.
+
+| estrategia | media | mediana | 99th % |
+|---|---|---|---|
+| `:paragraph` | **0,043 ms** | 0,037 ms | 0,089 ms |
+| `:sentence` | **4,3 ms** | 4,0 ms | 7,5 ms |
+| `:fixed` | 10,0 ms | 9,0 ms | 20,8 ms |
+| `:fixed` con solape del 50% | 9,4 ms | 8,5 ms | 18,9 ms |
+
+### Lo que dice
+
+**`:paragraph` es 100 veces más rápido que `:sentence`**, y `:sentence` es dos
+veces más rápido que `:fixed`. No es una casualidad: `paragraph` corta por un
+`String.split` y nada más, y `sentence` mira una regexp con lookbehind en todo el
+texto.
+
+**El solape casi no cuesta** —9,4 ms contra 10,0 ms con y sin— porque el
+sobrecoste son las palabras contadas otra vez, no la historiabetía.
+
+### Lo que implica
+
+Indexar 40.000 chunks **de este documento** son unos tres minutos con
+`:sentence` y unos tres segundos con `:paragraph`. **El chunker no es el
+cuello de botella del RAG**, pero **sí decide cuánto tarda**, y por tanto
+cuándo puedes indexar en segundo plano sin estorbar a nadie.
+
+
 ## 2 · Por qué así
 
 ### 2.1 · ETS y SQLite FTS5. Ni Postgres, ni LanceDB, ni nada externo

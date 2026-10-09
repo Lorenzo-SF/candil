@@ -33,6 +33,47 @@ necesita y que **hoy no existen** en `Candil.Router`:
 
 ---
 
+## 1.5 · ⚠️ MEDIDO · cuánto cuesta decidir
+
+> Antes este documento decía «un motor estático tiene que resolver la mayoría en
+> **menos de 1 ms**». Eso estaba escrito desde la fase 7 y **nunca se había
+> medido**. Ahora sí.
+>
+> `mix bench router`, OTP 28.5.0.7 / Elixir 1.19.5, Xeon 8163 @ 2.50 GHz,
+> **un solo core**.
+
+| | media | mediana | 99th % |
+|---|---|---|---|
+| **decision completa (3 prompts)** | 422 μs | 324 μs | 662 μs |
+| **decision por prompt** | ~135 μs | ~102 μs | ~170 μs |
+| **scoring por reglas** (sin la decisión) | **2.9 μs** | 2.1 μs | 8.6 μs |
+
+### Lo que dice
+
+**El scoring es 2,9 μs. La decisión son 135 μs.** Casi todo el coste de decidir
+está **fuera** del scoring: en resolver candidatos, leer el TOML, cachear. Eso
+dice **dónde** optimizar, no que haya que optimizar.
+
+**Y el margen es de sobra.** El diseño pedía 1 ms; se está en 135 μs. **Con tres
+decisiones por milisegundo de CPU**, la decisión no va a ser el cuello de botella
+de la línea de cajas: lo serán la GPU y el tiempo de generación.
+
+> Consecuencia para la 8b: **la caja no necesita cola de decisiones**, necesita
+> cola de **generaciones**. Y eso es una decisión más fácil de la que se pensaba.
+
+### Y lo que NO dice
+
+El ±300-600% de desviación es **esta máquina con un core y ruido de sandbox**.
+El 99th % es el número que importa, y 170 μs de cola contra segundos de modelo
+sigue siendo ruido. En la máquina del dueño habrá que volver a medirlo antes de
+decidir nada con estos números.
+
+El catálogo de `bench/support.exs` tiene seis modelos con capacidades distintas
+a propósito: un catálogo donde todos hacen lo mismo mide un caso que no existe,
+porque el filtro nunca tiene nada que descartar.
+
+---
+
 ## 2 · El motor, en una frase
 
 > **Señales → requisitos → filtro → afinidad → una decisión.**

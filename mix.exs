@@ -92,6 +92,14 @@ defmodule Candil.MixProject do
   defp aliases do
     [
       gen: ["deps.get", "compile", "batamanta", "install"],
+
+      # Benchmarks. `mix bench` corre todos; `mix bench router` solo uno.
+      #
+      # NO esta en el CI, y es deliberado. Un benchmark es una medicion que se
+      # lee UNA vez y se pega en el documento del modulo. Correrlo en cada push
+      # cuesta minutos y no avisa de nada, porque un numero que sube un 15% por
+      # el ruido de una maquina compartida no es un hallazgo.
+      bench: ["run scripts/bench.exs"],
       install: fn _ ->
         dest_dir = Path.expand("~/.local/bin")
         File.mkdir_p!(dest_dir)
