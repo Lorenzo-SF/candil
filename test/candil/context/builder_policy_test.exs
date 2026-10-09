@@ -94,7 +94,7 @@ defmodule Candil.Context.BuilderPolicyTest do
       assert {:ok, messages} =
                Builder.build(session_with(2), new_message(), context_size: 8_000)
 
-      assert length(messages) > 0
+      assert messages != []
     end
   end
 end

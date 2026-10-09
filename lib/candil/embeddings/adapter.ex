@@ -4,7 +4,7 @@ defmodule Candil.Embeddings.Adapter do
 
   ## Por qué existe
 
-  `Candil.Embeddings.embed/3` decide el backend con un `case` sobre **strings**:
+  `Candil.Embeddings.embed/2` decide el backend con un `case` sobre **strings**:
 
   ```elixir
   provider = Keyword.get(opts, :provider, "local")

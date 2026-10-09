@@ -130,7 +130,7 @@ defmodule Candil.RAG.ChunkerTest do
       chunks = Chunker.chunk(texto, strategy: :sentence)
 
       assert chunks != []
-      assert Enum.join(Enum.map(chunks, & &1.text), " ") =~ "renovacion"
+      assert Enum.map_join(chunks, " ", & &1.text) =~ "renovacion"
     end
 
     test "una estrategia desconocida es un error que la NOMBRA, no un :miss" do
