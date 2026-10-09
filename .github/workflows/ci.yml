@@ -149,21 +149,29 @@ jobs:
       - name: Smoke the CLI
         run: |
           set -eu
-          # Every command has to answer, and none may raise. `--help` on the
-          # bare binary is the first thing a new user types.
-          ./candil --help
-          ./candil version
+
+          # Cada paso dice que llego. Sin esto, un rojo aqui es «exit 1» y nada
+          # mas: el log no dice que comando fallo, y se acabo la sesion mirando
+          # codigo que localmente esta en verde.
+          step() { echo "::debug::smoke: $1"; }
+
+          step "help"
+          ./candil --help > /dev/null
+
+          step "version"
+          ./candil version > /dev/null
+
+          step "doctor --json"
           ./candil doctor --json > /dev/null
 
-          # A missing *required* argument is a usage error and the DSL answers
-          # it with exit status 1. `set -e` is what used to hide this: it turned
-          # "the usage error exits non-zero" into "the CI step failed", which is
-          # the same shape of problem the smoke test exists to catch. So the
-          # status and the message are asserted, not left to `set -e`.
+          # Un *required* que falta es un error de uso, y el DSL responde con
+          # exit 1. `set -e` lo convierte en «el CI fallo», que es justo lo que
+          # este paso existe para que no pase. Se afirma el estado y el mensaje.
           #
-          # Only `run` has a required argument. `stop` without one means "stop
-          # everything" and `status` takes none — those are successes, and
-          # treating them as failures would be a gate that cries wolf.
+          # Solo `run` tiene argumento obligatorio. `stop` sin argumento significa
+          # «para todo» y `status` no tiene ninguno: son exitos, y tratarlos
+          # como fallos seria un gate que da falso positivo.
+          step "run sin modelo"
           out=$(./candil run 2>&1) && rc=0 || rc=$?
           echo "candil run -> $rc"
           [ "$rc" -ne 0 ] || { echo "::error::run without a model should exit non-zero"; exit 1; }
@@ -174,22 +182,16 @@ jobs:
           echo "$out" | grep -q 'model' \
             || { echo "::error::run did not name the argument it wants"; exit 1; }
 
-          # `status` responde si HAY motores y, si no hay, tambien responde
-          # (dice "no hay instancias", rc 0). Lo que NO puede pasar es que
-          # levante. Como es el unico comando que depende del estado de la
-          # maquina —y el runner es una maquina nueva cada vez— se acepta tanto
-          # rc 0 como el rc de "no pude hablar con los engines", y se exige solo
-          # que responda y no levante.
-          #
-          # Antes este era un `./candil status` a pelo con `set -e`: si un dia
-          # un runner tiene algo a medias, el CI cae por un comando que no
-          # garantiza NADA sobre el producto.
-          status_out=$(./candil status 2>&1) || true
+          # `status` NO va con `set -e`: su codigo depende de si esta maquina
+          # tiene engines a medias, que es justo lo que cambia entre runners. Lo
+          # que si es una invariante es que RESPONDA y no levante.
+          step "status"
+          status_out=$(./candil status 2>&1) && status_rc=0 || status_rc=$?
+          echo "candil status -> $status_rc"
           case "$status_out" in
             *'** ('*) echo "::error::status raised instead of answering"; exit 1 ;;
-            *) ;;
           esac
-          echo "candil status answered"
+          echo "::debug::smoke: todo ok"
 
       - name: The help must list every command the dispatch table has
         run: |
