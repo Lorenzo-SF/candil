@@ -48,7 +48,10 @@ jobs:
         with:
           path: _build
           key: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-
+          # SIN `restore-keys`: un `_build` de otro commit restaura un escript
+          # viejo, y el smoke prueba un binario que ya no es el de este commit.
+          # Un rojo que sale verde al re-ejecutar a mano es eso.
+          # restore-keys: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-
 
       - name: Install dependencies
         run: mix deps.get
@@ -112,7 +115,10 @@ jobs:
         with:
           path: _build
           key: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-${{ hashFiles('**/mix.lock') }}
-          restore-keys: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-
+          # SIN `restore-keys`: un `_build` de otro commit restaura un escript
+          # viejo, y el smoke prueba un binario que ya no es el de este commit.
+          # Un rojo que sale verde al re-ejecutar a mano es eso.
+          # restore-keys: ${{ runner.os }}-mix-build-${{ env.MIX_ENV }}-
 
       - name: Install dependencies
         run: mix deps.get
