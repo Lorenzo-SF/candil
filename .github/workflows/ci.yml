@@ -184,12 +184,12 @@ jobs:
           # Antes este era un `./candil status` a pelo con `set -e`: si un dia
           # un runner tiene algo a medias, el CI cae por un comando que no
           # garantiza NADA sobre el producto.
-          out=$(./candil status 2>&1) && rc=0 || rc=$?
-          echo "candil status -> $rc"
-          case "$out" in
+          status_out=$(./candil status 2>&1) || true
+          case "$status_out" in
             *'** ('*) echo "::error::status raised instead of answering"; exit 1 ;;
             *) ;;
           esac
+          echo "candil status answered"
 
       - name: The help must list every command the dispatch table has
         run: |
