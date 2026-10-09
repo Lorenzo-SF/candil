@@ -159,15 +159,13 @@ jobs:
           # Cada paso dice que llego. Sin esto, un rojo aqui es «exit 1» y nada
           # mas: el log no dice que comando fallo, y se acabo la sesion mirando
           # codigo que localmente esta en verde.
-          step() { echo "::debug::smoke: $1"; }
-
-          step "help"
+          echo "::debug::smoke: help"
           ./candil --help > /dev/null
 
-          step "version"
+          echo "::debug::smoke: version"
           ./candil version > /dev/null
 
-          step "doctor --json"
+          echo "::debug::smoke: doctor"
           ./candil doctor --json > /dev/null
 
           # Un *required* que falta es un error de uso, y el DSL responde con
@@ -177,7 +175,7 @@ jobs:
           # Solo `run` tiene argumento obligatorio. `stop` sin argumento significa
           # «para todo» y `status` no tiene ninguno: son exitos, y tratarlos
           # como fallos seria un gate que da falso positivo.
-          step "run sin modelo"
+          echo "::debug::smoke: run sin modelo"
           out=$(./candil run 2>&1) && rc=0 || rc=$?
           echo "candil run -> $rc"
           [ "$rc" -ne 0 ] || { echo "::error::run without a model should exit non-zero"; exit 1; }
@@ -191,7 +189,7 @@ jobs:
           # `status` NO va con `set -e`: su codigo depende de si esta maquina
           # tiene engines a medias, que es justo lo que cambia entre runners. Lo
           # que si es una invariante es que RESPONDA y no levante.
-          step "status"
+          echo "::debug::smoke: status"
           status_out=$(./candil status 2>&1) && status_rc=0 || status_rc=$?
           echo "candil status -> $status_rc"
           case "$status_out" in
