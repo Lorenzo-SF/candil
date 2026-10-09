@@ -66,14 +66,21 @@ defmodule Candil.CLI.Router do
     :ok
   end
 
-  defp explain(%{reason: reason, context: context}) do
-    hint = if is_map(context), do: context[:hint], else: nil
-    base = "#{reason}#{if hint, do: " — #{hint}", else: ""}"
-    candidates = if is_map(context), do: context[:candidates], else: nil
-    if candidates, do: "#{base} (puedes usar: #{Enum.join(candidates, ", ")})", else: base
+  # `Router.route/2` NO devuelve `%Candil.Error{}`: devuelve atomos y tuplas
+  # (`{:unknown_model, alias}`). Este `explain/1` estaba escrito para una forma
+  # que la funcion no produce nunca, y dialyzer lo marco como
+  # `pattern_match`: la rama es codigo muerto.
+  #
+  # Se reescribe contra la forma real, y ahora cada error dice ALGO UTIL en vez
+  # de imprimir un mapa vacio.
+  defp explain(:no_models_for_consumer) do
+    "este consumer no tiene modelos. Ponlos en [consumer.<nombre>] models, " <>
+      "o quita model_default de [general]"
   end
 
-  defp explain(other), do: inspect(other)
+  defp explain({:unknown_model, alias}) do
+    "ese modelo no existe en el catalogo: #{alias}"
+  end
 
   @doc """
   `candil pin [model]` — sin argumentos, dice que hay pineado y a quien.

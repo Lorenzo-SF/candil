@@ -188,7 +188,16 @@ defmodule Candil.SourceFetchTest do
     def init(opts), do: opts
 
     def call(conn, %{payload: payload}) do
-      {:cont, respond(conn, payload), :ok}
+      # Un handler de Plug devuelve el `%Plug.Conn{}` y listo. Envolverlo en
+      # `{:cont, conn, :ok}` es la API de Bandit 0.x, y con 1.12.5 revienta:
+      #
+      #     Expected ...Handler.call/2 to return %Plug.Conn{} but got:
+      #     {:cont, %Plug.Conn{...}, :ok}
+      #
+      # Y no lo hacia falta antes porque este test SIEMPRE habia fallado en el
+      # CI desde que bandit subio a 1.x, mientras en local la version no habia
+      # cambiado y el test pasaba.
+      respond(conn, payload)
     end
 
     defp respond(conn, payload) do

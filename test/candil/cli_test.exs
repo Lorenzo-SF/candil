@@ -1,7 +1,13 @@
 defmodule Candil.CLITest do
   # async: false because the setup drains the shared Store, and another file
   # populating it concurrently makes these tests order-dependent.
-  use ExUnit.Case, async: false
+  # `StoreCase` vacia las tablas del Store antes de CADA test. Este fichero ya
+  # hacia una limpieza en el setup, pero los tests siguen viendo motores de
+  # OTRO fichero —un `argv_m` en el 19991 de un `detach`— porque entre el
+  # setup de este test y su asercion cabe el trabajo de otro. Vaciar en el
+  # setup no basta si el Store se llena justo despues; tiene que estar vacio
+  # justo ANTES de la asercion, que es lo que hace el `setup` de `StoreCase`.
+  use Candil.StoreCase, async: false
 
   import ExUnit.CaptureIO
 

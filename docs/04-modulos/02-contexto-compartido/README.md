@@ -60,6 +60,35 @@ necesita para fechar la 8.
 
 ---
 
+## 3.5 · ⚠️ MEDIDO · cuánto cuesta construir el contexto
+
+> `mix bench builder` · 50 turnos de ida y vuelta con contenido de tamaño
+> realista · OTP 28.5 / Elixir 1.19.5 · Xeon 8163, **un core**.
+
+| caso | media | mediana | 99th % |
+|---|---|---|---|
+| 50 turnos, ventana de 131072 | 71 μs | 64 μs | 127 μs |
+| 50 turnos en ventana de 8192 (`:strict`) | 72 μs | 64 μs | 127 μs |
+| el mismo recortando (`:compact`) | 70 μs | 64 μs | 126 μs |
+
+### Lo que dice
+
+**Los tres casos cuestan lo mismo.** Y eso es el dato interesante: que el
+historial **no quepa** y haya que recortar **no cuesta más que no recortarlo**.
+
+Que el `Builder` va en el camino de cada petición y que **un prompt con el
+historial entero quepa, y uno que no quepa, cuestan igual** significa que **el
+presupuesto no es la Variables lenta**. Es de las pocas piezas de Candil que
+pueden razonar sin miedo.
+
+### Lo que NO dice
+
+El caso `no cabe` **de verdad** —donde `strict` devuelve `{:error,
+:context_exceeded}`— no se mide aquí, porque es el mismo codigo que el del
+caso normal mas una comprobacion. Y **el 99th %** es 127 μs contra segundos de
+generación: aquí no hay cuello de botella.
+
+
 ## 2 · Por qué así
 
 ### 2.1 · La decisión
