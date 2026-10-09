@@ -190,7 +190,11 @@ jobs:
           # invariant is unchanged: the rendered help still has to list every
           # command the dispatch table can reach.
           shown=$(./candil --help | sed 's/^[^a-zA-Z]*//' | grep -oE '^[a-z]+' | sort -u)
-          for cmd in $(mix run -e 'Candil.CLI.command_names() |> Enum.join(" ")'); do
+          # `mix run -e` NO imprime el valor de retorno. Sin este `IO.puts`,
+          # `$(...)` queda VACIO, el bucle no se ejecuta NINGUNA vez, el
+          # `for` sale con 0 y el gate dice "verde" sin haber comprobado nada.
+          # Un `rc=0` de `mix run` enmascaraba que no habia comprobado nada.
+          for cmd in $(mix run -e 'IO.puts(Candil.CLI.command_names() |> Enum.join(" "))'); do
             echo "$shown" | grep -qx "$cmd" \
               || { echo "::error::'$cmd' is dispatchable but missing from the help"; exit 1; }
           done
