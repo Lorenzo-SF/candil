@@ -317,7 +317,7 @@ jobs:
       - name: Build docs (warnings are errors)
         run: mix docs --warnings-as-errors
 
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v6
         with:
           name: exdoc
           path: doc
