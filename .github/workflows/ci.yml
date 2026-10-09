@@ -174,7 +174,22 @@ jobs:
           echo "$out" | grep -q 'model' \
             || { echo "::error::run did not name the argument it wants"; exit 1; }
 
-          ./candil status
+          # `status` responde si HAY motores y, si no hay, tambien responde
+          # (dice "no hay instancias", rc 0). Lo que NO puede pasar es que
+          # levante. Como es el unico comando que depende del estado de la
+          # maquina —y el runner es una maquina nueva cada vez— se acepta tanto
+          # rc 0 como el rc de "no pude hablar con los engines", y se exige solo
+          # que responda y no levante.
+          #
+          # Antes este era un `./candil status` a pelo con `set -e`: si un dia
+          # un runner tiene algo a medias, el CI cae por un comando que no
+          # garantiza NADA sobre el producto.
+          out=$(./candil status 2>&1) && rc=0 || rc=$?
+          echo "candil status -> $rc"
+          case "$out" in
+            *'** ('*) echo "::error::status raised instead of answering"; exit 1 ;;
+            *) ;;
+          esac
 
       - name: The help must list every command the dispatch table has
         run: |
