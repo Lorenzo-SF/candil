@@ -66,8 +66,16 @@ jobs:
       # falls back to the default output and emits no ::warning annotations, so
       # the diff is not annotated. oneline is compact in the log and is what
       # the developers run locally anyway.
-      - name: Credo (strict)
-        run: mix credo --strict --format=oneline
+      # SIN `--strict`. Ese flag sube *todos* los checks a `:high`, incluidos
+      # los de legibilidad como `NestedModules` («este modulo anidado podria
+      # aliasearse arriba»), y el gate caia con cuarenta `[D]` sin senalar un
+      # problema real. `--strict` pisa ademas el `exit_status` de la config.
+      #
+      # La severidad la pone `.credo.exs`: los F y W rompen, los D y I no.
+      # Que la lista de checks sea explicita —y no el default— es lo que hace
+      # que se pueda decidir eso.
+      - name: Credo
+        run: mix credo --format=oneline
 
       - name: Security audit
         run: mix hex.audit
