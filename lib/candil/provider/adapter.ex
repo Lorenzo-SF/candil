@@ -45,6 +45,12 @@ defmodule Candil.Provider.Adapter do
   @type type :: atom()
   @type t :: module()
 
+  # Lo que devuelve `Candil.HTTP`: una tupla con el codigo y el cuerpo ya
+  # parseado. NO un mapa crudo. Poner `map()` aqui hacia que dialyzer marque
+  # `callback_arg_type_mismatch` en los tres adaptadores, porque el callback
+  # promete una cosa y todos los que lo implementan reciben otra.
+  @type http_result :: {:ok, %{status: integer(), body: term()}} | {:error, term()}
+
   @doc "Construye el cuerpo de la peticion."
   @callback build_body(model :: String.t(), messages :: [map()], opts :: keyword()) :: map()
 
@@ -58,7 +64,7 @@ defmodule Candil.Provider.Adapter do
   @callback auth_headers(Candil.Provider.t()) :: [{String.t(), String.t()}]
 
   @doc "Convierte una respuesta cruda en lo que Candil entiende."
-  @callback parse_response(map(), Candil.Provider.t()) :: {:ok, term()} | {:error, term()}
+  @callback parse_response(http_result(), Candil.Provider.t()) :: {:ok, term()} | {:error, term()}
 
   @doc "Los modelos que el provider ofrece, si los sabe."
   @callback models(Candil.Provider.t()) :: [String.t()]
@@ -208,10 +214,22 @@ defmodule Candil.Provider.Adapter do
     |> Enum.sort()
   end
 
-  @doc "Vacía el registro. Solo para tests."
+  @doc """
+  Vacía el registro. Solo para tests.
+
+  ## Por qué el `if` y no un `|>`
+
+  `:ets.delete_all_objects/1` devuelve `true`, no `:ok`. Un `@spec reset() :: :ok`
+  con esa llamada detras es un contrato roto que dialyzer marca como
+  `invalid_contract`, y con razon: el modulo dice una cosa y hace otra.
+
+  Aqui se dice lo que se quiere decir —`:ok`— en vez de propagar el `true` de la
+  tabla, que no le importa a nadie.
+  """
   @spec reset() :: :ok
   def reset do
     ensure_table()
-    :ets.delete_all_objects(@table)
+    _ = :ets.delete_all_objects(@table)
+    :ok
   end
 end
