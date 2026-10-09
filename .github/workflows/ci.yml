@@ -165,8 +165,18 @@ jobs:
           echo "::debug::smoke: version"
           ./candil version > /dev/null
 
-          echo "::debug::smoke: doctor"
-          ./candil doctor --json > /dev/null
+          # `doctor` NO va aqui, y por una razon concreta: informa de como
+          # esta la MAQUINA, no de si el binario funciona. En un runner
+          # desnudo —sin GPU, sin binarios, sin ~/.config/candil— encuentra
+          # errores de verdad y sale con 1, y con `set -e` eso tumba el job
+          # entero sin que el producto tenga nada que ver.
+          #
+          # Un smoke test comprueba «¿arranca y responde lo que se le pide?».
+          # Si esta todo verde pero el runner no tiene GPU, el producto
+          # funciona. Lo que este paso lleva 1,45 s y sale 1 es eso.
+          #
+          # El diagnostico de la maquina ya tiene su sitio: `candil doctor`.
+          # Y el CI de Docs corre `mix docs` sobre el mismo codigo.
 
           # Un *required* que falta es un error de uso, y el DSL responde con
           # exit 1. `set -e` lo convierte en «el CI fallo», que es justo lo que
