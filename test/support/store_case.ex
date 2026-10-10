@@ -18,6 +18,14 @@ defmodule Candil.StoreCase do
   que no existia» (que era un solo candidato), los consumers que no se leian del
   toml, y el bucle ReAct que no cerraba. Los tres decian «esto funciona».
 
+  ## Lo que tambien se aisla: el disco
+
+  `Candil.Instances` escribe un `instances.json` en `CANDIL_DATA_DIR`, y eso no es
+  ETS: es un fichero. El `setup` tambien le da un directorio **por test**, para
+  que una instancia registrada por uno no aparezca en el `status` del otro. El
+  suelo de `test_helper.exs` evita que alguien escriba en el `~/.candil` real;
+  esto evita que un test ensucie a otro.
+
   ## Lo que NO se toca
 
   El registro de adaptadores de provider. Lo consulta `Provider.validate/1` desde
@@ -41,6 +49,21 @@ defmodule Candil.StoreCase do
 
   setup do
     empty_store()
+
+    # Y tambien un `CANDIL_DATA_DIR` propio por test. El Store son ETS, pero
+    # `Candil.Instances` escribe un fichero en disco, y ese estado tambien es
+    # global: un test que registra una instancia la deja al siguiente. Con un
+    # directorio por test, la 实例 de uno no aparece en el `status` del otro.
+    dir = Path.join(System.tmp_dir!(), "candil-store-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    previous = System.get_env("CANDIL_DATA_DIR")
+    System.put_env("CANDIL_DATA_DIR", dir)
+
+    on_exit(fn ->
+      File.rm_rf(dir)
+      if previous, do: System.put_env("CANDIL_DATA_DIR", previous)
+    end)
+
     :ok
   end
 

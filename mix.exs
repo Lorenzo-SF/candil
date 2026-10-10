@@ -42,40 +42,65 @@ defmodule Candil.MixProject do
 
   defp deps do
     [
-      # ── Sibling deps: las siete desde Hex, con version ──
+      # ── Sibling deps: las siete desde su `main`, por git ──
       #
-      # El motivo es el de siempre, aplicado a las dependencias: **una
-      # dependencia que nunca falla nunca esta comprobada**, y `branch: "main"`
-      # es una dependencia que no puede fallar porque no tiene version con la
-      # que dejar de resolver.
+      # **Esto estaba en Hex y se cambio el 2026-10-10 por decision del
+      # dueno.** Se conserva el razonamiento anterior porque es bueno, y
+      # porque el cambio no lo invalida: lo acota.
       #
-      # Y no es teorico. El 2026-10-07 Arrea publico 3.1.0 sin tag y sin subir
-      # su `mix.exs`, y ese commit llego a Candil ENTERO, porque la dep
-      # estaba en `main` y el lock guarda el SHA de lo que hubiera ayer. Con
-      # version eso es imposible: **o esta publicado, o no esta**.
+      # Decia Hex, y con razon: *"una dependencia que nunca falla nunca esta
+      # comprobada"*, y `branch: "main"` es una dependencia que no puede fallar
+      # porque no tiene version con la que dejar de resolver. El 2026-10-07
+      # Arrea publico 3.1.0 sin tag y sin subir su `mix.exs`, y ese commit
+      # llego a Candil ENTERO. Con version eso es imposible: **o esta
+      # publicado, o no esta**.
       #
-      # NO queda ni un `override: true`. Ese flag solo hacia falta mientras una
-      # hermana se quedase en git declarando a las demas por git, y Hex lo
-      # lo enian como otras dependencias. Siempre significaba "usa la mia"; con las
-      # siete de Hex, Mix resuelve solo y no hay nada que imponer.
+      # ## Por que se cambio
       #
-      # Y al pasarlo aparecio el conflicto que `main` llevaba meses tapando:
-      # `botica 2.1.0` pedia `trebejo ~> 1.0` y no resolvia con el Trebejo 2 que
-      # necesita Candil. Con ramas cada repo tenia su realidad y nadie se
-      # enteraba. Con versiones aparecio en 0,34 segundos, con un mensaje que decia
-      # quien miente. Arreglado en botica 2.2.0.
+      # 1. **Medido: el coste de Hex era real y estaba bloqueando trabajo.**
+      #    Lo publicado era 3.1.0, y el repo estaba tambien en 3.1.0. Mergeado
+      #    `Arrea.Resource` (fase 2) en `main`, para Candil **no habia
+      #    cambiado nada**, y Hex no admite republicar una version ya
+      #    publicada: hacia falta subir de version y publicar a mano. La fase 2
+      #    no desbloqueara la 3 hasta hacer eso, a mano, cada vez.
+      # 2. **El ecosistema se mueve cada dia**, y el propio comentario
+      #    reconocio el precio: *"Candil no recoge automaticamente un fix de
+      #    una hermana. Entra cuando se publica una version nueva."*
+      # 3. **El riesgo de Hex ya se materializo** y el de git todavia no, con
+      #    una diferencia: el incidente del 07 fue un commit entero, que se ve;
+      #    un fix sin publicar es un desfase que **no se ve** porque todo esta
+      #    verde.
       #
-      # El coste sigue siendo real: Candil no recoge automaticamente un fix de
-      # una hermana. Entra cuando se publica una version nueva. Para un
-      # ecosistema donde todo cambia cada dia, es el precio de poder decir
-      # "esto funciona" en vez de "esto funciona hoy".
+      # ## Lo que se cede, escrito para que no se pierda de vista
       #
-      {:apero, "~> 4.1", optional: true},
-      {:arrea, "~> 3.1"},
-      {:trebejo, "~> 2.1"},
-      {:batamanta, "~> 3.1", optional: true, runtime: false},
-      {:alaja, "~> 3.2"},
-      {:botica, "~> 2.2", optional: true},
+      # - **Candil puede romperse aunque Arrea este verde.** Si Arrea rompe su
+      #   `main`, el CI de Candil lo ve en ese commit, no en el siguiente.
+      # - **Un fix de una hermana no se recoge solo.** Hay que
+      #   `mix deps.update <hermana>` a proposito.
+      # - **Todo `override: true` es de forceps.** Sin el, el solvedor ve
+      #   "arrea de aqui" y "arrea de ahi" y se niega: *"botica depends on
+      #   arrea ~> 3.1 which doesn't match any versions"*. Con las siete
+      #   apuntando al mismo sitio, el `override` deja de ser "usa la mia" y
+      #   pasa a ser **lo que hace que Mix no se queje de tener dos fuentes
+      #   para la misma biblioteca**.
+      #
+      # ## Lo que NO se cede
+      #
+      # `mix.lock` fija el **SHA exacto** de cada hermana. La build sigue
+      # siendo reproducible y una build vieja no se rompe sola: el que decide
+      # cuando se mueve Candil es el `mix.lock`, no la rama.
+      #
+      {:apero, github: "Lorenzo-SF/apero", branch: "main", override: true, optional: true},
+      {:arrea, github: "Lorenzo-SF/arrea", branch: "main", override: true},
+      {:trebejo, github: "Lorenzo-SF/trebejo", branch: "main", override: true},
+      {:batamanta,
+       github: "Lorenzo-SF/Batamanta",
+       branch: "main",
+       override: true,
+       optional: true,
+       runtime: false},
+      {:alaja, github: "Lorenzo-SF/alaja", branch: "main", override: true},
+      {:botica, github: "Lorenzo-SF/botica", branch: "main", override: true, optional: true},
       {:jason, "~> 1.4"},
       {:toml, "~> 0.7"},
       {:plug, "~> 1.16"},
