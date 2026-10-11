@@ -225,7 +225,8 @@ defmodule Candil.Config.Schema do
       validate_model_args(name, spec) ++
       validate_model_source(name, spec) ++
       validate_model_usage(name, spec) ++
-      validate_model_description(name, spec)
+      validate_model_description(name, spec) ++
+      validate_model_exclusive(name, spec)
   end
 
   defp validate_model(name, spec), do: ["model '#{name}' must be a table, got: #{inspect(spec)}"]
@@ -239,6 +240,20 @@ defmodule Candil.Config.Schema do
       nil -> []
       value when is_binary(value) -> []
       other -> ["model '#{name}'.description must be a string, got: #{inspect(other)}"]
+    end
+  end
+
+  # `exclusive` es un booleano y **opcional**: el defecto es `false`, el
+  # destino que no se estorba con nadie y por tanto **no pasa por la cola**.
+  #
+  # No se exige, a proposito. Exigirlo seria obligar a declarar "esto no es
+  # exclusivo" en cada modelo para no usar la cola, que es justo al reves: el
+  # defecto tiene que ser el que no hace nada.
+  defp validate_model_exclusive(name, spec) do
+    case Map.get(spec, "exclusive") do
+      nil -> []
+      value when is_boolean(value) -> []
+      other -> ["model '#{name}'.exclusive must be a boolean, got: #{inspect(other)}"]
     end
   end
 

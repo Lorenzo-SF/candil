@@ -147,6 +147,25 @@ defmodule Candil.Store do
        ["api_key must be a string, {:system, \"ENV_VAR\"} or nil, got: #{inspect(other)}"]}
 
   @doc """
+  Si este alias nombra algo registrado: un modelo, un engine o un provider.
+
+  La pregunta "¿existe este destino?" tiene tres sitios donde mirar, y
+  preguntarla desde tres modulos son tres respuestas esperando discrepar.
+
+  `get_provider/1` **no** es una de las formas de preguntar: esa **resuelve**
+  el `api_key`, que lee una variable de entorno, y si un nombre existe no
+  deberia tener el efecto secundario de leer el entorno.
+
+  Las tablas siguen siendo privadas: aqui se pregunta una vez, y hay una
+  respuesta.
+  """
+  @spec registered?(atom()) :: boolean()
+  def registered?(alias) when is_atom(alias) do
+    :ets.member(@table_models, alias) or :ets.member(@table_engines, alias) or
+      :ets.member(@table_providers, alias)
+  end
+
+  @doc """
   Looks up an engine by alias.
 
   Returns `{:ok, engine}` or `{:error, :not_found}`.

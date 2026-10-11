@@ -118,6 +118,21 @@ defmodule Candil.Model do
             # no hay nada comparable. Opcional a proposito —ver el `@moduledoc`—
             # y `nil` significa que este modelo no participa en esa capa.
             description: nil,
+            # EXCLUSIVO: si este destino se puede usar a la vez que otro.
+            #
+            # `false` —el defecto— significa que **no hay cola**: el que pide
+            # pasa de largo. Una API no se estorba consigo misma, y una GPU
+            # libre tampoco.
+            #
+            # `true` significa que **si lo tiene uno, no caben dos**: una GPU
+            # con un modelo de 12 GB. Ahi la peticion espera su turno, y el
+            # orden lo decide `Candil.Policy`.
+            #
+            # Opcional a proposito y **el schema NO lo exige**: el defecto tiene
+            # que ser el aburrido, el que no toca la cola. Un interruptor global
+            # obligaria a elegir un modo para todos los destinos, siendo malo
+            # para casi todos.
+            exclusive: false,
             # An ordered list, not a map. llama-server takes the last
             # occurrence of a repeated flag, so order is behaviour.
             model_args: [],

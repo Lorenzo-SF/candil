@@ -171,6 +171,9 @@ defmodule Candil.Config.Hydrate do
         # un prompt. Va tal cual y sin relleno: sin descripcion, ese modelo no
         # entra en la comparacion, que es distinto de entrar con un 0.
         description: spec["description"],
+        # Opcional, y el defecto es `false`: sin esta propiedad el destino NO
+        # es exclusivo y no hay cola. Ver `Candil.Policy`.
+        exclusive: spec["exclusive"] == true,
         model_args: spec["model_args"] || [],
         # Directo del spec y no un `nil` fijo: un `nil` aqui pisaba el valor
         # que el usuario habia escrito en el toml, y `derive_gpu_layers/2` solo
