@@ -17,12 +17,21 @@
 set -uo pipefail
 
 # ── 0 · Donde esta tu repo ────────────────────────────────────────────────
-GIT_DIR_CANDIL="${GIT_DIR_CANDIL:-$HOME/candil}"
+# El repo se busca **desde el propio script**, no desde una ruta fija.
+#
+# La version anterior pedia GIT_DIR_CANDIL con un defecto de $HOME/candil, y
+# es una pregunta que el script puede responderse solo: **vive dentro del
+# repo**. Lanzado desde dentro tiene que funcionar sin configurar nada, y
+# fallar solo cuando de verdad no hay un `.git` cerca.
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+GIT_DIR_CANDIL="${GIT_DIR_CANDIL:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 REPORT="${REPORT:-$HOME/candil-medicion-$(date +%Y%m%d-%H%M).log}"
 
 if [ ! -d "$GIT_DIR_CANDIL/.git" ]; then
-  echo "No encuentro el repo en $GIT_DIR_CANDIL."
-  echo "O ponlo asi:   GIT_DIR_CANDIL=/ruta/real/candil bash $0"
+  echo "No encuentro un repo de git ni en $GIT_DIR_CANDIL"
+  echo "ni junto al propio script ($SCRIPT_DIR/..)."
+  echo ""
+  echo "Si esta en otro sitio:  GIT_DIR_CANDIL=/ruta/real/candil bash $0"
   exit 1
 fi
 
