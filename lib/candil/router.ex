@@ -192,6 +192,19 @@ defmodule Candil.Router do
 
   @doc """
   The thresholds and feature flags, with the defaults filled in.
+
+  ## Los dos nombres
+
+  `:classifier` y `:embedder` son el **nombre con el que algo esta registrado**,
+  no el modulo. Se escriben en `[router]` del TOML y son `nil` por omision,
+  porque no hay ninguno de los dos por defecto: los dos eligen —por omision—
+  cuanto se gasta o en que se miden las distancias entre vectores.
+
+  Un nombre que no este registrado no es un error de arranque: la capa no
+  existe y devuelve `:miss`, que es lo que se deduce de «no hay embedder
+  registrado». El sitio ruidoso del registro es
+  `Candil.Embeddings.Adapter.register/2`, que falla si el modulo no implementa
+  el behaviour entero.
   """
   @defaults %{
     # See Candil.Router.DecisionEngine.threshold_for/2: the rule layer is a
@@ -202,7 +215,12 @@ defmodule Candil.Router do
     embedding_threshold: @default_embedding_threshold,
     enable_llm_classifier: false,
     enable_cache: true,
-    cache_ttl_seconds: 300
+    cache_ttl_seconds: 300,
+    # Los dos nombres de la fase 3 del enrutado. `nil` = la capa no existe.
+    # No es un descuido: un clasificador o un embedder por defecto se toman
+    # sin que nadie los pidiera, y son los dos los que eligen cuanto se gasta.
+    classifier: nil,
+    embedder: nil
   }
 
   @spec settings() :: map()
@@ -232,6 +250,7 @@ defmodule Candil.Router do
           end
         end)
         |> Map.take(Map.keys(@defaults))
+        |> normalise_names()
 
       _ ->
         %{}
@@ -239,6 +258,39 @@ defmodule Candil.Router do
   rescue
     # Sin fichero de configuracion se usan los defaults, que es lo de antes.
     _kind -> %{}
+  end
+
+  # `classifier = "etiquetas"` en el TOML es un string, y el registro de
+  # `Router.Classifier` y de `Embeddings.Adapter` es por atomos. Sin esta
+  # conversion, un nombre escrito con la forma que tiene en un fichero —con
+  # comillas— no encuentra nunca nada, y la capa no existe sin que nadie
+  # entienda por que.
+  defp normalise_names(settings) do
+    Enum.reduce([:classifier, :embedder], settings, fn key, acc ->
+      case Map.fetch(acc, key) do
+        {:ok, nil} -> acc
+        {:ok, value} when is_atom(value) -> acc
+        {:ok, value} when is_binary(value) -> Map.put(acc, key, alias_of(value))
+        # Un valor que no es un nombre —un numero, una tabla— se deja como
+        # estaba: la capa lo buscara y no lo encontrara. Un nombre con una
+        # forma rara no se convierte en un atomo nuevo.
+        {:ok, _other} -> acc
+        :error -> acc
+      end
+    end)
+  end
+
+  # El mismo criterio que `Candil.Config.Hydrate.alias_of/1`: solo un
+  # identificador, y solo si parece uno. Un nombre de un fichero de
+  # configuracion no es entrada de nadie, asi que no hay denegacion de servicio
+  # que evitar; lo que si hay es basura que no merece un atomo.
+  defp alias_of(name) do
+    if Regex.match?(~r/^[a-z][a-z0-9_]*$/, name) do
+      # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
+      String.to_atom(name)
+    else
+      name
+    end
   end
 
   defp safe_key(key) when is_binary(key) do

@@ -249,9 +249,13 @@ defmodule Candil.RouterTest do
       assert Scorer.prompt_text(messages) == "hola"
     end
 
-    test "unimplemented layers report a miss rather than a fake score" do
+    test "una capa sin implementacion devuelve :miss, no un numero inventado" do
       # A layer that returns a plausible number for something it did not
       # compute routes on noise and reports confidence.
+      #
+      # Sin `:classifier` ni `:embedder` en el `settings` —y sin que haya
+      # ninguno por defecto, que es una decision— las dos capas no EXISTEN. Y
+      # una capa que no existe devuelve `:miss` como una que existe y no sabe.
       assert Scorer.score(@code, [:coder], :llm, %{}) == :miss
       assert Scorer.score(@code, [:coder], :embedding, %{}) == :miss
     end

@@ -65,4 +65,31 @@ defmodule Candil.ModelTest do
       assert Model.file_path(%{}) == nil
     end
   end
+
+  # La `description` no es un campo mas: es lo UNICO que la capa `:embedding`
+  # del router tiene para comparar con un prompt. Sin ella, esa capa no compara
+  # nada y devuelve `:miss`, y el usuario no tiene forma de saber por que.
+  describe "description" do
+    test "es un campo del struct, y por defecto no esta" do
+      assert %Model{type: :local, description: nil} = %Model{alias: :x, type: :local}
+    end
+
+    test "guarda lo que le han puesto, sin recortarlo ni corregirlo" do
+      model = %Model{alias: :x, type: :local, description: "  escribe codigo  "}
+      assert model.description == "  escribe codigo  "
+    end
+
+    test "un modelo sin descripcion sigue siendo valido" do
+      # Si `validate/1` exigiera la descripcion, ningun modelo de los que ya
+      # estan en el mundo pasaria, y la exigibilidad de un campo opcional se
+      # acaba notando cuando hay que meterla en tres sitios.
+      assert Model.validate(%Model{
+               alias: :x,
+               type: :local,
+               engine: :llama,
+               model_dir: "/models",
+               filename: "x.gguf"
+             }) == :ok
+    end
+  end
 end

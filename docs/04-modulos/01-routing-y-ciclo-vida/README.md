@@ -27,7 +27,7 @@ Todo lo de esta tabla está leído del código. Las rutas son reales.
 |---|---|---|
 | `lib/candil/router.ex` | la puerta: `route/2`, `pin/2`, `resolve/1`, `settings/0`, y el struct `Candil.Router.Decision` | 249 |
 | `lib/candil/router/decision_engine.ex` | la cadena de capas y su orden | 319 |
-| `lib/candil/router/scorer.ex` | puntúa candidatos por capa. Reglas implementadas; `embedding` y `llm` son `:miss` | 121 |
+| `lib/candil/router/scorer.ex` | puntúa candidatos por capa. Las tres implementadas (2026-10-11): reglas, embeddings por coseno y clasificador | 604 |
 | `lib/candil/router/cache.ex` | hash del último turno de usuario → decisión, con TTL, en ETS | 127 |
 | `lib/candil/router/consumer.ex` | candidatos por consumidor y el pin, en ETS | 182 |
 | `lib/candil/engine.ex` | `start/2`, `stop/1`, `healthy?/2`, `base_url/1`, `for_model/3` | 535 |
@@ -193,10 +193,10 @@ inferencia completa para ahorrar un décimo de otra inferencia normalmente sale
 perdiendo.
 
 Y hay una razón más, que sale de leer el código: **la capa de reglas no está
-conectada a la configuración**. `@rules` (`lib/candil/router/scorer.ex:18`) y
-`@default_rules` (`lib/candil/router/scorer.ex:29`) están **fijas en el
+conectada a la configuración**. `@rules` (`lib/candil/router/scorer.ex:89`) y
+`@default_rules` (`lib/candil/router/scorer.ex:100`) están **fijas en el
 código**, y `grep` no encuentra **ninguna lectura** de `[router.rules]` en
-`lib/`. El comentario de `scorer.ex:24` dice que son «the fallbacks when
+`lib/`. El comentario de `scorer.ex:95` dice que son «the fallbacks when
 `[router.rules]` is absent», y `test/candil/router_test.exs:217` explica que
 para tener vocabulario en español se sobrescribe `[router.rules]`. Eso no
 funciona: no hay código que lo lea. Consecuencias medibles:
@@ -1027,7 +1027,7 @@ mix run -e 'IO.inspect(Candil.Router.Complexity.classify([%{role: "user", conten
 | **F6** | Reconciliación al arrancar: `:idle` / `:dead` / `:detached` | F4 | Comparte el estado con F4 y usa el mismo camino. Un `Process.monitor/1` que nace con el GenServer |
 | **F7** | Admisión knapsack (`Lifecycle.LoadSet`) | F2 **y** F5 | Necesita el coste por modelo (F2) y necesita saber que un modelo unloaded sí libera (F5) |
 | **F8** | Clasificador heurístico (`Router.Complexity`) | F0 | Antes hay que saber cuánto falla lo barato. Y hay que **arreglar `[router.rules]`** (§2.6), que es parte de esta fase |
-| **F9** | Capa de embeddings de verdad | F0 **y** F8 | Solo tiene sentido si F8 ha dejado claro qué NO sabe el clasificador barato. Hoy es un `:miss` (`scorer.ex:55-60`) |
+| **F9** | Capa de embeddings de verdad | F0 **y** F8 | **Hecha el 2026-10-11** (fase 3 del plan). Sigue sin medirse: sin `description` en los modelos, o sin embedder registrado, es un `:miss` (`scorer.ex:169-175`), y eso no es un fallo: es que nadie ha puesto el dato |
 | **F10** | Clasificador con modelo | F8 + F9 + **el dato de la Anexo V** | Bloqueada. No es una fase todavía: es una hipótesis con prerrequisitos |
 | **F11** | `Arrea.Pool` para el conjunto de motores | F7 + F4 | La cola reparte peticiones entre los ya admitidos. La admisión en GB es F7 y **no** es el Pool |
 
@@ -1303,9 +1303,9 @@ Nada de cajas negras: en cada capa, la señal que dice si vale.
 | **0 · force_model** | `:forced`, score 1.0 (`decision_engine.ex:104`) | nº de veces que se fuerza, por consumidor | `Metrics.by_strategy[:forced]` | que aparezca más veces que el default. Un forzado que se usa a diario no está arreglando el router, lo está apagando |
 | **1 · cache** | la decisión anterior (`cache.ex:69`) | acierto / toca, por consumidor | ratio `cache.get` que devuelve `{:ok, d}` | el acierto sube y **la calidad no**. Se mide cruzando con la Anexo III.3 |
 | **2 · pin** | `:pinned`, score 1.0 (`decision_engine.ex:140`) | nº de pins vivos, y desde cuándo | `Consumer.pinned/1` + `last_used` | un pin que dura días es una regla mal escrita con más autoridad |
-| **3 · reglas** | razón de aciertos / 8 (`scorer.ex:66`) | **cobertura**: % de peticiones que caen aquí, y cuántas caen al default | `by_strategy[:rule] / decisions` | cobertura alta con fp altos. Y aquí está el bug medible: el vocabulario es inglés y fijo (§2.6) |
-| **4 · embeddings** | `:miss` siempre (`scorer.ex:55-60`) | coberturaFp, y sobre todo **cuánto se parece a la cobertura de las reglas**. Si se parecen, no vale | `by_strategy[:embedding]` y el solape con `:rule` | solape > 0.9 ⇒ es una capa que cuesta una inferencia para repetir lo que ya se sabía |
-| **5 · clasificador LLM** | `:miss` siempre (`decision_engine.ex:225`) | todo lo de arriba, **más** lo único que él puede decir: precisión sobre los casos que las capas de abajo fallaron | por encima de F0 | su acierto sobre el subconjunto difícil no supera al del default |
+| **3 · reglas** | razón de aciertos / 8 (`scorer.ex:199`) | **cobertura**: % de peticiones que caen aquí, y cuántas caen al default | `by_strategy[:rule] / decisions` | cobertura alta con fp altos. Y aquí está el bug medible: el vocabulario es inglés y fijo (§2.6) |
+| **4 · embeddings** | similitud del coseno (`scorer.ex:350-450`); `:miss` si no hay embedder registrado | coberturaFp, y sobre todo **cuánto se parece a la cobertura de las reglas**. Si se parecen, no vale | `by_strategy[:embedding]` y el solape con `:rule` | solape > 0.9 ⇒ es una capa que cuesta una inferencia para repetir lo que ya se sabía |
+| **5 · clasificador LLM** | la confianza del clasificador, sin normalizar; `:miss` si no hay ninguno registrado | todo lo de arriba, **más** lo único que él puede decir: precisión sobre los casos que las capas de abajo fallaron | por encima de F0 | su acierto sobre el subconjunto difícil no supera al del default |
 | **6 · default** | el último candidato, score 0.5 (`decision_engine.ex:72-87`) | **el número que decide todo lo demás** | `by_strategy[:default] / decisions` | este número **alto** es el que justifica (o no) F10 |
 | **en todas** | `confidence: :full \| :degraded` (`lib/candil/router.ex:55`) | % degradado | `Metrics.degraded / decisions` | degradado alto con los mismos scores ⇒ se está comparando una decisión medida con una sin medir |
 | **en todas** | `latency` de la decisión | p50 y p99, **por capa** | `Metrics.latency_us` por estrategia | una capa que gana el 5 % y cuesta el 20 % del presupuesto es una capa que sobra |

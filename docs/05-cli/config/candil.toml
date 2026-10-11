@@ -105,6 +105,17 @@
 #   usage        = ["chat", "code"]
 #   tags         = ["gpu", "moe", "code"]
 #
+#   # QUE SABE HACER ESTE MODELO, en una frase y con tus palabras. No es la
+#   # carta de presentación ni el nombre del fichero: es el texto que la
+#   # capa `:embedding` del router compara con tu prompt, y es lo UNICO
+#   # que tiene para hacerlo.
+#   #
+#   # Sin ella, esa capa devuelve `:miss`: no compara con el alias ni con
+#   # el nombre del .gguf, porque un 0 de similitud sacado de un texto que
+#   # nadie escribió no es una medida. Ponla en el idioma en el que te van
+#   # a preguntar, que el embedder tambien tiene su idioma.
+#   description  = "escribe, explica y arregla código en Elixir y Python"
+#
 #   # Cuantas capas van a la GPU. -1 = "las que quepan" (lo que hace
 #   # llama-server cuando no le fijas nada), 0 = CPU entera. `candil run
 #   # --cpu` pone este campo a 0; si lo que quieres es apagar la GPU un
@@ -128,6 +139,37 @@
 #   file = "Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf"
 #   dest = "~/models/gguf"   # `~` no se expande dentro de model_args
 
+# ── router ──────────────────────────────────────────────────────────────
+#
+# Las cuatro capas del enrutado, y los dos NAMES que encienden las que
+# faltaban. Los dos son `nil` por omision, y no es un descuido: sin
+# clasificador ni embedder registrados, las capas `:llm` y `:embedding` no
+# existen y el router baja a la siguiente. Un nombre que no este
+# registrado tampoco es un error de arranque —la capa simplemente no esta—
+# asi que pon aqui el NOMBRE con el que lo registraste, no el modulo.
+#
+# [router]
+#   # La cuarta capa: un LLM que dice que tan dificil es el prompt. Apagada
+#   # por defecto, porque cuesta una inferencia y ahorra muchisimas menos.
+#   enable_llm_classifier = false
+#   classifier             = "etiquetas"
+#
+#   # El embedder de la capa `:embedding`. Tambien `nil` por omision, y por
+#   # el mismo motivo caro: uno por defecto decidiria, para todo el mundo y
+#   # sin que nadie lo pidiera, en que se calculan las distancias.
+#   embedder = "bge"
+#
+#   # La confianza con la que la capa `:llm` se compara con el umbral, tal
+#   # cual la da el clasificador. No se normaliza aqui.
+#   confidence_threshold = 0.70
+#   embedding_threshold  = 0.55
+#   # Las reglas de palabras van aparte, en [router.rules], y su
+#   # vocabulario es tuyo —el de las preguntas que te hacen de verdad.
+#   #   [router.rules]
+#   #   codigo     = "coder"
+#   #   reasoning  = "verifier"
+#   #   rapido     = "gpt4o"
+#
 # ── provider.<nombre> ───────────────────────────────────────────────────
 #
 # Para modelos remotos. La clave va en el entorno; el nombre de la variable

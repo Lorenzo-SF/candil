@@ -2,7 +2,7 @@ defmodule Candil.Router.Classifier do
   @moduledoc """
   Qué tan difícil es un prompt. No **qué modelo** lo contesta.
 
-  ## El hueco que llena
+  ## El hueco que llena — y que ya no está
 
   `Candil.Router.Scorer` declara:
 
@@ -10,16 +10,25 @@ defmodule Candil.Router.Classifier do
   @type layer :: :rule | :embedding | :llm
   ```
 
-  y **solo implementa `:rule`**. Las otras dos capas no existen, y sin embargo
-  `DecisionEngine` ya las llama:
+  y **solo implementaba `:rule`**. Las otras dos capas caian en un `:miss` de
+  catch-all, y sin embargo `DecisionEngine` ya las llamaba:
 
   ```elixir
   _alias -> Scorer.score(messages, candidates, :llm, settings)
   ```
 
-  Como `Scorer.score/4` no tiene cláusula para `:llm` ni para `:embedding`, las
-  dos caen en `:miss`. **La arquitectura de capas está pensada y el clasificador
-  no está escrito.** Sin él, el router solo tiene palabras clave.
+  **Ya están escritas** (fase 3, 2026-10-11). `:llm` es ESTE behaviour, usado
+  para filtrar por `usage`: `:deep` deja solo los modelos con `:reasoning`, y
+  si no deja ninguno la capa devuelve `:miss` en vez de caer de vuelta a
+  «todos». `:embedding` compara el prompt con la `description` de cada modelo
+  por similitud del coseno, usando `Candil.Embeddings.Adapter`.
+
+  ## Lo que sigue igual
+
+  **No hay clasificador por defecto, y no hay embedder por defecto.** Los dos
+  eligen por omision cuanto se gasta o en que se miden las distancias entre
+  vectores, y tomarlos sin que nadie los pidiera es tomarlos sin querer. Sin
+  ninguno registrado, las dos capas devuelven `:miss` y el router sigue bajando.
 
   ## Lo que un clasificador NO es
 
@@ -66,6 +75,25 @@ defmodule Candil.Router.Classifier do
   Devuelve `{:ok, verdict}`, `{:error, :unknown}` cuando no sabe, o
   `{:error, razon}` cuando ha fallado de verdad. **Las tres cosas son distintas**
   y confundirlas hace que un clasificador inseguro parezca seguro.
+
+  ## LA REGLA: llame al modelo, no al router
+
+  > **Un clasificador llama al MODELO directamente —el `Candil.Store`, el
+  > engine, el provider que toque—, saltándose el router. El router es lo que
+  > llama al clasificador.**
+
+  No es una recomendacion de estilo. `Candil.Router.DecisionEngine` coge
+  **cualquier** modelo con `usage: [:chat]` para clasificar y la capa `:llm` lo
+  llama, asi que un clasificador que pida un modelo al router **se llama a si
+  mismo para siempre**. El sintoma es un proceso muerto por stack, que no
+  menciona al router ni al clasificador.
+
+  Por eso no es solo documentacion: `Candil.Router.DecisionEngine.decide/3`
+  comprueba, **en la puerta**, si esta dentro de una llamada a un clasificador, y
+  si lo esta revienta diciendo quien ha montado el bucle y que hacer. La
+  comprobacion esta en la puerta y no junto a esta llamada a proposito: un
+  clasificador puede llamar al router por mas de un camino —`Router.route/2`,
+  `DecisionEngine.decide/3`— y todos son el mismo bucle.
   """
   @callback classify(messages :: [map()], opts :: keyword()) ::
               {:ok, verdict()} | {:error, term()}
