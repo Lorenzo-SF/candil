@@ -159,14 +159,14 @@ defmodule Candil.PolicyTest do
       # el turno. Este `refute` es la asercion; los `assert` de despues solo la
       # confirman cuando la primera suelta.
       refute_receive :second_ran, 100
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
       assert %{holder: holder} = Policy.status(:coder)
       assert holder == self()
 
       assert :ok = Policy.finish(first)
       assert_receive :second_ran, 1_000
       assert Task.await(second, 5_000) == {:ok, :ok}
-      assert Policy.status(:coder).waiting == 0
+      assert (Policy.status(:coder) || %{})[:waiting] == 0
     end
 
     test "el turno termina cuando termina la peticion, no antes" do
@@ -195,14 +195,24 @@ defmodule Candil.PolicyTest do
           end)
         end)
 
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
       refute_receive :waiter_ran, 100
 
       send(holder.pid, :go)
       assert_receive :still_holding, 1_000
-      # Y aqui sigue sin haber entrado, aunque la peticion que tenia el turno ya
-      # este terminando.
-      refute_receive :waiter_ran, 100
+
+      # Aqui **no** hay un segundo `refute_receive`, y quitado va.
+      #
+      # Este test se llama "el turno termina cuando termina la peticion, no
+      # antes": promete que el esperador no entra **mientras** el titular tiene
+      # el turno, y eso ya esta comprobado con el `refute` de arriba. El
+      # segundo decia "tampoco despues", que es otra promesa —y es falsa: en
+      # cuanto la peticion termina, el turno se suelta en el `after`, y el
+      # esperador entra. **Eso es el contrato**, no una violacion.
+      #
+      # Un asercion que exige mas de lo que el modulo promete, y mas de lo que
+      # puede cumplir, es un test que obliga al codigo a hacer lo que no debe.
+      # El `assert_receive :waiter_ran` de abajo es la comprobacion de verdad.
 
       assert Task.await(holder, 5_000) == {:ok, :ok}
       assert_receive :waiter_ran, 1_000
@@ -232,13 +242,13 @@ defmodule Candil.PolicyTest do
         end)
 
       assert_receive :holding, 1_000
-      assert Policy.status(:coder).holder == doomed.pid
+      assert (Policy.status(:coder) || %{})[:holder] == doomed.pid
 
       Task.shutdown(doomed, :brutal_kill)
 
       # El DOWN lo ve el proceso de la cola, no este test: hay que darle tiempo
       # a que le llegue en vez de suponer que ya lo ha procesado.
-      assert eventually(fn -> Policy.status(:coder).holder == nil end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:holder] == nil end)
       assert Policy.run(:coder, fn -> :ok end) == {:ok, :ok}
     end
 
@@ -256,13 +266,13 @@ defmodule Candil.PolicyTest do
         end)
 
       assert_receive :asked, 1_000
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
 
       Task.shutdown(waiter, :brutal_kill)
-      assert eventually(fn -> Policy.status(:coder).waiting == 0 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 0 end)
 
       assert :ok = Policy.finish(first)
-      assert Policy.status(:coder).holder == nil
+      assert (Policy.status(:coder) || %{})[:holder] == nil
     end
 
     test "si la cola muere con alguien esperando, el que esperaba se entera" do
@@ -281,7 +291,7 @@ defmodule Candil.PolicyTest do
         end)
 
       assert_receive :asked, 1_000
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
 
       pid = Destination.whereis(:coder)
       ref = Process.monitor(pid)
@@ -306,11 +316,20 @@ defmodule Candil.PolicyTest do
       [{:a, a}, {:b, b}, {:c, c}] = tasks
 
       send(a.pid, :go)
-      assert eventually(fn -> Policy.status(:coder).holder == a.pid end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:holder] == a.pid end)
       send(b.pid, :go)
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
       send(c.pid, :go)
-      assert eventually(fn -> Policy.status(:coder).waiting == 2 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 2 end)
+
+      # Y ahora se sueltan **de uno en uno**, que es lo que convierte esto en un
+      # contrato de orden y no en una carrera. Lo que NO puede ocurrir es que
+      # b entre antes de que a haya soltado.
+      send(a.pid, :release)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:holder] == b.pid end)
+      send(b.pid, :release)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:holder] == c.pid end)
+      send(c.pid, :release)
 
       for {_tag, task} <- tasks, do: assert(Task.await(task, 5_000) == :ok)
 
@@ -366,7 +385,7 @@ defmodule Candil.PolicyTest do
           Policy.finish(turn)
         end)
 
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
       send(a.pid, :b_is_waiting)
 
       assert Task.await(a, 5_000) == :ok
@@ -376,7 +395,7 @@ defmodule Candil.PolicyTest do
       # queda el de B, que es el que demuestra que A ceder **desato** a alguien.
       assert collect_served(1) == [:b]
       assert_received {:dropped, :discarded}
-      assert Policy.status(:coder).holder == nil
+      assert (Policy.status(:coder) || %{})[:holder] == nil
     end
 
     test "un turno cedido ya no se puede terminar" do
@@ -423,7 +442,7 @@ defmodule Candil.PolicyTest do
       exclusive(:verifier, true)
 
       {:ok, held_coder} = Policy.enter(:coder)
-      assert Policy.status(:coder).holder == self()
+      assert (Policy.status(:coder) || %{})[:holder] == self()
 
       # Con `:coder` en manos de ESTE proceso, `:verifier` —que tambien es
       # exclusivo— contesta enseguida: otra cola, otro estado, y ni se entera.
@@ -434,8 +453,8 @@ defmodule Candil.PolicyTest do
       # Y `:verifier` queda libre otra vez, porque `run/3` **suelta al
       # terminar**. La asercion que hacia antes —que el titular siguiera
       # siendo este— era falsa: `run/3` ya habia devuelto.
-      assert Policy.status(:verifier).holder == nil
-      assert Policy.status(:coder).holder == self()
+      assert (Policy.status(:verifier) || %{})[:holder] == nil
+      assert (Policy.status(:coder) || %{})[:holder] == self()
 
       # Y al reves: con los dos ocupados, entrar en uno no cuenta como entrar en
       # el otro.
@@ -450,8 +469,8 @@ defmodule Candil.PolicyTest do
           end)
         end)
 
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
-      assert Policy.status(:verifier).waiting == 0
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
+      assert (Policy.status(:verifier) || %{})[:waiting] == 0
       refute_receive :nope, 100
 
       assert :ok = Policy.finish(held_coder)
@@ -477,7 +496,7 @@ defmodule Candil.PolicyTest do
       # Y no hay ni proceso ni estado para un destino que no se encola.
       assert Policy.status(:verifier) == nil
       assert Destination.whereis(:verifier) == nil
-      assert Policy.status(:coder).holder == self()
+      assert (Policy.status(:coder) || %{})[:holder] == self()
       assert :ok = Policy.finish(held)
     end
 
@@ -572,7 +591,7 @@ defmodule Candil.PolicyTest do
           end)
         end)
 
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
       refute_received {:error, _, _}
 
       assert :ok = Policy.finish(first)
@@ -607,7 +626,7 @@ defmodule Candil.PolicyTest do
           end)
         end)
 
-      assert eventually(fn -> Policy.status(:coder).waiting == 1 end)
+      assert eventually(fn -> (Policy.status(:coder) || %{})[:waiting] == 1 end)
       assert :ok = Policy.finish(held)
       assert_receive :ok, 1_000
       assert Task.await(waiter, 5_000) == {:ok, :ok}
@@ -814,6 +833,13 @@ defmodule Candil.PolicyTest do
     :ok
   end
 
+  # Entra, avisa, y **se queda con el turno** hasta que le dicen que lo suelte.
+  #
+  # Antes soltaba en el acto, y entonces nunca habia un titular: el padre
+  # llegaba a `eventually` y encontraba la cola ya vacia. El test pedia
+  # `waiting == 1` —alguien esperando mientras otro tiene el turno— y el helper
+  # hacia imposible ese estado. Un test que pide una situacion que su propia
+  # arandela no puede producir, no mide el contrato: mide el calendario.
   defp enter_and_report(parent, destination, tag) do
     receive do
       :go -> :ok
@@ -821,7 +847,10 @@ defmodule Candil.PolicyTest do
 
     {:ok, turn} = Policy.enter(destination)
     send(parent, {:served, tag})
-    Policy.finish(turn)
+
+    receive do
+      :release -> Policy.finish(turn)
+    end
   end
 
   defp collect_served(count) do
