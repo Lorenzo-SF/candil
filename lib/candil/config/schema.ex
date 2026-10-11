@@ -224,10 +224,23 @@ defmodule Candil.Config.Schema do
       validate_model_port(name, spec) ++
       validate_model_args(name, spec) ++
       validate_model_source(name, spec) ++
-      validate_model_usage(name, spec)
+      validate_model_usage(name, spec) ++
+      validate_model_description(name, spec)
   end
 
   defp validate_model(name, spec), do: ["model '#{name}' must be a table, got: #{inspect(spec)}"]
+
+  # Un string, y no "cualquier cosa": la descripcion se **embeddea**, y
+  # `Candil.Embeddings.Adapter.embed/2` recibe `[binary()]`. Un numero aqui
+  # no falla al leer el TOML sino mucho despues, dentro de una capa del router,
+  # con un error que no menciona el fichero de configuracion.
+  defp validate_model_description(name, spec) do
+    case Map.get(spec, "description") do
+      nil -> []
+      value when is_binary(value) -> []
+      other -> ["model '#{name}'.description must be a string, got: #{inspect(other)}"]
+    end
+  end
 
   defp validate_model_type(name, spec) do
     case Map.get(spec, "type") do

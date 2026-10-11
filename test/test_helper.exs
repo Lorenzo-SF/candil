@@ -31,6 +31,16 @@ ExUnit.start()
 
 Mox.defmock(Candil.HTTPAdapterMock, for: Apero.Http.Adapter)
 
+# Los dos behaviours de la fase 3 del enrutado, mockeados por la misma razon que
+# el de HTTP: la llamada externa —el clasificador, el embedder— es lo unico que
+# no es de Candil, y lo que se prueba aqui es la CAPA, no el modelo.
+#
+# Un Mox de un behaviour mockea tambien sus funciones (`register/2` y companhia),
+# asi que `register/2` lo acepta: implementa el behaviour entero, que es
+# justamente lo que `register/2` comprueba.
+Mox.defmock(Candil.Router.ClassifierMock, for: Candil.Router.Classifier)
+Mox.defmock(Candil.Embeddings.AdapterMock, for: Candil.Embeddings.Adapter)
+
 # Use the mock adapter for ALL tests by default (deterministic, no real
 # network). Tests that need specific behavior set expectations or stubs;
 # the "unreachable host" tests stub a connection error.

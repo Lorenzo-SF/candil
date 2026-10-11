@@ -21,13 +21,19 @@ defmodule Candil.Router.DecisionEngine do
   Returns a `t:Decision.t/0` or `:no_models_for_consumer`.
   """
   @spec decide([map()], [atom()], keyword()) ::
-          {:ok, Decision.t()} | {:error, :no_models_for_consumer}
+          {:ok, Decision.t()} | {:error, term()} | {:classifier_unavailable, Error.t()}
   def decide(_messages, [], _opts), do: {:error, :no_models_for_consumer}
 
   def decide(messages, candidates, opts) do
+    assert_not_classifying!()
     settings = Router.settings()
-
     degraded = skip_embeddings(messages, candidates, settings)
+
+    # La capa que `--force-strategy` (o `force_strategy:`) ha pedido. Se lleva
+    # abajo para NO volver a correrla: si ya corrio y no ha pasado su umbral,
+    # volver a correrla es pagar dos veces por la misma pregunta — y en la capa
+    # :llm dos veces quiere decir **dos inferencias**.
+    forced_layer = Keyword.get(opts, :force_strategy)
 
     # El orden es el de §19.2 y no se toca: cache, pin, forzado, reglas,
     # embeddings y por ultima el clasificador LLM, que es el que cuesta una
@@ -41,8 +47,8 @@ defmodule Candil.Router.DecisionEngine do
       # `||` NO vale aqui: solo funciona con booleanos, y estas capas devuelven
       # `:miss` o una tupla. Un `||` sobre `:miss` revienta con BadBooleanError
       # en la PRIMERA peticion que llega a la capa de embeddings.
-      case by_embeddings(messages, candidates, settings, degraded) do
-        :miss -> by_llm(messages, candidates, settings)
+      case by_embeddings(messages, candidates, settings, degraded, forced_layer) do
+        :miss -> by_llm(messages, candidates, settings, degraded, forced_layer)
         other -> other
       end
     end
@@ -68,6 +74,15 @@ defmodule Candil.Router.DecisionEngine do
 
   defp finish({:model_not_eligible, error}, _messages, _candidates, _settings, _degraded),
     do: {:error, error}
+
+  # Una capa que se ha roto de verdad —un embedder con vectores de otra
+  # dimensión, un clasificador que revienta— corta aqui, y se dice cual era. Un
+  # router que se rompe cuando le falta algo es preferible a uno que responde
+  # mal y no lo dice: si no, esa decision con un 0.0 de similitud es
+  # indistinguible de una decision en la que la capa funciono y no se parecio
+  # nada.
+  defp finish({:error, reason}, _messages, _candidates, _settings, _degraded),
+    do: {:error, reason}
 
   defp finish(:miss, _messages, candidates, _settings, degraded) do
     # The last candidate, not the first. The list is ordered most preferred
@@ -202,15 +217,21 @@ defmodule Candil.Router.DecisionEngine do
     decide_by(messages, candidates, :rule, settings, degraded)
   end
 
-  defp by_embeddings(messages, candidates, settings, degraded) do
-    # Never reached without a model that can embed. Asking for embeddings from
-    # a chat-only setup should be a no-op, not an error: the layer is an
-    # optimisation and there is a cheaper one above it. Pero NO es lo mismo que
-    # un acierto, y la decision lo lleva marcado.
-    if embedder_available?() do
-      decide_by(messages, candidates, :embedding, settings, degraded)
-    else
-      :miss
+  defp by_embeddings(messages, candidates, settings, degraded, forced_layer) do
+    cond do
+      # Ya ha corrido con `force_strategy` y no ha pasado su umbral.
+      forced_layer == :embedding ->
+        :miss
+
+      # Never reached without a model that can embed. Asking for embeddings from
+      # a chat-only setup should be a no-op, not an error: the layer is an
+      # optimisation and there is a cheaper one above it. Pero NO es lo mismo que
+      # un acierto, y la decision lo lleva marcado.
+      not embedder_available?() ->
+        :miss
+
+      true ->
+        decide_by(messages, candidates, :embedding, settings, degraded)
     end
   end
 
@@ -222,29 +243,29 @@ defmodule Candil.Router.DecisionEngine do
   # arriba, enrutaria "razonablemente" y no habria forma de saber que la capa
   # que activaste lleva semanas sin hacer nada. Un router que se rompe cuando
   # le falta algo es preferible a uno que responde mal y no lo dice.
-  defp by_llm(messages, candidates, settings) do
-    if settings.enable_llm_classifier do
-      case classify(messages, candidates, settings) do
-        {:error, :no_classifier_model} ->
-          {:classifier_unavailable, no_classifier_model(candidates)}
+  #
+  # Y si puede funcionar, la capa DECIDE: antes esto devolvia siempre `:miss`
+  # porque no estaba escrita, y el motor se comia el resultado sin mirarlo.
+  defp by_llm(messages, candidates, settings, degraded, forced_layer) do
+    cond do
+      # Encendida y forzada es lo mismo que corrida: no se paga dos veces.
+      forced_layer == :llm ->
+        :miss
 
-        # El scorer devuelve `:miss` porque la capa es un stub. No es un
-        # fallo: la capa se encendio pero todavia no hace nada, y eso se dice
-        # con `reason`, no con un error.
-        _miss_or_decision ->
-          :miss
-      end
-    else
-      :miss
+      not settings.enable_llm_classifier ->
+        :miss
+
+      classifier_model() == nil ->
+        {:classifier_unavailable, no_classifier_model(candidates)}
+
+      true ->
+        decide_by(messages, candidates, :llm, settings, degraded)
     end
   end
 
-  defp classify(messages, candidates, settings) do
-    case classifier_model() do
-      nil -> {:error, :no_classifier_model}
-      _alias -> Scorer.score(messages, candidates, :llm, settings)
-    end
-  end
+  # `:unknown` y «no hay clasificador» NO llegan aqui como errores: la capa los
+  # convierte en `:miss` antes. Lo que si llega es un fallo de verdad, y llega
+  # como `{:error, motivo}` desde `decide_by/5`.
 
   # Cualquier modelo de chat sirve: clasificar es una peticion mas corta, y
   # obligar a un modelo "de clasificacion" seria inventar un concepto que el
@@ -271,14 +292,20 @@ defmodule Candil.Router.DecisionEngine do
       :miss ->
         :miss
 
-      [{model_alias, score} | rest] ->
+      {:error, reason} ->
+        {:error, reason}
+
+      # El `reason` lo pone la CAPA, y no el motor, porque el veredicto del
+      # clasificador —su dificultad, su confianza y su «por qué»— se muere
+      # dentro de ella. Un motor que se lo compusiera estaria inventandolo.
+      {:ok, [{model_alias, score} | rest], reason} ->
         if score >= threshold_for(layer, settings) do
           {:ok,
            %Decision{
              model_alias: model_alias,
              strategy: layer,
              score: score,
-             reason: Scorer.explain(layer, messages),
+             reason: reason,
              alternatives: rest,
              degraded: degraded,
              confidence: confidence(degraded),
@@ -287,6 +314,41 @@ defmodule Candil.Router.DecisionEngine do
         else
           :miss
         end
+    end
+  end
+
+  # ── el bucle ─────────────────────────────────────────────────────────────
+  #
+  # `classifier_model/0` coge CUALQUIER modelo con `usage: [:chat]` y la capa
+  # lo llama. Un clasificador implementado por el usuario que llame al router
+  # para elegir modelo se llama a si mismo para siempre, y el sintoma de eso es
+  # un proceso muerto por stack, que no dice nada de routers.
+  #
+  # Por eso la comprobacion esta AQUI, en la puerta, y no junto a la llamada al
+  # clasificador: un clasificador puede llamar al router por mas de un camino
+  # —`Router.route/2`, este `decide/3`, el que sea— y todos son el mismo bucle.
+  #
+  # Y por eso REVENTA en vez de degradar: un clasificador mal escrito es un
+  # error de quien lo escribio, y se le dice con un mensaje que dice lo que
+  # hacer. La regla, en una linea: **un clasificador llama al modelo
+  # directamente; el router es lo que llama al clasificador.**
+  defp assert_not_classifying! do
+    case Scorer.current_classifier() do
+      nil ->
+        :ok
+
+      module ->
+        raise """
+        bucle de enrutado: #{inspect(module)} ha pedido un modelo al router.
+
+        El router llama al clasificador; si el clasificador vuelve a llamar al \
+        router para elegir modelo, se llama a si mismo para siempre.
+
+        La regla es: un clasificador llama al MODELO directamente —el \
+        `Candil.Store`, el engine, el provider que toque—, saltandose el router. \
+        El router es lo que llama al clasificador, y solo a el le corresponde \
+        elegir.
+        """
     end
   end
 

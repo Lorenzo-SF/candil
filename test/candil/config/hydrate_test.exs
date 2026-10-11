@@ -55,6 +55,23 @@ defmodule Candil.Config.HydrateTest do
       refute Model.file_path(coder) == ""
     end
 
+    test "la `description` llega al modelo, y llega la que no hay" do
+      # El camino entero: la `description` del TOML es lo UNICO que la capa
+      # `:embedding` del router tiene para comparar con un prompt. Si aqui se
+      # perdiera —porque `Hydrate` no la copiase, o porque se atomizase— la
+      # capa devolveria `:miss` en cualquier maquina y no habria forma de saber
+      # que el dato estaba en el fichero todo el tiempo.
+      Hydrate.hydrate(load!())
+
+      assert {:ok, coder} = Store.get_model(:coder)
+      assert coder.description == "escribe, explica y arregla codigo en Elixir y Python"
+
+      # Y el caso contrario tambien: un modelo sin descripcion la tiene a `nil`,
+      # no a `""` y no a un texto inventado a partir del alias.
+      assert {:ok, gpt4o} = Store.get_model(:gpt4o)
+      assert gpt4o.description == nil
+    end
+
     test "paths are expanded, so no literal tilde survives" do
       # `load/1` hands the document back as written; `expand/1` is a separate
       # call. Skipping it leaves `~` literal, and then every model is rejected

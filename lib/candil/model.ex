@@ -17,6 +17,7 @@ defmodule Candil.Model do
     * `:engine` — atom alias of the `Candil.Engine` to use
     * `:usage` — list of intended usages (see below)
     * `:model_args` — extra CLI args passed to the engine at model load time
+    * `:description` — what this model is for, in one sentence
 
   ## Remote model fields
 
@@ -26,6 +27,19 @@ defmodule Candil.Model do
     * `:context_size` — context window in tokens
     * `:provider` — atom alias of the `Candil.Provider` to use
     * `:usage` — list of intended usages
+    * `:description` — what this model is for, in one sentence
+
+  ## `description` no es la carta de presentación
+
+  Es **lo único que la capa `:embedding` del router tiene para comparar con un
+  prompt** (`Candil.Router.Scorer`). Sin ella, esa capa no puede comparar nada
+  y devuelve `:miss`: no compara con el alias, ni con el nombre del fichero, ni
+  con una descripción inventada a partir del nombre, porque un 0 de similitud
+  sacado de un texto que nadie escribió no es una medida: es ruido con
+  decimales.
+
+  Es opcional, y por omisión no se inventa. Un modelo sin descripción
+  simplemente no entra en la comparación de esa capa.
 
   ## Usage types
 
@@ -99,6 +113,11 @@ defmodule Candil.Model do
             # a GPU slot and a CPU slot.
             port: :auto,
             usage: [:chat, :completion],
+            # QUE SABE HACER, en una frase. No es decoracion: es el texto que
+            # la capa `:embedding` del router compara con el prompt, y sin el
+            # no hay nada comparable. Opcional a proposito —ver el `@moduledoc`—
+            # y `nil` significa que este modelo no participa en esa capa.
+            description: nil,
             # An ordered list, not a map. llama-server takes the last
             # occurrence of a repeated flag, so order is behaviour.
             model_args: [],
@@ -123,6 +142,7 @@ defmodule Candil.Model do
           context_size: pos_integer(),
           port: model_port(),
           usage: [usage()],
+          description: binary() | nil,
           model_args: [binary()],
           gpu_layers: integer(),
           tags: [binary() | atom()],

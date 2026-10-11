@@ -53,6 +53,9 @@ engine       = "llama_cpp"
 context_size = 131072
 port         = 9999
 gpu_layers   = -1
+# Lo UNICO que la capa `:embedding` del router compara con tu prompt. Sin ella,
+# ese modelo no entra en la comparacion y la capa devuelve `:miss`.
+description  = "escribe, explica y arregla codigo en Elixir y Python"
 
   [model.coder.source]
   kind = "huggingface"
@@ -69,6 +72,7 @@ engine       = "llama_cpp"
 context_size = 8192
 port         = 9990
 gpu_layers   = -1
+description  = "convierte texto en vectores para buscar por significado"
 
   [model.embed.source]
   kind = "huggingface"
@@ -83,6 +87,7 @@ type         = "local"
 engine       = "llama_cpp"
 context_size = 32768
 port         = 9991
+description  = "responde rapido: resume, lista y traduce"
 
   [model.quick.source]
   kind = "huggingface"
@@ -103,6 +108,8 @@ type      = "remote"
 provider  = "openai"
 name      = "gpt-4o"
 base_url  = "https://api.openai.com/v1"
+# Sin `description` a proposito: el ejemplo tiene que enseñar tambien el
+# caso de un modelo que NO participa en la capa `:embedding`.
 
 # ── consumer ──────────────────────────────────────────────────────────────────
 [consumer.default]

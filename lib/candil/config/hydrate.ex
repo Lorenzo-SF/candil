@@ -167,6 +167,10 @@ defmodule Candil.Config.Hydrate do
         context_size: spec["context_size"] || 4096,
         port: spec["port"] || :auto,
         usage: Enum.map(spec["usage"] || ["chat"], &atom/1),
+        # Lo unico que la capa `:embedding` del router tiene para comparar con
+        # un prompt. Va tal cual y sin relleno: sin descripcion, ese modelo no
+        # entra en la comparacion, que es distinto de entrar con un 0.
+        description: spec["description"],
         model_args: spec["model_args"] || [],
         # Directo del spec y no un `nil` fijo: un `nil` aqui pisaba el valor
         # que el usuario habia escrito en el toml, y `derive_gpu_layers/2` solo

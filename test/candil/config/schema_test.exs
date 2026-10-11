@@ -179,6 +179,25 @@ defmodule Candil.Config.SchemaTest do
       assert Enum.any?(problems, &String.contains?(&1, "ordered list"))
       assert Enum.any?(problems, &String.contains?(&1, "last occurrence"))
     end
+
+    test "accepts a description, and it is optional" do
+      # Opcional a proposito: un modelo sin descripcion no entra en la capa
+      # `:embedding` del router, y eso se dice. Lo que no se admiten son las
+      # otras formas.
+      assert {:ok, _} = Schema.validate(model(%{"type" => "local"}))
+
+      assert {:ok, _} =
+               Schema.validate(model(%{"type" => "local", "description" => "escribe codigo"}))
+    end
+
+    test "rejects a description that is not a string, y lo dice antes de tiempo" do
+      # La descripcion se EMBEDDEA. Un numero aqui no falla al leer el toml
+      # sino mucho despues, dentro de una capa del router, con un error que no
+      # menciona el fichero de configuracion.
+      config = model(%{"type" => "local", "description" => ["escribe", "codigo"]})
+      assert {:error, problems} = Schema.validate(config)
+      assert Enum.any?(problems, &String.contains?(&1, "description must be a string"))
+    end
   end
 
   describe "[model.source]" do
