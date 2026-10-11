@@ -179,8 +179,11 @@ Scorer.flush_vector_cache()
 # ESTE SCRIPT TIENE QUE SER EL DUENO DEL CATALOGO. `mix run` hidrata el toml
 # real en el Store antes de ejecutar una linea de aqui, y un modelo de mas
 # cambia los tres casos de abajo sin que se note. Por eso se vacia y se dice.
+# `deregister_model/1` toma el **alias**, no el modelo. Pasarle el struct es
+# un FunctionClauseError, y este script se Clarenceo entero en el primer
+# `mix run` de verdad. Un script que no se ha ejecutado nunca no es un script.
 importados = Store.list_models()
-Enum.each(importados, &Store.deregister_model/1)
+Enum.each(importados, &Store.deregister_model(&1.alias))
 :ok = Store.register_engine(%Engine{alias: :llama_cpp, binary: "llama-server"})
 
 alta = fn alias, usage, description ->

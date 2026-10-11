@@ -72,7 +72,10 @@ section "A · la suite, que es el suelo" "si esto esta rojo, lo demas no cuenta"
   mix format --check-formatted;                       echo "format exit=$?"
   mix compile --force --warnings-as-errors;           echo "compile exit=$?"
   mix credo;                                          echo "credo exit=$?"
-  mix test --seed 0 2>&1 | tail -5;                   echo "test exit=${PIPESTATUS[0]}"
+  # La salida COMPLETA. Una version anterior se quedaba con las ultimas cinco
+  # lineas, que es justo donde NO estan los fallos: el resumen dice cuantos hay
+  # y no cuales. Un informe que tira la evidencia no es un informe.
+  mix test --seed 0 2>&1;                               echo "test exit=$?"
 } 2>&1 | tee -a "$REPORT"
 
 section "A2 · la cola en el camino caliente" "exclusive = false NO debe arrancar cola"
