@@ -146,35 +146,59 @@ dice quién entra primero cuando todos quieren el mismo.
 
 ---
 
-## 4 · Lo que NO está decidido, y por qué no lo decido
+## 4 · El refusal, y la decisión que lo cierra
 
-**Cuando algo está ocupado y no cabe de ninguna manera, ¿qué hace Candil?**
+> **DECIDIDO por el dueno el 2026-10-11.** Antes estaba abierto; ya no.
 
-Tres salidas, las tres defendibles:
+### Lo que NO era esta pregunta
 
-1. **Falla**, con el motivo con números que ya sabe dar.
-2. **Espera** — y el pinado se queda esperando para siempre, bloqueando a los
-   demás.
-3. **Degrada** — suelta lo ocupado y prueba con el siguiente candidato que quepa.
+No era *"¿qué pasa si no hay candidato?"*, porque **eso ya esta resuelto**:
 
-Y la misma pregunta tiene **dos respuestas distintas según el backend**, que es
-justo lo que impide cerrarla:
+- `Router.Consumer` tiene tres niveles de busqueda, y el tercero es
+  **`model_default`**. El **schema lo exige**: un `[consumer.X]` sin
+  `model_default` **no valida**, y el TOML falla al arrancar.
+- Sin candidatos, `{:error, :no_models_for_consumer}`.
 
-- contra **una API remota**, fallar es lo único razonable: el proveedor no te
-  va a guardar el sitio, y esperar solo multiplica la factura.
-- contra **una GPU**, degradar es lo soñado y cuesta segundos de arranque.
+Esa parte estaba hecha y funcionando desde antes. Se(documento aqui porque
+esta escrito en otro sitio y asi se lee.
 
-> **Es una decisión del dueño, no una decisión de diseño.** Se deja escrita y
-> abierta a propósito. Lo que **no** vale es un default silencioso: si no está
-> escrito, cada sitio del código inventará su respuesta y acabaremos con
-> cuatro comportamientos distintos.
+### La pregunta de verdad
 
-Donde se escribirá, cuando se escriba, es en `Gateway.error_body/1` — que **ya sabe**
-emitir `:no_models_for_consumer`, `:unknown_model`, `:unknown_engine` y
-`:unknown_provider`, y hoy no tiene ninguna razón de escasez. El sitio existe y
-está vacío.
+Cuando el destino **existe y esta ocupado**, y no cabe de ninguna manera —la
+GPU llena, la cuota del proveedor agotada, el limite de concurrencia— **que
+hace Candil?**
 
----
+> **Es una decision del desarrollador, y las tres son validas.** No se elige
+> una sola para todos: se configura.
+
+| Valor | Que hace | Cuando |
+|---|---|---|
+| **`fail`** | contesta el motivo con numeros, sin esperar | cuando esperar cuesta mas que fallar: un proveedor remoto cobra igual |
+| **`wait`** | encola, con la politica de turno de §3 | cuando el recurso se libera solo y vale la pena esperar |
+| **`degrade`** | suelta lo ocupado y prueba con el siguiente candidato que quepa | cuando hay candidatos alternativos y la espera no cabe en el timeout del cliente |
+
+**Todas son factibles y las tres estan probadas mentalmente contra el mismo
+caso**, asi que la eleccion no es tecnica: es de política del proyecto de quien
+lo usa. Un desarrollador que factura por rpm quiere `fail`; uno con una GPU local
+quiere `degrade`; un servicio con varios consumidores identicos quiere `wait`.
+
+### Y dos reglas que el valor no puede cambiar
+
+1. **Ninguna puede devolver un modelo vetado.** Un rechazo de recursos que
+   devuelve un modelo que no debe recibir eso es un fallo de seguridad, no una
+   politica.
+2. **`fail` nunca miente con numeros.** O sale el motivo con `requested`,
+   `available` y `capacity`, o sale la razon de que **no se sabe** — que es lo
+   que hace `Detector.Devices` con un `usable: false`. Un `-1` que significa
+   "no lo sé" y un `0` que significa "no hay" son el mismo bug.
+
+### Donde se comprueba
+
+En `Gateway.error_body/1`, que **ya sabe** emitir `:no_models_for_consumer`,
+`:unknown_model`, `:unknown_engine` y `:unknown_provider`, y hoy no tiene
+ninguna razon de escasez. El sitio existe y esta vacio. Las razones de escasez
+se anaden al `@type reason` de `Candil.Error`, que hoy son 18 y ninguna habla
+de recursos.
 
 ## 5 · El sitio donde se comprueba
 
