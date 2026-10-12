@@ -22,6 +22,11 @@ defmodule Candil.Telemetry do
       `:destination`, `:mode`, `:turn`, `:waited`. Solo se emite en los
       destinos exclusivos; sin turno no hay evento, y esa ausencia es lo
       que comprueba el test del camino caliente.
+    * `[:candil, :router, :decision]` — el router decidio. Medicion:
+      `:duration`, lo que tardo la decision. Metadata: `:strategy`, **la capa
+      que la produjo** (`:cache`, `:rule`, `:embedding`, `:llm`, `:pinned`,
+      `:forced` o `:default`), `:model`, `:consumer`, `:score`, `:degraded`,
+      `:confidence`, `:layers_ran` y `:llm_called`.
     * `[:candil, :cost, :estimate]` — a cost estimate was computed.
       Metadata: `:provider`, `:model`, `:tokens_in`, `:tokens_out`,
       `:cost_usd`.
@@ -218,6 +223,7 @@ defmodule Candil.Telemetry do
     candil_engine_start: [:engine, :start],
     candil_engine_stop: [:engine, :stop],
     candil_policy_turn: [:policy, :turn],
+    candil_router_decision: [:router, :decision],
     candil_http_request: [:http, :request],
     candil_http_response: [:http, :response]
   }
@@ -247,5 +253,47 @@ defmodule Candil.Telemetry do
       turn: turn,
       waited: waited
     })
+  end
+
+  @doc """
+  Emit a router decision, **con la capa que la produjo**.
+
+  Esto es el instrumento que `DISENO-MOTOR.md` §10 pide antes de meter un LLM
+  en el router como clasificador: *«se mide que fraccion de decisiones
+  resolvio la politica»*. Sin esto, anadir el LLM es una apuesta.
+
+  ## Lo que hay que mirar
+
+  `:strategy` es **la capa que produjo la decision**, no la que se probo. Un
+  prompt que pasa por reglas, embeddings y LLM y acaba en el `:default` lleva
+  `:strategy` de `:default`, porque eso es lo que decidio.
+
+  Y `:llm_called` va aparte **a proposito**, porque `:strategy` no lo cuenta:
+  el clasificador se puede ejecutar, pagar su inferencia y **no pasar el
+  umbral** — y entonces la decision es `:default` con el LLM ya cobrado. Un
+  contador que solo mirara `:strategy` diria que el LLM nunca se llamo, que es
+  justo la mentira que hace el LLM caro.
+
+  ## Una decision, un evento
+
+  `DecisionEngine` lo emite **una vez por `decide/3`**, en el cuello de botella
+  de `finish/5`. Las capas se proban por separado y `decide_by/5` se puede
+  llamar hasta cuatro veces en una peticion: emitir ahi contaria *capas*, y el
+  tribunal necesita *peticiones*.
+
+  Es la misma trampa que ya se pago con `[:candil, :policy, :turn]`, que
+  `Destination` emite al **tomar** el turno y al **soltarlo**: una peticion que
+  espera son dos eventos, no uno.
+  """
+  @spec emit_router_decision(atom(), map(), integer()) :: :ok
+  def emit_router_decision(strategy, meta, duration_native)
+      when is_atom(strategy) and is_integer(duration_native) do
+    execute(
+      :candil_router_decision,
+      %{duration: duration_native},
+      Map.new(meta) |> Map.put(:strategy, strategy)
+    )
+
+    :ok
   end
 end

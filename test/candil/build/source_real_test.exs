@@ -40,15 +40,25 @@ defmodule Candil.Build.SourceRealTest do
         broken: repo_with_broken_source(root)
       }
     else
-      %{root: nil}
+      # LAS MISMAS CLAVES, aunque valgan `nil`.
+      #
+      # Antes esto devolvia `%{root: nil}` y el `describe` de abajo no se
+      # definia: sin cmake la suite corria 878 tests en vez de 882, y ambos
+      # greens decian "0 fallos" sobre **suites distintas**. Un recuento que
+      # cambia con la maquina no es un recuento.
+      #
+      # Devolver las mismas claves deja que los tests se definan siempre y
+      # decidan ellos mismos si se ejercitan o no.
+      %{root: nil, good: nil, broken: nil}
     end
   end
 
-  if @cmake && @git do
-    describe "against a real cmake" do
-      @describetag :requires_cmake
+  describe "against a real cmake" do
+    @describetag :requires_cmake
 
-      test "ninja builds, the binaries land in dir, and they run", %{root: root, good: good} do
+    test "ninja builds, the binaries land in dir, and they run", ctx do
+      if ejercitada?(ctx) do
+        %{root: root, good: good} = ctx
         build = plan(root, good, :ninja)
 
         assert {:ok, %{path: path}} = Build.install(build)
@@ -67,20 +77,28 @@ defmodule Candil.Build.SourceRealTest do
         end
 
         assert :ok = Build.check(build)
+      else
+        no_ejercitada("ninja builds, the binaries land in dir, and they run")
       end
+    end
 
-      test "the declared generator is the one that actually builds", %{root: root, good: good} do
+    test "the declared generator is the one that actually builds", ctx do
+      if ejercitada?(ctx) do
+        %{root: root, good: good} = ctx
         # Unix Makefiles, not ninja, under the same declaration.
         build = plan(root, good, :make)
 
         assert {:ok, _} = Build.install(build)
         assert File.exists?(Path.join(Build.dir(build), "llama-server"))
+      else
+        no_ejercitada("the declared generator is the one that actually builds")
       end
+    end
 
-      test "the user's cmake_args reach a real cmake, not just a stand-in", %{
-        root: root,
-        good: good
-      } do
+    test "the user's cmake_args reach a real cmake, not just a stand-in", ctx do
+      if ejercitada?(ctx) do
+        %{root: root, good: good} = ctx
+
         # The fixture has an unused variable. `-Wall` is what makes the
         # compiler mention it — without it, `-Werror` has nothing to promote
         # and the build passes, which is a real trap rather than a subtle one.
@@ -96,9 +114,14 @@ defmodule Candil.Build.SourceRealTest do
         # of the claim: the failure above was the flag, not the project.
         lax = plan(root, good, :ninja, ["-DCMAKE_BUILD_TYPE=Release"])
         assert {:ok, _} = Build.install(lax)
+      else
+        no_ejercitada("the user's cmake_args reach a real cmake")
       end
+    end
 
-      test "a real compiler error comes back with its own stderr", %{root: root, broken: broken} do
+    test "a real compiler error comes back with its own stderr", ctx do
+      if ejercitada?(ctx) do
+        %{root: root, broken: broken} = ctx
         build = plan(root, broken, :ninja, [], binaries: ["llama-server"])
 
         assert {:error, message} = Build.install(build)
@@ -112,9 +135,14 @@ defmodule Candil.Build.SourceRealTest do
         assert message =~ "llama-server"
 
         refute File.exists?(Path.join(Build.dir(build), "llama-server"))
+      else
+        no_ejercitada("a real compiler error comes back with its own stderr")
       end
+    end
 
-      test "a second run reuses the clone and rebuilds", %{root: root, good: good} do
+    test "a second run reuses the clone and rebuilds", ctx do
+      if ejercitada?(ctx) do
+        %{root: root, good: good} = ctx
         build = plan(root, good, :ninja)
 
         assert {:ok, _} = Build.install(build)
@@ -124,14 +152,23 @@ defmodule Candil.Build.SourceRealTest do
         assert {:ok, _} = Build.install(build)
         assert File.exists?(marker), "src_dir was wiped instead of reused"
         assert :ok = Build.check(build)
+      else
+        no_ejercitada("a second run reuses the clone and rebuilds")
       end
     end
-  else
-    test "a real cmake is not on the PATH, so the toolchain path is NOT exercised" do
-      # Said out loud rather than silently skipped. A suite that is green
-      # because a test did not run is worse than a red one.
-      assert is_nil(@cmake) or is_nil(@git)
-    end
+  end
+
+  # Que el camino se haya ejercitado, o que se diga en voz alta que no.
+  defp ejercitada?(%{root: nil}), do: false
+  defp ejercitada?(_ctx), do: true
+
+  # NO es un `flunk`: sin cmake esta maquina no puede ejercitar el camino, y
+  # un rojo por un binario que no esta no habla de Candil (D-10). Pero el test
+  # **existe**, cuenta, y dice en su salida que no se ha corrido — que es la
+  # diferencia entre un verde que se puede reproducir y uno que no.
+  defp no_ejercitada(nombre) do
+    IO.puts("    ⏭  sin cmake/git en el PATH — NO se ha ejercitado: #{nombre}")
+    :ok
   end
 
   defp plan(root, repo, generator, cmake_args \\ [], opts \\ []) do
