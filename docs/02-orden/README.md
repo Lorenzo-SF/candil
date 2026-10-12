@@ -69,8 +69,8 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 | **0** | Probar lo que existe sin probar | — | **Todo.** Convierte afirmaciones en hechos | ✅ |
 | **1** | Los behaviours que faltan | 0 | RAG, provider, router configurable | ✅ |
 | **2** | `Arrea.Resource` (la forma de una capacidad) | — | La política; y es lo que usa la scheduler | ✅ |
-| **3** | **El enrutado: las capas que faltan** | 1, 2 | Que el enrutado elija por significado y no solo por regla | ⬜ |
-| **4** | **La política: quién va primero** | 3 | Que varios compitan por un destino y no se maten | ⬜ |
+| **3** | **El enrutado: las capas que faltan** | 1, 2 | Que el enrutado elija por significado y no solo por regla | ✅ |
+| **4** | **La política: quién va primero** | 3 | Que varios compitan por un destino y no se estorben | 🟡 |
 | **5** | **El refusal, en los tres tipos** | 4 | Que un "no" diga qué corregir | ⬜ |
 | **6** | RAG | 1 | La mesa camilla | ⬜ |
 | **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ |

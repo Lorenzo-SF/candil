@@ -58,6 +58,12 @@ defmodule Candil.Application do
       Candil.Cancellation,
       Candil.Tool,
       Candil.EnginePool,
+      # Las colas de la politica, UNA POR DESTINO y arrancadas por perezosis:
+      # en un destino no exclusivo no se encola nunca, asi que este supervisor
+      # solo existe cuando hay alguno. Va con el EngineSupervisor y no dentro:
+      # una cola que se cae no puede llevarse por delante los engines que
+      # estan sirviendo.
+      {DynamicSupervisor, name: Candil.Policy.Supervisor, strategy: :one_for_one},
       {DynamicSupervisor, name: Candil.EngineSupervisor, strategy: :one_for_one}
     ]
 

@@ -17,6 +17,11 @@ defmodule Candil.Telemetry do
     * `[:candil, :inference, :error]` — a request fails. Metadata:
       `:model`, `:provider`, `:kind`, `:request_id`, `:reason`,
       `:duration_ms`.
+    * `[:candil, :policy, :turn]` — se le dio el turno a una peticion.
+      Medicion: `:duration`, **cuanto espero**, cero si no espero. Metadata:
+      `:destination`, `:mode`, `:turn`, `:waited`. Solo se emite en los
+      destinos exclusivos; sin turno no hay evento, y esa ausencia es lo
+      que comprueba el test del camino caliente.
     * `[:candil, :cost, :estimate]` — a cost estimate was computed.
       Metadata: `:provider`, `:model`, `:tokens_in`, `:tokens_out`,
       `:cost_usd`.
@@ -212,6 +217,7 @@ defmodule Candil.Telemetry do
     candil_cancellation: [:cancellation],
     candil_engine_start: [:engine, :start],
     candil_engine_stop: [:engine, :stop],
+    candil_policy_turn: [:policy, :turn],
     candil_http_request: [:http, :request],
     candil_http_response: [:http, :response]
   }
@@ -221,5 +227,25 @@ defmodule Candil.Telemetry do
       %{^type => path} -> path
       %{} -> [type]
     end
+  end
+
+  @doc """
+  Emit a `:turn` event from the policy.
+
+  Measurements follow the `duration_in_native_time` convention: `:duration` is
+  how long the request **waited** for the turn, which is `0` when it did not
+  wait. It is a measurement, not a verdict: nobody has to guess whether a
+  destination was slow because it was busy or because nobody was measuring.
+  """
+  @spec emit_policy_turn(term(), atom(), pos_integer(), integer(), boolean()) :: :ok
+  def emit_policy_turn(destination, mode, turn, duration_native, waited)
+      when is_atom(mode) and is_integer(turn) and is_integer(duration_native) and
+             is_boolean(waited) do
+    execute(:candil_policy_turn, %{duration: duration_native}, %{
+      destination: destination,
+      mode: mode,
+      turn: turn,
+      waited: waited
+    })
   end
 end

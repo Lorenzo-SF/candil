@@ -140,6 +140,20 @@ defmodule Candil.Config.Template do
     #   usage        = ["chat", "code"]
     #   tags         = ["gpu", "moe", "code"]
     #
+    #   # EXCLUSIVO: ¿este destino se puede usar a la vez que otro?
+    #   #
+    #   # false (defecto) — no. Dos peticiones al mismo destino van en
+    #   # paralelo, porque no hay nada que las estorbe. Una API, tipicamente.
+    #   # Asi el camino caliente no toca la cola, y no hay cola que tocar.
+    #   #
+    #   # true — si. Lo tiene uno y no caben dos. Un modelo en una GPU es el
+    #   # caso: mientras esta cargado, la segunda peticion espera su turno.
+    #   #
+    #   # No hay un interruptor global a proposito: con tres APIs y una GPU
+    #   # habria que elegir un modo para los cuatro, y cualquier eleccion es
+    #   # mala para tres. Cada destino declara lo suyo y solo.
+    #   exclusive    = false
+    #
     #   # QUE SABE HACER ESTE MODELO, en una frase y con tus palabras. No es la
     #   # carta de presentación ni el nombre del fichero: es el texto que la
     #   # capa `:embedding` del router compara con tu prompt, y es lo UNICO

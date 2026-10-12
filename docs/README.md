@@ -62,6 +62,8 @@ Todo el razonamiento, con las mediciones que lo sostienen, está en
 | Saber **qué es** cada módulo del producto | [`04-modulos/`](04-modulos/) |
 | Saber cómo **Arrea** está hecho y cómo se usa | [`00-arrea/`](00-arrea/) |
 | Saber qué se hizo con lo local y qué queda | [`07-local-aparcado/`](07-local-aparcado/) |
+| Saber **por qué** algo es como es | [`08-decisiones/`](08-decisiones/) |
+| Saber **qué falta** y qué no está probado | [`09-deuda-y-pendientes/`](09-deuda-y-pendientes/) |
 | Ver el **esqueleto** de `candil.toml` | [`05-cli/config/`](05-cli/config/) |
 
 **El orden no es el de los números.** `00-arrea` va primero porque Arrea es el
@@ -70,7 +72,7 @@ porque **sin saber qué hay, no se puede planificar**.
 
 ---
 
-## Los ocho bloques
+## Los diez bloques
 
 ```
 00-arrea/          el chasis. Cómo está hecho y qué garantiza
@@ -81,6 +83,8 @@ porque **sin saber qué hay, no se puede planificar**.
 05-cli/            el ejecutable. Al final, con Alaja
 06-capacidad-y-politica/   qué es una capacidad y quién va primero
 07-local-aparcado/         lo que se hizo en local y lo que queda
+08-decisiones/             qué se decidió, cuándo, por qué y qué costó
+09-deuda-y-pendientes/     deuda, problemas abiertos, y lo que falta por probar
 ```
 
 ## Las cuatro reglas que no se negocian
@@ -132,31 +136,62 @@ las tres veces.
 | **Los audits viejos** | Los que siguen en pie están recogidos en los bloques. Los que no, no |
 | **Una cifra sin medir** | Si aquí hay un número, sale de ejecutarlo |
 
-## Estado de esta rama
+## Estado, medido el 2026-10-12
 
 | | |
 |---|---|
-| Gates | format · compile `--warnings-as-errors` · credo strict · test · escript → **limpio** |
-| Tests | **882 + 27 doctests, 0 fallos** (`--seed 0` fijo en el CI) |
-| Escrito | `00-arrea` · `01-inventario` · `02-orden` · `03-convenciones` · `04-modulos` (índice) · `06-capacidad-y-politica` · `07-local-aparcado` |
-| Fases cerradas | 0 (medir) · 1 (behaviours) · 2 (`Arrea.Resource`) |
-| Siguiente | **3 · el enrutado**, que son las capas `:embedding` y `:llm` del `Scorer` |
+| `main` | `5a28e71` · **936 tests + 27 doctests, 0 fallos** · credo 0 · dialyzer 0 |
+| Rama de trabajo | `fase-4-politica-turno` · **967 tests + 27 doctests, 0 fallos** · los cinco gates en verde · PR #48 **sin mergear** |
+| Gates | format · compile `--warnings-as-errors` · credo · test (`--seed 0`) · dialyzer |
+| Fases cerradas | 0 (medir) · 1 (behaviours) · 2 (`Arrea.Resource`) · 3 (el enrutado) |
+| En curso | **4 · la política de turnos** — código terminado y verificado; **falta medirlo con una GPU de verdad** |
+| Siguiente | **5 · el refusal**, bloqueada por la decisión abierta nº1 |
 
-⚠️ Los cuatro tests de cmake **solo existen si hay `cmake` en el PATH**
-(`source_real_test.exs` hace `if @cmake && @git`). Sin él la suite corre 878
-tests y **no son las mismas pruebas**. cmake y ninja están en
-`/workspace/tools/cmake-root` y en el `PATH` de `env.sh` por eso.
+⚠️ **Comparar dos suites exige que sean la misma.** Cuatro tests de cmake
+**solo existen si hay `cmake` en el PATH** (`source_real_test.exs` hace
+`if @cmake && @git`): sin él la suite corre 878 en vez de 882. Y **doce tests
+más fallan sin el binario `zip`**, que es un rojo que no habla de Candil.
+Los dos están en [`09-deuda-y-pendientes`](09-deuda-y-pendientes/README.md) §4.
 
-## Las cinco decisiones abiertas
+---
 
-Ninguna cerrada. Todas están marcadas en su sitio.
+## Lo que hay aquí
 
-1. **Cuando algo está ocupado y no cabe, ¿qué hace Candil?** — falla, espera, o
-   degrada. Es **la que bloquea la fase 5** y es del dueño. Está en
+| Bloque | Qué contesta |
+|---|---|
+| [`00-arrea`](00-arrea/) | el chasis: cómo está hecho y qué garantiza |
+| [`01-inventario`](01-inventario/) | qué hay, qué no, y los cuatro hallazgos de la fase 0 |
+| [`02-orden`](02-orden/) | **la secuencia y sus dependencias** |
+| [`03-convenciones`](03-convenciones/) | cómo se escribe una fase: TDD, gates, SDD |
+| [`04-modulos`](04-modulos/) | qué es cada módulo del producto |
+| [`05-cli`](05-cli/) | el ejecutable, al final |
+| [`06-capacidad-y-politica`](06-capacidad-y-politica/) | **qué es una capacidad y quién va primero** |
+| [`07-local-aparcado`](07-local-aparcado/) | el trabajo local, con su estado y su motivo |
+| [`08-decisiones`](08-decisiones/) | **qué se decidió, cuándo, por qué y qué costó** |
+| [`09-deuda-y-pendientes`](09-deuda-y-pendientes/) | **deuda, problemas abiertos, y lo que falta por probar** |
+
+**Si acabas de llegar y tienes una máquina delante, empieza por
+[`09-deuda-y-pendientes` §2](09-deuda-y-pendientes/README.md)**: es la lista
+exacta de lo que se ha escrito sin poder ejecutarse, y que desde el 2026-10-12
+sí se puede.
+
+---
+
+## Las seis decisiones abiertas
+
+Ninguna cerrada. Todas están marcadas en su sitio, y todas en
+[`08-decisiones` D-11](08-decisiones/README.md).
+
+1. **Cuando algo está ocupado y no cabe, ¿qué hace Candil?** — `fail`, `wait` o
+   `degrade`. Configurable, pero **el defecto no está puesto**. **Es la que
+   bloquea la fase 5** y es del dueño. Está en
    [`06-capacidad-y-politica` §4](06-capacidad-y-politica/README.md).
 2. **¿La memoria compartida comparte historial o solo patrones?**
-3. **¿Quién escribe la verdad de la VRAM, Candil o Arrea?** — medido el
-   2026-10-10: `Detector.Devices` la **lee**; escribirla sigue sin dueño.
+3. **¿Quién escribe la verdad de la VRAM?** — medido el 2026-10-10:
+   `Detector.Devices` la **lee**; escribirla sigue sin dueño.
 4. **¿`Candil.Provider` es un registro o una lista cerrada?**
 5. **¿El camino de librería entra en las fases, o se queda fuera?**
-5. **¿El camino de librería entra en las fases, o se queda fuera?**
+6. **¿Entra un LLM como clasificador?** — **no se puede saber todavía**: no
+   existe la métrica de qué fracción resolvió el motor estático, y
+   `DISENO-MOTOR` §10 pone un tribunal antes de meterlo. Está en
+   [`09-deuda-y-pendientes` §3](09-deuda-y-pendientes/README.md).
