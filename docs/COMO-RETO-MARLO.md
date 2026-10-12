@@ -41,12 +41,76 @@ que está roto, y de **lo que se escribió sin poder probarlo** y que desde el
 
 ---
 
+---
+
+## Si eres un agente y no hay nadie delante: empieza por aquí
+
+Lo de arriba **necesita a una persona con una GPU delante**. Si te dejan este
+repo sin nadie, estas cinco cosas **se pueden hacer ya, en `main`, sin máquina
+especial**, y todas salen de [`09-deuda-y-pendientes`](09-deuda-y-pendientes/):
+
+| # | Qué | Por qué se puede hacer | Dónde |
+|---|---|---|---|
+| **A-1** | **La métrica del tribunal**: un evento de telemetría en la decisión del router, con **la capa que la produjo** | es instrumentación pura, no necesita modelo | `lib/candil/router/decision_engine.ex`, `lib/candil/telemetry.ex` |
+| **A-2** | **T-1**: que los 12 tests de `Precompiled` no dependan del binario `zip` | hoy fallan en cualquier máquina sin `zip`, y el rojo no habla de Candil | `test/candil/build/precompiled_test.exs` |
+| **A-3** | **T-2**: que los 4 tests de cmake no **desaparezcan** si no hay `cmake` | hoy la suite corre 878 en vez de 882, y comparar dos suites distintas produce conclusiones falsas | `test/candil/build/source_real_test.exs` |
+| **A-4** | **T-4**: quitar de `.credo.exs` el check `NestedModules`, que no existe en Credo 1.7.19 | ruido en cada ejecución | `.credo.exs` |
+| **A-5** | **T-5**: revisar **una a una** las 17 ramas sin mergear, y borrar las que no aporten | en Arrea se pudo hacer porque eran **más antiguas** que `main`; aquí **no** se ha comprobado | GitHub |
+
+### La más urgente de las cinco: A-1
+
+`DISENO-MOTOR.md` §10 pone una condición antes de meter un LLM como
+clasificador: **se mide qué fracción de decisiones resolvió la política**, y si
+es el 60% en vez del 97%, el motor estático está mal hecho y hay que arreglarlo
+antes de meter un modelo. **Esa métrica no existe**, así que hoy nadie puede
+saber si el clasificador está justificado.
+
+**Y una trampa que ya se ha pagado**, porque es fácil caer en ella:
+**tomar el turno con `enter/2` también cuenta como turno servido y emite su
+propio evento.** Una petición que espera son **tres** eventos, no dos: el de
+`run/3` que no espera, el de `enter/2` que toma el turno, y el de la que espera
+de verdad. Un contador mal pensado cuenta turnos donde cuentan peticiones, y
+sale un número que no significa nada.
+
+### Lo que **no** debes hacer sin que nadie te lo pida
+
+- **No implementes el refusal** (fase 5). Está **bloqueada por una decisión del
+  dueño**: `fail`, `wait` o `degrade`. Hay tres respuestas defendibles y no es
+  una decisión de diseño.
+- **No implementes `rest_for_one`.** Está aplazado **a propósito**: solo tiene
+  sentido cuando exista un destino que pueda ceder el turno antes de terminar.
+- **No pongas un clasificador ni un embedder por defecto.** El proyecto no
+  lanza modelos que el usuario no le ha pedido.
+- **No abras PR sin mirar su CI antes de pedir el merge**, y **no hagas push
+  directo a `main`** ni con un PAT que lo permita.
+
 ## Lo primero al sentarte
 
 ```bash
-cd ~/workspace/github/zaguan/candil
-git pull
-. ~/tools/env.sh                      # PATH, UTF-8, HEX_MIRROR, MIX_BUILD_ROOT
+git clone https://github.com/Lorenzo-SF/candil.git
+cd candil && git checkout main && git pull
+```
+
+**El toolchain: búscalo, no lo des por puesto.** Una version anterior de este
+documento decia `. ~/tools/env.sh` sin mas, y **esa ruta estaba inventada**:
+cada maquina lo tiene en un sitio. Se localiza asi:
+
+```bash
+which mix || ls -d ~/.asdf ~/tools /opt/candil-build /workspace/tools 2>/dev/null
+```
+
+| Donde este | Que sourcing |
+|---|---|
+| `~/.asdf` (asdf) | `. "$HOME/.asdf/asdf.sh"` y ya |
+| `~/tools/env.sh` o similar | `. ~/tools/env.sh` |
+| nada de los dos | hay que reconstruir: ver abajo |
+
+**Y `MIX_BUILD_PATH` no se toca nunca.** Es la ruta **literal** del build dir y
+anula `MIX_BUILD_ROOT`: con las dos puestas, dev y test comparten un solo
+`_build`, y aparece un `mox`/`excoveralls` podado y **70 tests "no process:
+Mox.Server"** que no tienen nada que ver con lo que has tocado.
+
+```bash
 export CANDIL_DATA_DIR=$(mktemp -d)   # SIEMPRE
 sudo pacman -S zip                    # sin esto, 12 tests de Precompiled fallan
 ```
