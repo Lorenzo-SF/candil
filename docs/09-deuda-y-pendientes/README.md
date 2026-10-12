@@ -4,8 +4,8 @@
 > verificar porque no había con qué — y que desde el 2026-10-12 sí se puede,
 > porque hay una máquina con una RTX 5080 delante.**
 >
-> 2026-10-12 · `main` `5a28e71` (936 tests) · rama de trabajo
-> `fase-4-politica-turno` (967 tests)
+> 2026-10-13 · `main` `b43b56e` · **976 tests + 27 doctests, 0 fallos** · los
+> cinco gates en verde · sin rama de trabajo.
 
 ---
 
@@ -17,40 +17,47 @@
 | **1** | Los behaviours que faltaban | ✅ mergeada |
 | **2** | `Arrea.Resource` (Arrea 4.0.0) | ✅ mergeada y publicada en Hex |
 | **3** | **El enrutado: las capas `:embedding` y `:llm`** | ✅ mergeada |
-| **4** | **La política: quién va primero** | 🟡 en PR #48, **verde, sin mergear** |
+| **4** | **La política: quién va primero** | ✅ mergeada y **medida contra una GPU de verdad** |
 | **5** | El refusal, en los tres tipos | ⬜ **bloqueada por D-09** |
 | 6-12 | RAG · MCP · Gateway · mesa camilla · agentes · stats · CLI | ⬜ |
 
-**`main` hoy**: 936 tests + 27 doctests, 0 fallos, credo 0, dialyzer 0.
-**Con la fase 4**: **967 tests + 27 doctests, 0 fallos**, los cinco gates en verde.
+**`main` hoy**: **976 tests + 27 doctests, 0 fallos**, credo 0, dialyzer 0, CI en
+verde. La 4 ya no es «verde sin medir»: está medida.
 
 ---
 
-## 2 · Lo que NO se ha podido probar, y por qué
+## 2 · Lo que se escribió sin poder probar, y ya se ha probado
 
-Todo lo de esta tabla se ha escrito y aprobado sin ejecutarse, porque el entorno
-donde se escribió **no tenía GPU, ni modelos, ni `nvidia-smi`, ni `cmake`**.
+Esta sección estaba entera escrita y aprobada **sin ejecutarse**, porque el
+entorno donde se escribió no tenía GPU, ni modelos, ni `nvidia-smi`, ni `cmake`.
+**Desde el 2026-10-13 ya no es verdad.** Lo que faltaba era una máquina con una
+RTX 5080 delante, y está. Se ejecuta con `bash scripts/medir-en-mi-maquina.sh` y
+con la sonda de §2 de [`COMO-RETO-MARLO`](../COMO-RETO-MARLO.md).
 
-### 2.1 · La cola con un destino REALMENTE exclusivo — **lo más importante**
+### 2.1 · La cola con un destino REALMENTE exclusivo — **medido, funciona**
 
-**Lo que se ha probado**: la cola con modelos remotos falsos. Entran, esperan y
-se sirven de uno en uno.
+**Medido el 2026-10-13** con `llama-server` compilado y un modelo de 14B cargado
+en la RTX 5080, declarado `exclusive = true`:
 
-**Lo que no se ha probado**: qué pasa cuando el destino es **una GPU con un
-modelo de verdad**. Porque un destino "exclusivo" de mentira no se parece a uno
-real en tres cosas que importan aquí:
-
-- **no tarda en arrancar** — una inferencia real dura segundos, no microsegundos;
-- **no se puede tumbar a mitad** — y una GPU se puede tumbar;
-- **no ocupa 16 GB** — y de eso trata `Arrea.Resource`.
-
-| # | Qué mirar | Cómo se sabe que ha ido bien |
+| | | |
 |---|---|---|
-| **1.1** | **El turno dura lo que dura la inferencia** | `candil doctor` y el log de la cola: un turno real dura segundos. **Si sale 0 ms, el reloj no está midiendo y la política no sirve** |
-| **1.2** | La segunda petición **espera de verdad** y sale cuando la primera suelta | dos peticiones a la vez al mismo alias local |
-| **1.3** | Dos peticiones al **mismo** destino se serializan | y la segunda ve la GPU ocupada, no un error raro |
-| **1.4** | Dos peticiones a **destinos distintos NO se estorban** | una en la GPU, otra a un proveedor remoto: la remota no espera |
-| **1.5** | **Tumbar un motor con el turno tomado** deja el destino libre | `candil stop <modelo>` en mitad de una inferencia: la siguiente entra, no se queda colgada |
+| **1.1** | inferencia suelta | **6793 ms** |
+| | **la misma dentro de un turno** | **6655 ms** |
+| **1.2** | la segunda pidió 6652 ms y salió al soltar la primera | ✅ |
+| **1.3** | `p1 entra 0 → sale 6650`; `p2 entra 6650 → sale 13300` | ✅ sin solape |
+| **1.4** | otro destino distinto, con la GPU ocupada | respondió en **150 ms** |
+| **1.5** | motor tumbado con el turno tomado | la siguiente entró en **11 ms** |
+
+> **El 1.1 es el que no se podía deducir leyendo el código**, y sale bien:
+> `Policy.run/3` ejecuta `fun` en el proceso que llama, entre `enter/2` y
+> `finish/1`, así que el turno cubre la inferencia entera. **6655 ms, no 0.**
+
+> **Y el 1.5 va más allá de lo que pedía.** La pregunta era si tumbar el motor
+> dejaba el destino libre, y sí. Pero la que de verdad da miedo es la otra:
+> **matar el proceso que tenía el turno**. `Policy` vigila a su titular y lo
+> suelta solo —`[Candil.Policy] el destino se queda libre: quien tenía el turno
+> ha muerto (:killed)`—, **aunque sea con `kill` y sin soltar nada**. La cola no
+> se queda colgada esperando a un proceso que ya no existe.
 
 ### 2.2 · Las capas del enrutado, con modelos de verdad
 
@@ -111,32 +118,64 @@ como clasificador:
 > LLM se le llama el 3% y es ruido caro. **Si es el 60%, el motor estático
 > está mal hecho y hay que arreglarlo antes de meter un modelo.**
 
-**Esa métrica no existe.** No hay telemetría de decisiones por capa, así que hoy
-**no hay forma de saber** si el clasificador por LLM está justificado.
+**Esa métrica ya existe** (A-1, 2026-10-13): `[:candil, :router, :decision]`, con
+la capa que produjo la decisión. Y el tribunal **sentencia**:
 
-Es lo más pequeño que falta (un evento de telemetría en la decisión con la capa
-que la produjo, y un contador) y decide lo más gordo que queda.
+```
+lo resolvió la política estática .... 2/12  = 16.7%
+hubo que llamar al LLM ............. 10/12 = 83.3%
+```
 
-**Cuidado con una trampa que ya se ha pagado**: el evento existe, pero
-**tomar el turno cuenta como turno servido y emite su propio evento**. Una
-petición que espera son **tres** eventos, no dos: el de `run/3` que no espera, el
-de `enter/2` que toma el turno, y el de la que espera de verdad. Un contador mal
-pensado cuenta turnos donde cuentan peticiones.
+Medido con embedder y clasificador **reales** (`scripts/tribunal-real.exs`), no
+con vectores de mentira: `jina-code-embeddings` en `:embedding` y
+`DeepCoder-14B` en `:llm`. La barra de §10 es el 60% y **no se llega ni de
+cerca**. La conclusión del propio diseño es la que dice §11: *«que el motor
+estático se quede en 60% y nadie lo mire»* — y ahora sí hay alguien mirando.
+
+> **Y dice más cosas, que es lo que lo hace útil.** La tabla de similitudes sale
+> al final del script, y en el catálogo de la máquina el modelo correcto **ya es
+> el primero** en casi todos los prompts: lo que falla es que el umbral de la
+> capa `:embedding` está en **0.55** y los scores buenos están en **0.49-0.54**.
+> No es el caso malo que el documento avisa —«un embedder no arregla un
+> catálogo que no distingue»—: aquí **el catálogo sí distingue y el listón está
+> alto**. Por eso este dato sí permite decidir, y el otro no.
+
+**Lo que queda por decidir no es el dato, es la política**: qué señales tocar y
+hasta dónde. Eso es del dueño, no del motor.
+
+**La trampa sigue ahí, y es la que casi se paga por segunda vez.** El
+`[:candil, :policy, :turn]` emite al **tomar** el turno y al **soltarlo**: una
+petición que espera son **tres** eventos, no dos. El hermano de esa trampa en
+`[:candil, :router, :decision]` es peor, porque **no suena**: `decide_by/5` se
+puede llamar hasta cuatro veces en una petición —reglas, embeddings, LLM—, y
+emitir ahí contaría **capas**, no peticiones. El denominador del tribunal saldría
+3-4 veces mayor y el porcentaje de LLM más bajo de lo que es. Por eso se emite en
+el cuello de botella, una vez por `decide/3`, y hay un test que lo fija: **tres
+capas ejecutadas, una petición, un evento**.
 
 ---
 
 ## 4 · Deuda técnica
 
-| # | Qué | Dónde | Coste |
+| # | Qué | Dónde | Estado |
 |---|---|---|---|
-| **T-1** | **12 tests dependen del binario `zip`** | `test/candil/build/precompiled_test.exs` | fallan en máquinas sin `zip`, y el rojo no habla de Candil |
-| **T-2** | **4 tests de cmake solo existen si hay `cmake`** | `test/candil/build/source_real_test.exs` | sin cmake la suite corre **878 en vez de 882** y **no son las mismas pruebas** |
-| **T-3** | **`charlist` deprecado en el lexer de `toml`** | dependencia, `lib/decoder.ex` | ruido en cada compilación; no es nuestro |
-| **T-4** | **`.credo.exs` nombra un check inexistente** | `.credo.exs` | `NestedModules` no existe en Credo 1.7.19; lo ignora y avisa en cada ejecución |
-| **T-5** | **17 ramas sin mergear**, de las que 4 son de la era `proyecto 4.0/` | GitHub | no se han revisado una a una; **no se borran sin mirarlas** |
+| ~~T-1~~ | **12 tests dependían del binario `zip`** | `test/candil/build/precompiled_test.exs` | ✅ **arreglado.** El archivo se escribe byte a byte en vez de con el binario |
+| ~~T-2~~ | **4 tests de cmake solo existían si hay `cmake`** | `test/candil/build/source_real_test.exs` | ✅ **arreglado.** 976 tests con y sin cmake; sin toolchain pasan **diciéndolo** |
+| **T-3** | **`charlist` deprecado en el lexer de `toml`** | dependencia | ruido en cada compilación; no es nuestro |
+| ~~T-4~~ | **`.credo.exs` nombraba un check inexistente** | `.credo.exs` | ✅ **arreglado.** `NestedModules` no existe en Credo 1.7.19 |
+| **T-5** | **25 ramas sin mergear** | GitHub | ✅ **revisadas una a una** (2026-10-13): ninguna aporta trabajo que no esté en `main`. **Ninguna se ha borrado todavía** — es una decisión, no una tarea |
 | **T-6** | **El `SLOT` de `candil status` es teatro**: `if rem(port, 100) >= 90, do: "dGPU"` | `lib/candil/cli/lifecycle.ex` | una columna que **miente** sobre el hardware. Deuda del trabajo local aparcado |
-| **T-7** | **No hay telemetría de decisiones del router** | — | bloquea al LLM y al `candil stats` (§3) |
-| **T-8** | **3 PR de dependabot abiertos** | #41, #42, #43 | solo CI; se pueden mergear o cerrar |
+| ~~T-7~~ | **No había telemetría de decisiones del router** | `Candil.Telemetry` | ✅ **arreglado** (A-1): `[:candil, :router, :decision]`, una vez por `decide/3` |
+| ~~T-8~~ | **3 PR de dependabot abiertos** | #41, #42, #43 | ✅ **mergeados** el 2026-10-13 |
+
+**Sobre T-5, y por qué el método importa.** No se ha contado por ficheros ni por
+líneas: ramas de la estructura vieja traen **más** contenido que `main` y no
+aportan nada, porque `main` reestructuró. El método que lo decide es comparar
+el **conjunto de funciones definidas en `lib/`** contra el de `main`: cuatro de
+las 25 no tienen ni una, y las de la era `4.0/` tienen 21-43 que son
+**delegaciones a módulos que `main` tiene con otro nombre** (`def estimate_tokens(t),
+do: Context.estimate_tokens(t)`, donde `main` lo tiene en `Context.TokenEstimator`).
+`git cherry` no sirve aquí: cuenta identidad de parche, y `main` reestructuró.
 
 ### Sobre T-5, y por qué no se han borrado
 
@@ -151,19 +190,22 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 
 ## 5 · Problemas sin resolver
 
-| # | Problema | Por qué sigue abierto |
+| # | Problema | Estado |
 |---|---|---|
-| **P-1** | El defecto del refusal | es decisión del dueño (D-09) y **bloquea la fase 5** |
-| **P-2** | La métrica del tribunal | no existe la instrumentación (§3) |
+| **P-1** | El defecto del refusal | **abierto** — es decisión del dueño (D-09) y **bloquea la fase 5** |
+| ~~P-2~~ | La métrica del tribunal | ✅ **cerrado** (A-1). Ya existe, y ha sentenciado: 16.7% |
 | **P-3** | `rest_for_one` sin implementar | **a propósito**: no tiene caso hasta que exista un destino que ceda el turno (D-02) |
 | **P-4** | Quién escribe la verdad de la VRAM | se **lee**, no se escribe. Sin dueño |
-| **P-5** | La fase 4 sin mergear | en PR #48, verde, esperando la medición de §2.1 |
+| ~~P-5~~ | La fase 4 sin mergear | ✅ **cerrado** — mergeada y medida (§2.1) |
 | **P-6** | La colocación de modelos en varias GPUs | es la parte de la 8b que falta, y **depende de P-4** |
+| **P-7** | **El gateway no existe** | `Gateway.start/1` devuelve `:not_implemented` (fase 8). **El enrutado no es alcanzable desde un cliente real**, solo desde el CLI |
+| **P-8** | **`reasoning_content` se descarta** | `parse_openai_response/1` lee `message.content` y nada más. Con `--reasoning-format deepseek` en `coder`, `analyst` y `coder_lite`, una pregunta que exige razonar devuelve **1809 bytes de razonamiento y `content: 0`** |
 
 ---
 
 ## 6 · El resumen, en una frase
 
-> Hay **967 tests en verde** y **cinco preguntas sin responder**.
-> Las cinco necesitan una máquina con GPU, un modelo cargado y respuestas
-> reales — y por eso están escritas una a una, con lo que habría que mirar.
+> **976 tests en verde** y **cuatro preguntas sin responder** — y ninguna es
+> técnica: el defecto del refusal, quién escribe la verdad de la VRAM, la
+> colocación en varias GPUs, y la política de señales a la vista del 16.7%.
+> Las cuatro necesitan una decisión, no código.

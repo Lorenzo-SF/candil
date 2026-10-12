@@ -6,7 +6,7 @@
 > algo está en otro sitio y también aquí, es un error: una verdad, un sitio.
 >
 > **Rama**: `main` · sin ramas de trabajo abiertas
-> **Medido el 2026-10-12**: **967 tests + 27 doctests, 0 fallos** · credo 0 ·
+> **Medido el 2026-10-13**: **976 tests + 27 doctests, 0 fallos** · credo 0 ·
 > dialyzer 0 · CI en verde. Fases cerradas: 0, 1, 2, 3 y 4.
 >
 > **Si vienes de otro sitio y solo vas a leer una cosa**:
@@ -146,18 +146,19 @@ las tres veces.
 
 | | |
 |---|---|
-| `main` | `5a28e71` · **936 tests + 27 doctests, 0 fallos** · credo 0 · dialyzer 0 |
-| Rama de trabajo | `fase-4-politica-turno` · **967 tests + 27 doctests, 0 fallos** · los cinco gates en verde · PR #48 **sin mergear** |
+| `main` | `b43b56e` · **976 tests + 27 doctests, 0 fallos** · credo 0 · dialyzer 0 · CI en verde |
+| Rama de trabajo | **ninguna.** La 4 está mergeada y medida |
 | Gates | format · compile `--warnings-as-errors` · credo · test (`--seed 0`) · dialyzer |
-| Fases cerradas | 0 (medir) · 1 (behaviours) · 2 (`Arrea.Resource`) · 3 (el enrutado) |
-| En curso | **4 · la política de turnos** — código terminado y verificado; **falta medirlo con una GPU de verdad** |
+| Fases cerradas | 0 (medir) · 1 (behaviours) · 2 (`Arrea.Resource`) · 3 (el enrutado) · **4 (la política de turnos)** |
+| La 4, contra GPU | **medida el 2026-10-13**: el turno dura 6655 ms sobre una inferencia de 6793 ms |
 | Siguiente | **5 · el refusal**, bloqueada por la decisión abierta nº1 |
 
-⚠️ **Comparar dos suites exige que sean la misma.** Cuatro tests de cmake
-**solo existen si hay `cmake` en el PATH** (`source_real_test.exs` hace
-`if @cmake && @git`): sin él la suite corre 878 en vez de 882. Y **doce tests
-más fallan sin el binario `zip`**, que es un rojo que no habla de Candil.
-Los dos están en [`09-deuda-y-pendientes`](09-deuda-y-pendientes/README.md) §4.
+> **Comparar dos suites exige que sean la misma, y ahora lo son.** Antes la
+> suite corría **878 en vez de 882** sin `cmake` en el PATH —cuatro tests de
+> `source_real_test.exs` no se definían—, y **doce tests más caían sin el
+> binario `zip`**. Los dos están arreglados: 976 con y sin `cmake`, y sin
+> depender de ningún binario que el proyecto no instale. Ver el
+> [`CHANGELOG`](../../CHANGELOG.md).
 
 ---
 
@@ -183,9 +184,9 @@ sí se puede.
 
 ---
 
-## Las seis decisiones abiertas
+## Las decisiones abiertas
 
-Ninguna cerrada. Todas están marcadas en su sitio, y todas en
+Cinco siguen abiertas. Todas están marcadas en su sitio, y todas en
 [`08-decisiones` D-11](08-decisiones/README.md).
 
 1. **Cuando algo está ocupado y no cabe, ¿qué hace Candil?** — `fail`, `wait` o
@@ -197,7 +198,19 @@ Ninguna cerrada. Todas están marcadas en su sitio, y todas en
    `Detector.Devices` la **lee**; escribirla sigue sin dueño.
 4. **¿`Candil.Provider` es un registro o una lista cerrada?**
 5. **¿El camino de librería entra en las fases, o se queda fuera?**
-6. **¿Entra un LLM como clasificador?** — **no se puede saber todavía**: no
-   existe la métrica de qué fracción resolvió el motor estático, y
-   `DISENO-MOTOR` §10 pone un tribunal antes de meterlo. Está en
-   [`09-deuda-y-pendientes` §3](09-deuda-y-pendientes/README.md).
+
+**Y la sexta ya tiene respuesta.** ¿Entra un LLM como clasificador? `§10` de
+`DISENO-MOTOR` ponía un tribunal antes de meterlo, y ese tribunal **ya se ha
+sentenciado** — con la métrica de A-1 y modelos reales:
+
+```
+lo resolvió la política estática .... 2/12  = 16.7%
+hubo que llamar al LLM ............. 10/12 = 83.3%
+```
+
+`§10` pone la barra en el 60%. **No se llega.** La conclusión del propio diseño
+es que hay que **arreglar las señales antes de meter un modelo**, y eso es
+política de quien lo usa, no del motor. Lo que queda por decidir es *qué*
+señales, y hasta dónde — no *si* hay un problema. La métrica vive en
+`[:candil, :router, :decision]` y se mide con
+[`scripts/tribunal-real.exs`](../../scripts/tribunal-real.exs).

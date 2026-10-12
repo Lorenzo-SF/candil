@@ -3,7 +3,7 @@ defmodule Candil.MCP do
   Model Context Protocol, as a server and as a client.
 
   The revision and its rules live in `Candil.MCP.Protocol`. This module is the
-  facade over transports, and the transports land in phase 9.
+  facade over transports, and the transports land in phase 7.
 
   ## Why the default transport is stdio
 
@@ -25,25 +25,25 @@ defmodule Candil.MCP do
   @doc """
   Starts a server.
 
-  Returns `{:error, :not_implemented}`: the transports are phase 9, and the
+  Returns `{:error, :not_implemented}`: the transports are phase 7, and the
   version negotiation in `Candil.MCP.Protocol` is already testable without
   them.
   """
   @spec serve(keyword()) :: {:ok, pid()} | {:error, term()}
   def serve(opts \\ []) do
     _ = opts
-    {:error, Error.not_implemented("Candil.MCP.serve/1", phase: 9)}
+    {:error, Error.not_implemented("Candil.MCP.serve/1", phase: 7)}
   end
 
   @doc """
   Connects to a server.
 
-  Not implemented until phase 9.
+  Not implemented until phase 7.
   """
   @spec connect(keyword()) :: {:ok, map()} | {:error, term()}
   def connect(opts \\ []) do
     _ = opts
-    {:error, Error.not_implemented("Candil.MCP.connect/1", phase: 9)}
+    {:error, Error.not_implemented("Candil.MCP.connect/1", phase: 7)}
   end
 
   @doc """

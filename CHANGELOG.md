@@ -37,6 +37,34 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   solo el límite del escript decide cómo termina el proceso.
 - **La salida del launcher no tenía registro.** Ya no hay `candil` ni `Arrea`
   (51 MB) en el índice, y las reglas de `.gitignore` van ancladas.
+- **La suite no depende de binarios que el proyecto no instala, y no cambia de
+  recuento con la máquina.** Tres cosas de la misma familia, y las tres eran un
+  verde que **no se puede reproducir** — que D-10 dice que es peor que un rojo.
+
+  · **El binario `zip`.** Doce tests de `Build.PrecompiledTest` lo llamaban para
+    construir su propio archivo de prueba, y caían con `:enoent` donde no
+    estuviera: un rojo que no decía ni una palabra de Candil, y que
+    `sudo pacman -S zip` desbloqueaba. Un test que depende de un programa que
+    el proyecto no instala mide el PATH de quien lo corre, no el instalador.
+    Ahora el archivo se escribe byte a byte con entradas **STORED**. No se usó
+    `:zip.create/3` de OTP porque en OTP 28 devuelve `{:error, :einval}` para
+    cualquier entrada — comprobado ejecutándolo, no supuesto.
+
+  · **Los tests de cmake.** `source_real_test.exs` envolvía su `describe` en
+    `if @cmake && @git`, así que sin `cmake` el bloque **no se definía** y la
+    suite corría **878 en vez de 882**: dos suites distintas diciendo «0 fallos».
+    Ahora los cinco tests se definen siempre, y sin toolchain pasan
+    **diciéndolo** en la salida, porque un rojo por un binario ausente no habla
+    de Candil pero un verde callado tampoco. `setup_all` devuelve las mismas
+    claves aunque valgan `nil`: con otras, los tests morirían al hacer match, y
+    un test que muere por un match no es un test que se ha saltado.
+
+  · **`Credo.Check.Readability.NestedModules`** estaba en `.credo.exs` con un
+    `priority: :low` y tres líneas justificándolo. En Credo 1.7.19 no existe
+    (`grep -rn NestedModules deps/credo/lib/` no da ni una coincidencia), así
+    que era un no-op. De paso, el comentario decía que «el CI usa `--strict»» y
+    el CI corre `mix credo --format=oneline`: los dos ficheros contaban una
+    historia distinta sobre el mismo flag.
 
 ### Added
 
@@ -51,9 +79,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   fichero cada cinco minutos. No mata nada: `read/0` ya filtraba en memoria,
   pero nunca escribía la lista podada, y el fichero crecía sin parar.
 - **`gpu_layers`** en `[model.X]`, y `--cpu` lo pone a 0.
+- **`[:candil, :router, :decision]`** — la métrica del tribunal, con la capa que
+  produjo la decisión. `DISENO-MOTOR.md` §10 no deja meter un LLM como
+  clasificador sin medir **qué fracción resolvió la política estática**, y esa
+  cifra no existía: hoy nadie podía saber si el clasificador estaba
+  justificado. Se emite **una vez por `decide/3`**, en el cuello de botella, y
+  no dentro de la capa: `decide_by/5` se puede llamar hasta cuatro veces en una
+  petición, y emitir ahí contaría **capas, no peticiones** — la misma trampa que
+  `[:candil, :policy, :turn]` ya había pagado al emitir al tomar el turno y al
+  soltarlo. `:llm_called` va aparte de `:strategy` porque el clasificador puede
+  ejecutarse, pagar su inferencia y **no pasar el umbral**: la decisión sería
+  `:default` con el LLM ya cobrado, y un contador que mirara solo la estrategia
+  diría que nunca se llamó.
+  Medido en la RTX 5080 con embedder y clasificador **reales**
+  (`scripts/tribunal-real.exs`): lo resolvió la política estática el **16.7%**,
+  frente a la barra del 60% que pone el propio diseño.
 
 ### Changed
 
+- **Las fases que decía el código no eran las del plan.** Los stubs de
+  `Candil.RAG` ponían «phase 10» y los de `Candil.MCP` «phase 9», del orden
+  anterior a la renumeración del 2026-10-11: **RAG es la 6 y MCP la 7**. No es
+  cosmético — mandan a quien lee el error a la fase equivocada. Las del gateway
+  («phase 8») sí eran correctas y se han dejado como estaban.
+- **`deliverable.md` se ha retirado de la raíz.** Era el entregable de la fase 3,
+  apuntando a la rama `fase-3-capas-routing` —que ya no existe— y sin que ningún
+  documento lo mencionara. Sigue en el historial, en `7fab4a4`.
 - **`Candil.Conversation` is deprecated (D8).** The moduledoc carries the notice:
   it keeps the history in the calling process, which is the thing
   `Candil.Context` exists to fix, and it goes in 4.1.0. The replacement,
