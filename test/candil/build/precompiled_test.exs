@@ -6,6 +6,24 @@ defmodule Candil.Build.PrecompiledTest do
   The transport is the suite's existing `Apero.Http` mock, which is what every
   other HTTP-touching test here uses. Everything below the transport is real:
   real files, a real `unzip`, real permissions, and a real rename.
+
+  ## Un zip hecho a mano, y por que
+
+  El archivo de prueba se construye byte a byte con entradas **STORED** (sin
+  comprimir). Dos razones, y las dos son A-2:
+
+  1. **El binario `zip` no es del proyecto.** Doce tests de este fichero
+     fallaban con `:enoent` donde no estaba, y el rojo decia `enoent` —ni una
+     palabra sobre Candil—, y `sudo pacman -S zip` lo desbloqueaba. Un test
+     que depende de un programa que el proyecto no instala mide el PATH de
+     quien lo corre, no el instalador.
+  2. **`:zip.create/3` de OTP no sirve aqui.** En OTP 28 devuelve
+     `{:error, :einval}` para **cualquier** entrada, incluida la mas simple.
+     Se comprobo ejecutandolo, no se supo.
+
+  Un STORED es un zip de verdad: `unzip` —que es lo que usa `lib/`— lo abre sin
+  problema y conserva las entradas anidadas (`build/bin/llama-server`), que es
+  justo lo que este fichero quiere comprobar.
   """
 
   use ExUnit.Case, async: false
@@ -44,17 +62,73 @@ defmodule Candil.Build.PrecompiledTest do
   # A real zip, nested the way a llama.cpp release archive is nested, because
   # assuming `llama-server` sits at the root is how the layout change in a
   # future release turns into a silent "installed nothing".
+  #
+  # El archivo lo crea `:zip`, que es de OTP, y no el binario `zip` del
+  # sistema. Doce tests de este fichero fallaban con `:enoent` en una maquina
+  # sin ese binario, y **un rojo que no habla de Candil**: no decia ni una
+  # palabra de Candil, solo que no habia `zip`. Un test que depende de un
+  # programa que el proyecto no instala prueba el PATH de quien lo corre, no
+  # el instalador.
   defp archive(root) do
     staging = Path.join(root, "archive-src")
-    File.mkdir_p!(Path.join(staging, "build/bin"))
+    File.mkdir_p!(staging)
 
-    for name <- @binaries do
-      File.write!(Path.join([staging, "build/bin", name]), "#!/bin/sh\necho #{name}\n")
-    end
+    entradas =
+      Enum.map(@binaries, fn name ->
+        contenido = "#!/bin/sh\necho #{name}\n"
+        {"build/bin/#{name}", contenido}
+      end)
 
-    path = Path.join(root, @archive)
-    {_out, 0} = System.cmd("zip", ["-q", "-r", path, "."], cd: staging, stderr_to_stdout: true)
-    File.read!(path)
+    File.write!(Path.join(root, @archive), zip_stored(entradas))
+    File.read!(Path.join(root, @archive))
+  end
+
+  # ── Un zip STORED, escrito byte a byte ──────────────────────────────────
+  #
+  # El formato es entero Y little-endian: las tres firmas, el CRC y todos los
+  # tamanos. Escribir `<<0x04034B50::32>>` deja los bytes al reves —
+  # `04 03 4B 50` en vez de `50 4B 03 04`— y `unzip` responde «End-of-central-
+  # directory signature not found», que no dice nada de por que. Por eso
+  # `::little` en todas partes y no solo donde parece que importa.
+  #
+  # Los permisos van en los `external attributes`, que son 32 bits con el modo
+  # unix en los 16 de ARRIBA. Con el modo en los de abajo, `unzip` extrae los
+  # binarios con permisos `000` y el test que comprueba que se instalan
+  # ejecutables cae por un motivo que no es el que cree.
+  @dos_hora 0
+  # 1980-01-01: la epoca del formato, y no un 1970 que no existe
+  @dos_fecha 33
+
+  defp zip_stored(entradas) do
+    {locales, central, _desplazamiento} =
+      Enum.reduce(entradas, {[], [], 0}, fn {nombre, contenido}, {loc, cen, off} ->
+        crc = :erlang.crc32(contenido)
+        bytes = byte_size(contenido)
+        largo = byte_size(nombre)
+
+        local =
+          <<0x04034B50::little-32, 20::little-16, 0::little-16, 0::little-16,
+            @dos_hora::little-16, @dos_fecha::little-16, crc::little-32, bytes::little-32,
+            bytes::little-32, largo::little-16, 0::little-16>> <> nombre <> contenido
+
+        central_entry =
+          <<0x02014B50::little-32, 0x031E::little-16, 20::little-16, 0::little-16, 0::little-16,
+            @dos_hora::little-16, @dos_fecha::little-16, crc::little-32, bytes::little-32,
+            bytes::little-32, largo::little-16, 0::little-16, 0::little-16, 0::little-16,
+            0::little-16, Bitwise.bsl(0o755, 16)::little-32, off::little-32>> <> nombre
+
+        {[local | loc], [central_entry | cen], off + byte_size(local)}
+      end)
+
+    locales = locales |> Enum.reverse() |> IO.iodata_to_binary()
+    central = central |> Enum.reverse() |> IO.iodata_to_binary()
+
+    fin =
+      <<0x06054B50::little-32, 0::little-16, 0::little-16, length(entradas)::little-16,
+        length(entradas)::little-16, byte_size(central)::little-32, byte_size(locales)::little-32,
+        0::little-16>>
+
+    locales <> central <> fin
   end
 
   # The stream callback answers with `{:cont, acc}` or `{:halt, acc}`, so a
