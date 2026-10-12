@@ -5,8 +5,14 @@
 > Si algo está aquí y no en otro sitio, está aquí porque no tiene otro sitio. Si
 > algo está en otro sitio y también aquí, es un error: una verdad, un sitio.
 >
-> **Rama**: `docs-v2` · **Base**: `main` en `e168ccd` (fase 7 mergeada)
-> **Medido**: 88 módulos · 65 ficheros de test · **824 tests + 27 doctests, 0 fallos**
+> **Rama**: `main` · sin ramas de trabajo abiertas
+> **Medido el 2026-10-12**: **967 tests + 27 doctests, 0 fallos** · credo 0 ·
+> dialyzer 0 · CI en verde. Fases cerradas: 0, 1, 2, 3 y 4.
+>
+> **Si vienes de otro sitio y solo vas a leer una cosa**:
+> [`COMO-RETO-MARLO.md`](COMO-RETO-MARLO.md) — y si eres un agente sin nadie
+> delante, ve a su sección *«si eres un agente y no hay nadie delante»*, que
+> lista lo que sí se puede hacer sin GPU.
 >
 > ⚠️ **[La fase 0 ya se hizo, y encontró cuatro cosas que el plan daba por
 > buenas.](01-inventario/HALLAZGOS-FASE-0.md)** El proveedor remoto nunca había
