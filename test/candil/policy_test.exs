@@ -580,6 +580,12 @@ defmodule Candil.PolicyTest do
       # ocupado, la segunda peticion no recibe un `{:error, :busy, 0}`. Recibe
       # silencio, y sale cuando la primera suelta. Aqui no se fabrica ningun
       # motivo, porque esta capa no sabe por que se rechaza una peticion.
+      #
+      # Y se declara **exclusivo aqui**, porque el test de arriba recorre
+      # `[true, false]` dentro de su cuerpo y lo deja en `false`: este describe
+      # no tiene `setup` que lo restablezca, y sin esto la cola ni existe y
+      # `waiting` nunca llega a 1. Cada test declara lo que necesita.
+      exclusive(:coder, true)
       {:ok, first} = Policy.enter(:coder)
       parent = self()
 
@@ -631,7 +637,11 @@ defmodule Candil.PolicyTest do
       assert_receive :ok, 1_000
       assert Task.await(waiter, 5_000) == {:ok, :ok}
 
-      assert_receive {:turn, @turn_event, %{duration: second}, %{waited: true, turn: 2}}
+      # Y el turno **3**, no el 2: `Policy.enter/2` tambien toma turno y emite
+      # su evento — el del que no esperaba nadie, con duracion 0. Contarlos es
+      # lo correcto, porque `served` es lo que dice cuantas veces ha atendido
+      # este destino. Este test fallaba por leerlo como 2.
+      assert_receive {:turn, @turn_event, %{duration: second}, %{waited: true, turn: 3}}
       assert second > 0
     end
   end

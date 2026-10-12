@@ -187,6 +187,28 @@ defmodule Candil.Policy.Destination do
 
   # ── GenServer ─────────────────────────────────────────────────────────────────
 
+  # `:temporary`, y no el `:permanent` que trae el derivado de `use GenServer`.
+
+  # Con `:permanent`, matar la cola la **resucita**: el supervisor levanta otra
+  # vacia, sin titular, y quien estaba esperando se queda colgado contra un
+  # proceso que no es el suyo. Y como el nuevo tiene el mismo registro en el
+  # Registry, `status/1` sigue contestando como si la cola siguiera viva.
+  #
+  # ## Por que `Supervisor.child_spec/2` y no el mapa a pelo
+  #
+  # El `child_spec/1` que genera `use GenServer` trae SOLO `:id` y `:start`: los
+  # demas campos los rellena el supervisor al arrancar el hijo. Escribir un
+  # mapa con `restart`/`shutdown`/`type` **a mano** se salta ese relleno y el
+  # supervisor lo rechaza con `invalid_child_spec` — que es lo que paso las dos
+  # veces que se intento esto sin mas. Pedirselo a el con
+  # `Supervisor.child_spec/2` es lo que rellena lo que falta.
+  # Sin `@impl true`: `child_spec/1` es una convencion de Supervisor, no un
+  # callback de GenServer, y el compilador avisa de que no hay ningun behaviour
+  # que lo declare.
+  def child_spec(opts) do
+    opts |> super() |> Supervisor.child_spec(restart: :temporary)
+  end
+
   @impl true
   def init(opts) do
     {:ok,
