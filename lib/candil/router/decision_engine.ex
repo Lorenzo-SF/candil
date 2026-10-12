@@ -14,6 +14,16 @@ defmodule Candil.Router.DecisionEngine do
 
   alias Candil.{Error, Router, Store}
   alias Candil.Router.{Cache, Consumer, Decision, Scorer}
+  alias Candil.Telemetry
+
+  # Que capas se han probed de verdad en ESTA decision. Una bandera de proceso,
+  # como la del bucle en `Scorer`, y por el mismo motivo: el valor tiene que
+  # sobrevivir a un `with` de seis ramas sin pasar por los parametros de todas.
+  #
+  # Se limpia en el `after` de `decide/3` porque una bandera que se queda puesta
+  # marca como "corrrieron las cuatro capas" la siguiente decision del mismo
+  # proceso, que en un servidor es la siguiente peticion de siempre.
+  @layers_ran {__MODULE__, :layers_ran}
 
   @doc """
   Decides, or explains why it cannot.
@@ -35,24 +45,85 @@ defmodule Candil.Router.DecisionEngine do
     # :llm dos veces quiere decir **dos inferencias**.
     forced_layer = Keyword.get(opts, :force_strategy)
 
-    # El orden es el de §19.2 y no se toca: cache, pin, forzado, reglas,
-    # embeddings y por ultima el clasificador LLM, que es el que cuesta una
-    # inferencia. Un `pin` gana a todo lo demas, y se comprueba antes de que
-    # corra ninguna otra cosa.
-    with :miss <- forced_model(candidates, opts, degraded),
-         :miss <- cached(messages, opts, settings),
-         :miss <- pinned(consumer(opts), candidates, degraded),
-         :miss <- forced(messages, candidates, opts, settings, degraded),
-         :miss <- by_rules(messages, candidates, settings, degraded) do
-      # `||` NO vale aqui: solo funciona con booleanos, y estas capas devuelven
-      # `:miss` o una tupla. Un `||` sobre `:miss` revienta con BadBooleanError
-      # en la PRIMERA peticion que llega a la capa de embeddings.
-      case by_embeddings(messages, candidates, settings, degraded, forced_layer) do
-        :miss -> by_llm(messages, candidates, settings, degraded, forced_layer)
-        other -> other
-      end
+    # El reloj arranca ANTES de la primera capa: una decision que tarda 40 ms
+    # porque el embedder tardó 40 ms tiene que medirse con el embedder dentro.
+    Process.put(@layers_ran, [])
+    started = System.monotonic_time()
+
+    try do
+      # El orden es el de §19.2 y no se toca: cache, pin, forzado, reglas,
+      # embeddings y por ultima el clasificador LLM, que es el que cuesta una
+      # inferencia. Un `pin` gana a todo lo demas, y se comprueba antes de que
+      # corra ninguna otra cosa.
+      result =
+        with :miss <- forced_model(candidates, opts, degraded),
+             :miss <- cached(messages, opts, settings),
+             :miss <- pinned(consumer(opts), candidates, degraded),
+             :miss <- forced(messages, candidates, opts, settings, degraded),
+             :miss <- by_rules(messages, candidates, settings, degraded) do
+          # `||` NO vale aqui: solo funciona con booleanos, y estas capas devuelven
+          # `:miss` o una tupla. Un `||` sobre `:miss` revienta con BadBooleanError
+          # en la PRIMERA peticion que llega a la capa de embeddings.
+          case by_embeddings(messages, candidates, settings, degraded, forced_layer) do
+            :miss -> by_llm(messages, candidates, settings, degraded, forced_layer)
+            other -> other
+          end
+        end
+        |> finish(messages, candidates, settings, degraded)
+
+      announce(result, consumer(opts), started)
+      result
+    after
+      Process.delete(@layers_ran)
     end
-    |> finish(messages, candidates, settings, degraded)
+  end
+
+  # ── La metrica del tribunal ──────────────────────────────────────────────
+  #
+  # UN evento por decision, aqui y en ningun otro sitio. Este es el cuello de
+  # botella por el que pasa **toda** decision —la que gana una regla, la que cae
+  # en el `:default`, la que sale de la cache— y `announce/3` es el unico sitio
+  # que lo dice.
+  #
+  # Emitirlo dentro de `decide_by/5` habria sido mas facil de escribir y habria
+  # sido **contar capas**: una peticion que prueba reglas, embeddings y LLM
+  # emite ahi hasta tres veces, y el tribunal de §10 mide peticiones, no capas.
+  # Un numero cuatro veces mayor no es un numero grande: es otro numero.
+  defp announce({:ok, %Decision{} = decision}, consumer, started) do
+    layers = Process.get(@layers_ran, [])
+
+    Telemetry.emit_router_decision(
+      decision.strategy,
+      %{
+        model: decision.model_alias,
+        consumer: consumer,
+        score: decision.score,
+        degraded: decision.degraded,
+        confidence: decision.confidence,
+        layers_ran: layers,
+        # `:llm in layers` y NO `decision.strategy == :llm`. El clasificador
+        # puede correr, pagar su inferencia y NO pasar el umbral: la decision
+        # seria entonces `:default` con el LLM ya cobrado, y un contador que
+        # mirara solo la estrategia diria que el LLM no se llamo nunca.
+        llm_called: :llm in layers
+      },
+      System.monotonic_time() - started
+    )
+  end
+
+  # Una peticion que no decidio —error, `:classifier_unavailable`, ningun
+  # candidato— NO emite. El tribunal mide fraccion de **decisiones**, y contar
+  # aqui los fracasos seria meter en el denominador peticiones que no llegaron
+  # a decidir nada.
+  defp announce(_result, _consumer, _started), do: :ok
+
+  # Marcar aqui, y no en `by_rules/4` ni en `by_llm/5`, porque los tres caminos
+  # que llevan a una capa pasan por aqui —incluido `forced/5`— y es el unico
+  # punto donde se puede afirmar que la capa **llego a ejecutarse**. En
+  # `by_embeddings/5` la capa se marca solo si hay embedder, que es cuando de
+  # verdad se consulta; si no lo hay, no se probo.
+  defp mark_layer(layer) do
+    Process.put(@layers_ran, Process.get(@layers_ran, []) ++ [layer])
   end
 
   # Que una capa se salte es un hecho de la DECISIÓN, no un detalle interno: si
@@ -105,9 +176,30 @@ defmodule Candil.Router.DecisionEngine do
 
   defp cached(messages, opts, settings) do
     cond do
-      not settings.enable_cache -> :miss
-      Keyword.get(opts, :skip_cache, false) -> :miss
-      true -> Cache.get(messages, consumer(opts))
+      not settings.enable_cache ->
+        :miss
+
+      Keyword.get(opts, :skip_cache, false) ->
+        :miss
+
+      true ->
+        case Cache.get(messages, consumer(opts)) do
+          {:ok, decision} ->
+            # La cache se marca como capa consultada, y el evento la dice.
+            #
+            # NO se reescribe `decision.strategy` a `:cache` — although el tipo
+            # lo declara y `Cache.get/2` devuelve la decision guardada tal
+            # cual— porque eso cambia lo que un `if decision.strategy == :rule`
+            # ya escrito ve, y no es instrumentacion sino otra politica.
+            # Lo que NO se puede es que el evento diga `:rule` cuando en esta
+            # peticion no corrio ninguna regla: eso es mentir sobre la capa, y
+            # es justo lo que el tribunal viene a medir.
+            mark_layer(:cache)
+            {:ok, decision}
+
+          :miss ->
+            :miss
+        end
     end
   end
 
@@ -288,6 +380,11 @@ defmodule Candil.Router.DecisionEngine do
   end
 
   defp decide_by(messages, candidates, layer, settings, degraded) do
+    # La capa se ha consultado DE VERDAD: a partir de aqui se llama a `Scorer`.
+    # El clasificador LLM vive dentro de ahi, asi que esta linea es la que
+    # hace que `:llm_called` signifique algo y no sea una copia de `:strategy`.
+    mark_layer(layer)
+
     case Scorer.score(messages, candidates, layer, settings) do
       :miss ->
         :miss
