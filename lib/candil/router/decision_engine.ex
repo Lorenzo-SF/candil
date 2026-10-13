@@ -13,7 +13,7 @@ defmodule Candil.Router.DecisionEngine do
   """
 
   alias Candil.{Error, Router, Store}
-  alias Candil.Router.{Cache, Consumer, Decision, Fallback, Scorer}
+  alias Candil.Router.{Cache, Consumer, Decision, DecisionRules, Fallback, Scorer}
   alias Candil.Telemetry
 
   # Que capas se han probed de verdad en ESTA decision. Una bandera de proceso,
@@ -71,10 +71,32 @@ defmodule Candil.Router.DecisionEngine do
         end
         |> finish(messages, candidates, settings, degraded, consumer(opts))
 
+      result = aplicar_reglas(result, candidates, consumer(opts), settings)
+
       announce(result, consumer(opts), started)
       result
     after
       Process.delete(@layers_ran)
+    end
+  end
+
+  # Las reglas de decision se aplican DESPUES de que las capas opinen, y antes
+  # de anunciar nada: si una regla cambia el veredicto, el evento del tribunal
+  # tiene que llevar el veredicto final. Un evento que dice `:rule` y una
+  # respuesta que fue forzada a mano son dos verdades sobre la misma peticion.
+  defp aplicar_reglas(result, candidates, consumer, settings) do
+    case result do
+      {:ok, decision} ->
+        case DecisionRules.from_config(settings) do
+          [] ->
+            result
+
+          rules ->
+            {:ok, DecisionRules.apply(rules, decision, consumer, candidates)}
+        end
+
+      _otra ->
+        result
     end
   end
 
