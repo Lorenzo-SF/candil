@@ -71,12 +71,12 @@ defmodule Candil.RAG do
   @doc """
   Creates an index.
 
-  Not implemented until phase 10; the options are the contract.
+  Not implemented until phase 6; the options are the contract.
   """
   @spec create_index(index_name(), keyword()) :: :ok | {:error, term()}
   def create_index(name, opts \\ []) do
     _ = {name, opts}
-    {:error, Error.not_implemented("Candil.RAG.create_index/2", phase: 10)}
+    {:error, Error.not_implemented("Candil.RAG.create_index/2", phase: 6)}
   end
 
   @doc """
@@ -87,19 +87,19 @@ defmodule Candil.RAG do
   @spec index(index_name(), binary(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
   def index(name, path_or_text, opts \\ []) do
     _ = {name, path_or_text, opts}
-    {:error, Error.not_implemented("Candil.RAG.index/3", phase: 10)}
+    {:error, Error.not_implemented("Candil.RAG.index/3", phase: 6)}
   end
 
   @doc """
   Searches an index.
 
   Returns the chunks that cleared the score, best first. Not implemented
-  until phase 10.
+  until phase 6.
   """
   @spec search(index_name(), binary(), keyword()) :: {:ok, [Chunk.t()]} | {:error, term()}
   def search(name, query, opts \\ []) do
     _ = {name, query, opts}
-    {:error, Error.not_implemented("Candil.RAG.search/3", phase: 10)}
+    {:error, Error.not_implemented("Candil.RAG.search/3", phase: 6)}
   end
 
   @doc """
@@ -108,7 +108,7 @@ defmodule Candil.RAG do
   @spec drop_index(index_name()) :: :ok | {:error, term()}
   def drop_index(name) do
     _ = name
-    {:error, Error.not_implemented("Candil.RAG.drop_index/1", phase: 10)}
+    {:error, Error.not_implemented("Candil.RAG.drop_index/1", phase: 6)}
   end
 
   @doc """
@@ -116,7 +116,7 @@ defmodule Candil.RAG do
   """
   @spec list_indexes() :: [index_name()] | {:error, term()}
   def list_indexes do
-    {:error, Error.not_implemented("Candil.RAG.list_indexes/0", phase: 10)}
+    {:error, Error.not_implemented("Candil.RAG.list_indexes/0", phase: 6)}
   end
 
   @doc """

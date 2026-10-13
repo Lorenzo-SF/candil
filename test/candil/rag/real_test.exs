@@ -78,7 +78,13 @@ defmodule Candil.RAG.RealTest do
 
       # No basta con "no funciona": dice EN QUE FASE esta. Un error sin sitio
       # donde mirar es un callejon sin salida.
-      assert error.context[:phase] == 10
+      #
+      # Y el numero es el del plan **vigente**: RAG es la fase 6 desde la
+      # renumeracion del 2026-10-11. Este test afirmaba 10 —el numero del plan
+      # viejo— y por eso no lo hacia falta para que el codigo y el error
+      # mintieran juntos: un test que fija el numero equivocado **traba el
+      # arreglo**, y por eso hace falta de verdad.
+      assert error.context[:phase] == 6
     end
 
     test "index/3 tambien, y con las dos formas de entrada" do
