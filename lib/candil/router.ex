@@ -236,7 +236,16 @@ defmodule Candil.Router do
     # Que pasa cuando NINGUNA capa sabe. `:last` es el defecto y es lo que
     # habia siempre: el ultimo candidato, que es lo que el consumer declaro
     # como default. Se cambia desde `[router]`.
-    fallback: :last
+    fallback: :last,
+    # Las reglas de DECISION: declarativas, con condicion sobre lo que ya ha
+    # pasado y una accion sobre el veredicto. `[router.decision]`.
+    #
+    # Distinto de `rules:` —que es el DICCIONARIO de palabras de la capa
+    # `:rule`—. Aqui no hay vocabulario: hay `when` y hay `force`/`prefer`/`veto`.
+    # En SINGULAR, que es como lo escribe el toml: `[[router.decision]]`. Con
+    # `decisions` aqui, el `Map.take` de `config_settings/0` se lo lleva entero y
+    # las reglas desaparecen sin decir nada —que es lo que hacia esta pieza.
+    decision: []
   }
 
   @spec settings() :: map()
