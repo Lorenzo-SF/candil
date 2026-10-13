@@ -13,7 +13,7 @@ defmodule Candil.Router.DecisionEngine do
   """
 
   alias Candil.{Error, Router, Store}
-  alias Candil.Router.{Cache, Consumer, Decision, Scorer}
+  alias Candil.Router.{Cache, Consumer, Decision, Fallback, Scorer}
   alias Candil.Telemetry
 
   # Que capas se han probed de verdad en ESTA decision. Una bandera de proceso,
@@ -69,7 +69,7 @@ defmodule Candil.Router.DecisionEngine do
             other -> other
           end
         end
-        |> finish(messages, candidates, settings, degraded)
+        |> finish(messages, candidates, settings, degraded, consumer(opts))
 
       announce(result, consumer(opts), started)
       result
@@ -134,17 +134,32 @@ defmodule Candil.Router.DecisionEngine do
     if embedder_available?(), do: [], else: [:embedding]
   end
 
-  defp finish({:ok, decision}, _messages, _candidates, _settings, _degraded), do: {:ok, decision}
+  defp finish({:ok, decision}, _messages, _candidates, _settings, _degraded, _consumer),
+    do: {:ok, decision}
 
   # La capa LLM encendida y sin modelo se propaga TAL CUAL. Sin esta clausula
   # el error caia en el `FunctionClauseError` de abajo, que es peor que el
   # fallo que queria comunicar: el llamante recibia un crash por una capa
   # apagada, en vez de un `{:classifier_unavailable, error}` con el motivo.
-  defp finish({:classifier_unavailable, error}, _messages, _candidates, _settings, _degraded),
-    do: {:classifier_unavailable, error}
+  defp finish(
+         {:classifier_unavailable, error},
+         _messages,
+         _candidates,
+         _settings,
+         _degraded,
+         _consumer
+       ),
+       do: {:classifier_unavailable, error}
 
-  defp finish({:model_not_eligible, error}, _messages, _candidates, _settings, _degraded),
-    do: {:error, error}
+  defp finish(
+         {:model_not_eligible, error},
+         _messages,
+         _candidates,
+         _settings,
+         _degraded,
+         _consumer
+       ),
+       do: {:error, error}
 
   # Una capa que se ha roto de verdad —un embedder con vectores de otra
   # dimensión, un clasificador que revienta— corta aqui, y se dice cual era. Un
@@ -152,19 +167,27 @@ defmodule Candil.Router.DecisionEngine do
   # mal y no lo dice: si no, esa decision con un 0.0 de similitud es
   # indistinguible de una decision en la que la capa funciono y no se parecio
   # nada.
-  defp finish({:error, reason}, _messages, _candidates, _settings, _degraded),
+  defp finish({:error, reason}, _messages, _candidates, _settings, _degraded, _consumer),
     do: {:error, reason}
 
-  defp finish(:miss, _messages, candidates, _settings, degraded) do
-    # The last candidate, not the first. The list is ordered most preferred
-    # first, and when nothing scored, the most conservative choice is the one
-    # the consumer listed last as its default.
+  defp finish(:miss, _messages, candidates, settings, degraded, consumer) do
+    # Cuando nada puntua. Antes esto era `List.last(candidates)` y punto: el
+    # ultimo de la lista, escrito como si fuera una politica. Medido, es la
+    # decision que MAS veces se toma —74 de 84 peticiones reales—, asi que lo
+    # que hay debajo del enrutado no es un resto, es la mayor parte.
+    #
+    # Ahora sale de `[router] fallback`, y el `reason` dice **que** se uso, para
+    # que un `:default`|round_robin` no se lea igual que un `:default`|last`.
+    strategy = Fallback.configured(settings)
+
+    {:ok, model_alias} = Fallback.pick(strategy, candidates, consumer)
+
     {:ok,
      %Decision{
-       model_alias: List.last(candidates),
+       model_alias: model_alias,
        strategy: :default,
        score: 0.5,
-       reason: "no layer cleared its threshold; fell back to the default",
+       reason: "no layer cleared its threshold; fell back to #{inspect(strategy)}",
        alternatives: [],
        degraded: degraded,
        confidence: confidence(degraded),
