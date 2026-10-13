@@ -88,19 +88,46 @@ defmodule Candil.Gateway.Endpoint do
   @doc """
   The handler for a method and path, or `:error`.
 
-  Matching is exact. A gateway that silently accepts `/v1/chat/completions/`
-  with a trailing slash, and `/v1/chat/completion` without the s, is a
-  gateway that answers differently on two days for the same client.
+  Matching is exact **por segmento**, y un segmento declarado `:consumer`
+  casa con cualquier uno. Exacta por segmento y no por cadena porque
+  `/v1/chat/completions/` con barra final y `/v1/chat/completion` sin la s
+  tienen que fallar: un gateway que contesta distinto dos dias para el mismo
+  cliente es un gateway que no se puede depurar.
+
+  Y por segmentos y no por cadena porque **la comparacion entera de antes
+  hacia que las ocho rutas con `/c/<consumer>` no pudieran coincidir nunca**:
+  la tabla declara `/c/:consumer/v1/chat/completions`, y ninguna peticion real
+  lleva los dos puntos y la palabra. El «el consumer esta en el camino», que es
+  lo que permite servir a varios clientes sin que colisionen sus configuraciones,
+  no funcionaba. No se notaba porque no habia servidor.
   """
   @spec match(String.t(), String.t()) :: {:ok, route()} | :error
   def match(method, path) do
+    segments = segments(path)
+
     Enum.find(@routes, fn route ->
-      route.method == method and route.path == path
+      route.method == method and same_segments?(segments(route.path), segments)
     end)
     |> case do
       nil -> :error
       route -> {:ok, route}
     end
+  end
+
+  defp segments(path), do: String.split(path, "/")
+
+  # `length/1` NO es una guard valida en Elixir. Puesto en el `when`, esta
+  # clausula no casa nunca y el matcher devuelve `false` para todo — es decir,
+  # ninguna ruta, ni las que ya funcionaban. Y no da error de compilacion: se
+  # queda callada mientras deja el gateway entero sin servir. La comparacion va
+  # en el cuerpo, donde si es una condicion normal.
+  defp same_segments?(pattern, actual) do
+    length(pattern) == length(actual) and
+      Enum.zip(pattern, actual)
+      |> Enum.all?(fn
+        {":consumer", _name} -> true
+        {declared, received} -> declared == received
+      end)
   end
 
   @doc """

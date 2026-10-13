@@ -54,8 +54,22 @@ defmodule Candil.GatewayTest do
       assert {:ok, :opencode} = Endpoint.consumer(route, "opencode", :default)
     end
 
-    test "a concrete path is not the template, and is not silently accepted" do
-      assert Endpoint.match("POST", "/c/opencode/v1/chat/completions") == :error
+    test "y un path concreto SI casa con el, porque sin esto no hay gateway" do
+      # Este test afirmaba lo contrario, y **fijaba el bug**. Las ocho rutas con
+      # `/c/<consumer>` declaraban `/c/:consumer/v1/...` y `match/2` comparaba
+      # cadenas enteras: ninguna peticion real lleva los dos puntos y la palabra,
+      # asi que el prefijo de consumer —lo que permite servir a varios clientes
+      # sin que colisionen sus configuraciones— no podia funcionar.
+      #
+      # No se notaba porque no habia servidor. El mismo patron que el test de
+      # «la prioridad manda»: **un test que afirma que algo esta roto, y por eso
+      # nadie lo arregla.**
+      assert {:ok, %{consumer: :required}} =
+               Endpoint.match("POST", "/c/opencode/v1/chat/completions")
+
+      # Y lo que SI debe seguir fallando: una ruta parecida no es la misma.
+      assert Endpoint.match("POST", "/v1/chat/completions/") == :error
+      assert Endpoint.match("POST", "/v1/chat/completion") == :error
     end
   end
 
@@ -103,15 +117,29 @@ defmodule Candil.GatewayTest do
       assert reason =~ "auth must be"
     end
 
-    test "says it is not listening rather than returning a pid" do
-      # Returning {:ok, pid} for a server that is not there is worse than
-      # saying so: the caller will wait for a port that never binds.
-      assert {:error, %Candil.Error{reason: :not_implemented}} = Gateway.start()
+    test "arranca, y devuelve el puerto REAL, no el pedido" do
+      # Antes este test fijaba `{:error, :not_implemented}`: no habia servidor.
+      # Ahora hay, y lo que importa es que el puerto que devuelve sea el que de
+      # verdad se ha cogido — con `port: 0` lo elige el sistema, y devolver el
+      # pedido seria el mismo bug que `candil run`, que anunciaba un engine que
+      # no habia arrancado.
+      assert {:ok, %{pid: pid, port: puerto}} = Gateway.start(port: 0)
+      assert is_pid(pid)
+      refute puerto == 0
+
+      on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :shutdown) end)
     end
 
-    test "with a valid key it still reports the listener is missing" do
-      assert {:error, %Candil.Error{reason: :not_implemented}} =
-               Gateway.start(auth: :api_key, api_keys: ["sk-test"])
+    test "con una clave valida tambien arranca" do
+      assert {:ok, %{pid: pid}} = Gateway.start(port: 0, auth: :api_key, api_keys: ["sk-test"])
+      on_exit(fn -> if Process.alive?(pid), do: Process.exit(pid, :shutdown) end)
+    end
+
+    test "pero una configuracion mala se dice ANTES de coger el puerto" do
+      # Un `auth = "api_key"` sin claves tiene que fallar aqui, y no coger un
+      # puerto para devolver 401 a todo mientras el owner cree que hay servidor.
+      assert {:error, reason} = Gateway.start(port: 0, auth: :api_key, api_keys: [])
+      assert reason =~ "at least one key"
     end
   end
 
