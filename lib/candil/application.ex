@@ -60,6 +60,10 @@ defmodule Candil.Application do
       # nadie. Va despues de `Store` porque no lo necesita, pero antes que el
       # resto para que este listo cuando llegue la primera peticion.
       Candil.Telemetry.Decisions,
+      # Los contadores de las estrategias de reparto. Van con el contador del
+      # tribunal porque son lo mismo: estado que solo existe porque alguien
+      # pregunto como iba.
+      Candil.Router.Fallback,
       Candil.Cancellation,
       Candil.Tool,
       Candil.EnginePool,

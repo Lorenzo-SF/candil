@@ -232,7 +232,11 @@ defmodule Candil.Router do
     # `nil` = la capa usa su vocabulario de reserva. Ausente es **inerte**, y
     # tiene que serlo: una capa que decide por su cuenta con unas reglas que
     # nadie ha puesto es lo contrario de configurable.
-    rules: nil
+    rules: nil,
+    # Que pasa cuando NINGUNA capa sabe. `:last` es el defecto y es lo que
+    # habia siempre: el ultimo candidato, que es lo que el consumer declaro
+    # como default. Se cambia desde `[router]`.
+    fallback: :last
   }
 
   @spec settings() :: map()
