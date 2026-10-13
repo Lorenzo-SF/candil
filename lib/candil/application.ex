@@ -55,6 +55,11 @@ defmodule Candil.Application do
       Candil.Context.PrefixManager,
       Candil.Router.Cache,
       Candil.Router.Consumer,
+      # El contador del tribunal. Sin el, `[:candil, :router, :decision]` es un
+      # evento al que nadie esta suscrito: el numero existe, y no lo mira
+      # nadie. Va despues de `Store` porque no lo necesita, pero antes que el
+      # resto para que este listo cuando llegue la primera peticion.
+      Candil.Telemetry.Decisions,
       Candil.Cancellation,
       Candil.Tool,
       Candil.EnginePool,

@@ -181,6 +181,12 @@ defmodule Candil.CLI do
     run({Doctor, :run})
   end
 
+  command "stats", "What fraction of requests the routing policy resolved" do
+    flag(:json, :boolean, default: false, help: "machine-readable output, undecorated")
+
+    run({Candil.CLI.Stats, :run})
+  end
+
   @doc """
   Every declared command name, as the CI gate consumes them.
 
