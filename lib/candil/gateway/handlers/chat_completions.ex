@@ -66,6 +66,11 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
 
   # Que un cliente diga **que capa quiere**, sin tocar la configuracion global.
   #
+  # Y que corra **esa y solo esa**: `force_strategy` le dice al motor que se
+  # salte el resto de la escalera. Medido el 2026-10-13: sin el arreglo, forzar
+  # `:embedding` ejecutaba tambien `:rule`, y forzar `:rule` ejecutaba las
+  # reglas **dos veces**. Prometido aqui, comprobado ahi.
+  #
   # Dos caminos por quienes los usan: la **cabecera `X-Candil-Strategy`** es lo
   # unico que se puede mandar sin que el cuerpo deje de ser un cuerpo OpenAI —
   # que es lo que aceptan opencode y los demas—, y el **campo `candil.strategy`**

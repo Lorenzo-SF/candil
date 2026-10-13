@@ -60,7 +60,7 @@ defmodule Candil.Router.DecisionEngine do
              :miss <- cached(messages, opts, settings),
              :miss <- pinned(consumer(opts), candidates, degraded),
              :miss <- forced(messages, candidates, opts, settings, degraded),
-             :miss <- by_rules(messages, candidates, settings, degraded) do
+             :miss <- by_rules(messages, candidates, settings, degraded, forced_layer) do
           # `||` NO vale aqui: solo funciona con booleanos, y estas capas devuelven
           # `:miss` o una tupla. Un `||` sobre `:miss` revienta con BadBooleanError
           # en la PRIMERA peticion que llega a la capa de embeddings.
@@ -328,8 +328,22 @@ defmodule Candil.Router.DecisionEngine do
     end
   end
 
-  defp by_rules(messages, candidates, settings, degraded) do
-    decide_by(messages, candidates, :rule, settings, degraded)
+  # `forced_layer` se mira aqui por la **misma** razon que en
+  # `by_embeddings/5`: `force_strategy` significa «corre ESTA capa», y si la
+  # capa forzada ya corrio y no paso su umbral, volver a correr otra capa no es
+  # «intentar otra vez», es **ignorar lo que se pidio**.
+  #
+  # Sin esto se median dos rastros que no son verdad: forzando `:rule` salia
+  # `[:rule, :rule, :embedding]` —las reglas dos veces— y forzando `:embedding`
+  # salia `[:embedding, :rule]`, con la capa de reglas entrando igual. Y
+  # `[:candil, :router, :decision]` documenta que su `:layers_ran` son las capas
+  # que **corrieron**, no las que alguien queria que corrieran.
+  defp by_rules(messages, candidates, settings, degraded, forced_layer) do
+    if forced_layer == :rule do
+      :miss
+    else
+      decide_by(messages, candidates, :rule, settings, degraded)
+    end
   end
 
   defp by_embeddings(messages, candidates, settings, degraded, forced_layer) do
