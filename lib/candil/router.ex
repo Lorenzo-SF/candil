@@ -220,7 +220,19 @@ defmodule Candil.Router do
     # No es un descuido: un clasificador o un embedder por defecto se toman
     # sin que nadie los pidiera, y son los dos los que eligen cuanto se gasta.
     classifier: nil,
-    embedder: nil
+    embedder: nil,
+    # El vocabulario de la capa `:rule`, por **alias de modelo**.
+    #
+    # Antes no estaba aqui y por eso la capa no se podia tocar: `Scorer` tenia
+    # su tabla en un `@rules` de modulo y `[router.rules]` —que la plantilla ya
+    # prometia— no lo leia nadie. Un toml que promete una cosa y el codigo hace
+    # otra es peor que un toml que no dice nada, porque el que lo escribe
+    # comprueba que no le pasa nada y se lo cree.
+    #
+    # `nil` = la capa usa su vocabulario de reserva. Ausente es **inerte**, y
+    # tiene que serlo: una capa que decide por su cuenta con unas reglas que
+    # nadie ha puesto es lo contrario de configurable.
+    rules: nil
   }
 
   @spec settings() :: map()
