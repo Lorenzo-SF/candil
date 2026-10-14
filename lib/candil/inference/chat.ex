@@ -37,7 +37,9 @@ defmodule Candil.Inference.Chat do
     duration = System.monotonic_time() - start
 
     :telemetry.execute([:candil, :llm, :chat, :stop], %{duration: duration}, %{
-      model: model_alias
+      model: model_alias,
+      finish_reason: finish_reason(result),
+      prompt_hash: prompt_hash(messages)
     })
 
     result
@@ -62,7 +64,9 @@ defmodule Candil.Inference.Chat do
     duration = System.monotonic_time() - start
 
     :telemetry.execute([:candil, :llm, :chat, :stop], %{duration: duration}, %{
-      model: model.name
+      model: model.name,
+      finish_reason: finish_reason(result),
+      prompt_hash: prompt_hash(messages)
     })
 
     result
@@ -111,6 +115,35 @@ defmodule Candil.Inference.Chat do
 
   @doc false
   def parse_openai_response({:error, reason}), do: {:error, reason}
+
+  # Lo que el evento de telemetria necesita para que la calidad sea medible sin
+  # que quien lo lee tenga que mirar dentro de la respuesta.
+  #
+  # `finish_reason` es lo que separa **un modelo roto** de **una respuesta mala**:
+  # `length` quiere decir que se quedo sin tokens, `content_filter` que se
+  # negaron. Sin esto, la unica senal de calidad seria el reintento, que es
+  # retrasado y necesita cientos de muestras.
+  defp finish_reason({:ok, %{finish_reason: reason}}), do: reason
+  defp finish_reason(_otro), do: nil
+
+  # El hash del ultimo turno de usuario. Es lo que permite reconocer que una
+  # peticion es **la misma pregunta repetida**, que es la unica forma de ver
+  # un reintento sin un boton de feedback.
+  #
+  # Sin `consumer`: la llamada no lo sabe, y dos consumers con el mismo prompt
+  # se podrian atribuir el reintento el uno al otro. Se dice en el modulo que
+  # cuenta, no se esconde.
+  defp prompt_hash(messages) do
+    messages
+    |> Enum.reverse()
+    |> Enum.find_value("", fn
+      %{role: "user", content: content} -> content
+      _otro -> nil
+    end)
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+    |> binary_part(0, 16)
+  end
 
   defp parse_openai_tool_calls(nil), do: nil
   defp parse_openai_tool_calls([]), do: nil
