@@ -200,7 +200,7 @@ defmodule Candil.Router.DecisionRules do
       |> then(&sacar_vetado(&1, eliminados, supervivientes))
       |> then(&force_after_veto(&1, aplicables, supervivientes))
       |> then(&preferir(&1, aplicables, supervivientes))
-      |> Map.put(:degraded, unique(decision.degraded ++ tags_de(eliminados)))
+      |> Map.put(:confidence_reasons, unique(decision.confidence_reasons ++ tags_de(eliminados)))
       |> then(&{:ok, &1})
     catch
       :all_candidates_vetoed -> {:error, :all_candidates_vetoed}
