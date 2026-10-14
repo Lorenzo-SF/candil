@@ -707,6 +707,51 @@ defmodule Candil.PolicyTest do
     end
   end
 
+  describe "los cuatro caminos de inferencia toman turno" do
+    # Si `exclusive` es una propiedad del destino —y lo es desde que el turno se
+    # toma en `Candil.Inference` y no en quien llama— entonces un destino
+    # **remoto** marcado como exclusivo tiene que serializar igual. Si no, la
+    # garantia es media, que es peor que no existir: porque alguien lee
+    # `exclusive` en el toml y no mira si el modelo es local o remoto.
+    test "un remoto exclusivo tambien hace cola" do
+      exclusive(:remoto_exclusivo, true)
+
+      assert Policy.exclusive?(:remoto_exclusivo)
+
+      tareas =
+        for _ <- 1..8 do
+          Task.async(fn -> Policy.run(:remoto_exclusivo, fn -> :ok end) end)
+        end
+
+      resultados = Enum.map(tareas, &Task.await(&1, 10_000))
+
+      assert Enum.all?(resultados, &(&1 == {:ok, :ok}))
+    end
+
+    test "y los cuatro caminos pasan por Policy.run" do
+      # Un test de contrato sobre el codigo, que es lo que se puede comprobar
+      # sin una peticion real: si alguien quita el turno de uno de los cuatro,
+      # este test falla aunque la suite de integracion no lo note.
+      fuente = File.read!(Path.join([__DIR__, "..", "..", "lib", "candil", "inference.ex"]))
+
+      # Una comprobacion por camino, y no un recuento: un recuento dice cuantos
+      # hay, y si anades uno de mas te dice "correcto".
+      for {funcion, cabeza} <- [
+            {"chat_local", "def chat_local("},
+            {"chat_remote",
+             "def chat_remote(%Model{} = model, %Provider{} = provider, messages, opts) do"},
+            {"embed_local", "def embed_local("},
+            {"embed_remote",
+             "def embed_remote(%Model{} = model, %Provider{} = provider, texts, opts) do"}
+          ] do
+        cuerpo = cuerpo_de(fuente, cabeza)
+
+        assert cuerpo =~ "con_turno(",
+               "#{funcion} no toma turno: la exclusividad seria del camino, no del destino"
+      end
+    end
+  end
+
   describe "la cola se toma al hablar con el destino" do
     test "doce peticiones simultaneas a un destino exclusivo hacen cola" do
       # Esta es la garantia que faltaba. Medido en la GPU antes del cambio: 12
@@ -951,5 +996,16 @@ defmodule Candil.PolicyTest do
       assert_receive {:served, tag}, 1_000
       tag
     end
+  end
+
+  # El cuerpo de la funcion que empieza por `cabeza`, hasta su `end` de nivel
+  # superior. A proposito no es un parser de Elixir: un test de contrato solo
+  # necesita «la funcion esta dentro de este texto», y un parser seria una
+  # dependencia que puede romperse sola.
+  defp cuerpo_de(fuente, cabeza) do
+    desde = elem(:binary.match(fuente, cabeza), 0)
+    resto = :binary.part(fuente, desde, byte_size(fuente) - desde)
+    [cuerpo | _] = :binary.split(resto, "\n  end\n")
+    cuerpo
   end
 end
