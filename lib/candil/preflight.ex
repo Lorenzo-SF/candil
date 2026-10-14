@@ -1,4 +1,4 @@
-defmodule Candil.CLI.Preflight do
+defmodule Candil.Preflight do
   @moduledoc """
   The four questions asked before a port is touched.
 
@@ -9,6 +9,17 @@ defmodule Candil.CLI.Preflight do
 
   Every check returns a reason that names what is missing, because "engine
   failed to start" is not something a user can act on.
+
+  ## Por que vive aqui y no en \`cli/\`
+
+  Estuvo en \`Candil.CLI.Preflight\` durante la fase 3, y ahi estaba **al reves**.
+  These 104 lines contain **zero IO**: no print, no halt, no format. They
+  validate and return data.
+
+  Y quien usa Candil como dependencia —que es el caso para el que existe— no
+  tiene \`candil doctor\`, asi que se queda sin preflight justo cuando lo
+  necesita: **alIntegrar Candil en su propia aplicacion**, donde el fallo va a
+  salir. El nombre era el aviso de lo que le faltaba.
   """
 
   alias Candil.{Build, Engine, Model, Store}

@@ -217,12 +217,12 @@ defmodule Candil.CLITest do
       # The message names the command that fixes it, which is the part that
       # matters: "no file and no source" and "the file is not there" are
       # different problems with different remedies.
-      assert {:error, reasons} = Preflight.run(:coder, [])
+      assert {:error, reasons} = Candil.Preflight.run(:coder, [])
       assert Enum.any?(reasons, &(&1 =~ "candil models pull"))
     end
 
     test "an unknown model is an error, not a crash" do
-      assert {:error, ["no such model: ghost"]} = Preflight.run(:ghost, [])
+      assert {:error, ["no such model: ghost"]} = Candil.Preflight.run(:ghost, [])
     end
 
     test "a model whose engine is unbuilt says so instead of saying broken" do
@@ -244,7 +244,7 @@ defmodule Candil.CLITest do
 
       on_exit(fn -> Store.deregister_engine(:e) end)
 
-      assert {:error, reasons} = Preflight.run(:coder, [])
+      assert {:error, reasons} = Candil.Preflight.run(:coder, [])
       assert Enum.any?(reasons, &(&1 =~ "not built"))
     end
 
@@ -255,7 +255,7 @@ defmodule Candil.CLITest do
       model!(:coder)
       Store.register_engine(%Candil.Engine{alias: :e, binary: "/nowhere/llama-server"})
 
-      {:error, reasons} = Preflight.run(:coder, [])
+      {:error, reasons} = Candil.Preflight.run(:coder, [])
       assert Enum.all?(reasons, &is_binary/1)
     end
   end
