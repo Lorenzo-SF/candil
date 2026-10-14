@@ -311,18 +311,22 @@ defmodule Candil.Stream do
   # is busy, AperoHTTP's stream buffers up to its internal limit.
   @spec receive_inbox(pid(), pos_integer()) :: (... -> any())
   defp receive_inbox(consumer_pid, _idle_timeout) do
+    # Devuelve **el acumulador**, no `""`. Lo que este callback devuelve es el
+    # acumulador de Finch —`Finch.stream/5` lo envuelve en `{:cont, _}`—, y
+    # devolver una cadena vacia lo llenaba de `" "` a cada chunk. Aqui no se lee,
+    # pero un acumulador que no es un acumulador es una trampa para quien lo lea.
     fn
-      {:data, data}, _acc ->
+      {:data, data}, acc ->
         send(consumer_pid, {:sse_data, data})
-        ""
+        acc
 
-      :done, _acc ->
+      :done, acc ->
         send(consumer_pid, {:sse_done, self()})
-        ""
+        acc
 
-      {:error, reason}, _acc ->
+      {:error, reason}, acc ->
         send(consumer_pid, {:sse_error, reason, self()})
-        ""
+        acc
     end
   end
 

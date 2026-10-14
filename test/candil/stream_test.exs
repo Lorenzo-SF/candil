@@ -24,6 +24,21 @@ defmodule Candil.StreamTest do
     end
   end
 
+  describe "el acumulador que ve Finch" do
+    # `Finch.stream/5` envuelve el callback del usuario y SIEMPRE contesta
+    # `{:cont, valor}`. O sea: **lo que devuelve el callback es el acumulador de
+    # Finch**, y devolver una tupla lo anida una vez por chunk. Ningun test miraba
+    # eso, y `do_post_streaming/5` descarta el acumulador, asi que hacia fuera
+    # no se notaba. Aqui se mira el contrato, que es lo que se puede comprobar.
+    test "el callback por defecto devuelve el acumulador, no una tupla" do
+      cb = &Candil.HTTP.Client.default_stream_callback/2
+
+      assert [uno] = cb.({:data, "uno"}, [])
+      assert [dos, uno] = cb.({:data, "dos"}, [uno])
+      assert [^uno] = cb.(:done, [uno])
+    end
+  end
+
   describe "un stream de verdad" do
     # El adapter de verdad es `Apero.Http.Adapter.Finch.stream/4`, que es
     # `Finch.stream/5`. Su callback recibe —esto es su contrato, no una opinion:

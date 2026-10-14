@@ -89,12 +89,17 @@ defmodule Candil.HTTP.Client do
     end
   end
 
-  def default_stream_callback({:data, data}, acc) do
-    {:cont, [data | acc]}
-  end
+  # El callback devuelve **el acumulador nuevo**, no una tupla: `Finch.stream/5`
+  # lo envuelve en `{:cont, _}` por dentro, asi que devolver `{:cont, acc}`
+  # acababa con un acumulador `{:cont, [datos]}` anidado una vez por chunk.
+  def default_stream_callback({:data, data}, acc), do: [data | acc]
 
-  def default_stream_callback(:done, _acc) do
-    {:halt, []}
+  def default_stream_callback(:done, acc) do
+    # Se devuelve el acumulador, no `{:halt, []}`: el callback no puede parar el
+    # stream —`Finch.stream/5` siempre contesta `{:cont, _}` por dentro— y lo
+    # que devuelve este callback es el acumulador de Finch, que no es de este
+    # modulo para vaciarlo.
+    acc
   end
 
   def breaker_name(url) do
