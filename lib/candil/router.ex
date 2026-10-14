@@ -60,6 +60,12 @@ defmodule Candil.Router do
               # que corriera: un `force_strategy` que se respeta mal es
               # justamente el bug que la hizo necesaria.
               layers_ran: [],
+              # `{:capa, candidatas_antes, candidatas_despues}` por capa.
+              #
+              # `layers_ran` a secas no distingue «esta capa se salto» de «esta
+              # capa corrio y no cambio nada», y esa confusion costo tres horas
+              # de mediciones. Con las dos mitades se ve de un vistazo.
+              trail: [],
               confidence: :full,
               timestamp: nil
 

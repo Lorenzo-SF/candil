@@ -24,6 +24,7 @@ defmodule Candil.Router.DecisionEngine do
   # marca como "corrrieron las cuatro capas" la siguiente decision del mismo
   # proceso, que en un servidor es la siguiente peticion de siempre.
   @layers_ran {__MODULE__, :layers_ran}
+  @trail {__MODULE__, :trail}
 
   @doc """
   Decides, or explains why it cannot.
@@ -48,6 +49,7 @@ defmodule Candil.Router.DecisionEngine do
     # El reloj arranca ANTES de la primera capa: una decision que tarda 40 ms
     # porque el embedder tardó 40 ms tiene que medirse con el embedder dentro.
     Process.put(@layers_ran, [])
+    Process.put(@trail, [])
     started = System.monotonic_time()
 
     try do
@@ -57,7 +59,7 @@ defmodule Candil.Router.DecisionEngine do
       # corra ninguna otra cosa.
       result =
         with :miss <- forced_model(candidates, opts, degraded),
-             :miss <- cached(messages, opts, settings),
+             :miss <- cached(messages, candidates, opts, settings),
              :miss <- pinned(consumer(opts), candidates, degraded),
              :miss <- forced(messages, candidates, opts, settings, degraded),
              :miss <- by_rules(messages, candidates, settings, degraded, forced_layer) do
@@ -79,6 +81,7 @@ defmodule Candil.Router.DecisionEngine do
       resultado
     after
       Process.delete(@layers_ran)
+      Process.delete(@trail)
     end
   end
 
@@ -106,7 +109,12 @@ defmodule Candil.Router.DecisionEngine do
   end
 
   defp con_traza({:ok, decision}) do
-    {:ok, %{decision | layers_ran: Process.get(@layers_ran, [])}}
+    {:ok,
+     %{
+       decision
+       | layers_ran: Process.get(@layers_ran, []),
+         trail: Process.get(@trail, [])
+     }}
   end
 
   defp con_traza(otra), do: otra
@@ -155,8 +163,13 @@ defmodule Candil.Router.DecisionEngine do
   # punto donde se puede afirmar que la capa **llego a ejecutarse**. En
   # `by_embeddings/5` la capa se marca solo si hay embedder, que es cuando de
   # verdad se consulta; si no lo hay, no se probo.
-  defp mark_layer(layer) do
+  # Marca la capa y **cuantas candidatas quedaban**, que es la mitad del dato
+  # que faltaba. `layers_ran` y `trail` van en el mismo sitio porque se
+  # rellenan siempre a la vez, y un `@trail` que se rellena en un sitio y
+  # `layers_ran` en otro es un sitio donde los dos se desincronizan.
+  defp marcar(layer, antes, despues) do
     Process.put(@layers_ran, Process.get(@layers_ran, []) ++ [layer])
+    Process.put(@trail, Process.get(@trail, []) ++ [{layer, antes, despues}])
   end
 
   # Que una capa se salte es un hecho de la DECISIÓN, no un detalle interno: si
@@ -230,7 +243,7 @@ defmodule Candil.Router.DecisionEngine do
 
   defp consumer(opts), do: Keyword.get(opts, :consumer, :default)
 
-  defp cached(messages, opts, settings) do
+  defp cached(messages, candidates, opts, settings) do
     cond do
       not settings.enable_cache ->
         :miss
@@ -250,9 +263,21 @@ defmodule Candil.Router.DecisionEngine do
             # Lo que NO se puede es que el evento diga `:rule` cuando en esta
             # peticion no corrio ninguna regla: eso es mentir sobre la capa, y
             # es justo lo que el tribunal viene a medir.
-            mark_layer(:cache)
+            # La cache no FILTRA candidatas: devuelve una decision entera o no
+            # devuelve nada. Por eso `antes == despues`: marcar 0 sobre 0
+            # diria «no quedo nadie», que es mentira —no los descarto, directamente
+            # no llego a mirarlos— y hacia justo lo que la cache hace, que es
+            # salirse de la escalera sin tocar la lista.
+            # La cache no FILTRA candidatas: devuelve una decision entera o no
+            # devuelve nada. Por eso `antes == despues`: marcar 0 sobre 0
+            # diria «no quedo nadie», y lo que pasa es que no llego a mirarlos.
+            marcar(:cache, length(candidates), length(candidates))
             {:ok, decision}
 
+          # Un FALLO de la cache NO se marca, y no es un descuido: `layers_ran`
+          # son las capas que **pudieron decidir**, no las que se miraron. Marcar
+          # la cache cuando falla dice que el enrutado decidio por la cache,
+          # que es justo la mentira que el tribunal viene a medir.
           :miss ->
             :miss
         end
@@ -453,13 +478,19 @@ defmodule Candil.Router.DecisionEngine do
     # La capa se ha consultado DE VERDAD: a partir de aqui se llama a `Scorer`.
     # El clasificador LLM vive dentro de ahi, asi que esta linea es la que
     # hace que `:llm_called` signifique algo y no sea una copia de `:strategy`.
-    mark_layer(layer)
+    antes = length(candidates)
 
     case Scorer.score(messages, candidates, layer, settings) do
       :miss ->
+        # Corrio y no cambio nada. Que `antes == despues` **con la capa
+        # marcada** es lo que distingue «esta capa se salto» de «esta capa
+        # corrio y no sirvio de nada»: sin las dos mitades del dato, un
+        # `[:cache]` no dice si la cache filtro.
+        marcar(layer, antes, antes)
         :miss
 
       {:error, reason} ->
+        marcar(layer, antes, 0)
         {:error, reason}
 
       # El `reason` lo pone la CAPA, y no el motor, porque el veredicto del
@@ -467,6 +498,8 @@ defmodule Candil.Router.DecisionEngine do
       # dentro de ella. Un motor que se lo compusiera estaria inventandolo.
       {:ok, [{model_alias, score} | rest], reason} ->
         if score >= threshold_for(layer, settings) do
+          marcar(layer, antes, length([{model_alias, score} | rest]))
+
           {:ok,
            %Decision{
              model_alias: model_alias,
@@ -479,6 +512,7 @@ defmodule Candil.Router.DecisionEngine do
              timestamp: DateTime.utc_now()
            }}
         else
+          marcar(layer, antes, length([{model_alias, score} | rest]))
           :miss
         end
     end
