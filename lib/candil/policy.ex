@@ -211,19 +211,41 @@ defmodule Candil.Policy do
 
   El turno se suelta en un `after`, asi que una excepcion, un `throw` o un
   `exit` **no dejan el destino bloqueado** con una peticion que ya no existe.
+
+  ## Por qué se puede volver a llamar sin encolar dos veces
+
+  Porque la cola se toma **en el punto que habla con el destino** —ver
+  `Candil.Inference`— y no en un camino de entrada. Eso significa que un camino
+  que ya tiene el turno llama a otro que tambien lo toma, y sin esto el segundo
+  `enter/2` seria el mismo proceso pidiendo otra vez una cola que ya tiene: en
+  un destino **exclusivo** se quedaria esperando a si mismo.
+
+  Asi que `run/3` **es idempotente por proceso y destino**: si este proceso ya
+  tiene el turno de este destino, ejecuta y no se encola. Quien envuelve a
+  quien no tiene que saber nada de esto, y el error que se evita —esperarse a
+  uno mismo— no es un caso raro: es lo que hace cualquiera que envuelva la
+  llamada dos veces.
   """
   @spec run(destination(), (-> result), keyword()) :: run_result(result) when result: term()
   def run(destination, fun, opts \\ []) when is_function(fun, 0) do
-    case enter(destination, opts) do
-      {:ok, turn} ->
-        try do
-          {:ok, fun.()}
-        after
-          finish(turn)
-        end
+    if Process.get({__MODULE__, destination}) do
+      # El turno ya es de este proceso: no hay nada que pedir.
+      {:ok, fun.()}
+    else
+      case enter(destination, opts) do
+        {:ok, turn} ->
+          Process.put({__MODULE__, destination}, true)
 
-      {:error, reason} ->
-        {:error, reason}
+          try do
+            {:ok, fun.()}
+          after
+            Process.delete({__MODULE__, destination})
+            finish(turn)
+          end
+
+        {:error, reason} ->
+          {:error, reason}
+      end
     end
   end
 

@@ -42,11 +42,38 @@ defmodule Candil.HTTP.Client do
   def do_post_streaming(url, body, headers, timeout, streaming_opts) do
     user_callback = Keyword.get(streaming_opts, :into, &default_stream_callback/2)
 
+    # El contrato de `Finch.stream/5` —el adapter de verdad— es:
+    #
+    #     {:status, status}  {:headers, headers}  {:data, data}  :done
+    #
+    # **`done` es un atomo suelto.** Y aqui se perdia: el `case` solo matcheaba
+    # `{:done, _}`, que Finch no emite nunca, asi que `:done` caia en el brazo
+    # de abajo y `user_callback` no se enteraba de que se habia acabado. Quien
+    # esperaba no recibia el final y se comia el timeout entero —150 s con los
+    # valores por defecto— y luego devolvia `:ok`, que es indistinguible de
+    # que haya ido bien. Medido: 600 ms en los tests, que es justo su timeout.
     stream_fun = fn entry, acc ->
       case entry do
-        {:data, _data} -> user_callback.(entry, acc)
-        {:done, _} -> {:halt, acc}
-        _ -> {:cont, acc}
+        {:data, _data} ->
+          user_callback.(entry, acc)
+
+        :done ->
+          # Se avisa **antes** de parar: quien escucha necesita saber que
+          # acabo, no solo que dejo de llegar cosa. Y se avisa con la misma
+          # forma que emite Finch —`:done` a pelo— porque el callback de
+          # Candil (`receive_inbox/2`) la espera asi. Pasarle `{:done, _}`
+          # hacia que no matcheara ninguna clausula y el Task moriria en
+          # silencio, que es justo el fallo que esto arregla.
+          user_callback.(:done, acc)
+
+        # `{:done, _}` no lo emite Finch, pero `default_stream_callback/2` lo
+        # aceptaba: se acepta aqui para no romper un callback escrito con esa
+        # forma, y no cuesta nada.
+        {:done, _} ->
+          user_callback.(:done, acc)
+
+        _ ->
+          {:cont, acc}
       end
     end
 
@@ -62,12 +89,17 @@ defmodule Candil.HTTP.Client do
     end
   end
 
-  def default_stream_callback({:data, data}, acc) do
-    {:cont, [data | acc]}
-  end
+  # El callback devuelve **el acumulador nuevo**, no una tupla: `Finch.stream/5`
+  # lo envuelve en `{:cont, _}` por dentro, asi que devolver `{:cont, acc}`
+  # acababa con un acumulador `{:cont, [datos]}` anidado una vez por chunk.
+  def default_stream_callback({:data, data}, acc), do: [data | acc]
 
-  def default_stream_callback(:done, _acc) do
-    {:halt, []}
+  def default_stream_callback(:done, acc) do
+    # Se devuelve el acumulador, no `{:halt, []}`: el callback no puede parar el
+    # stream —`Finch.stream/5` siempre contesta `{:cont, _}` por dentro— y lo
+    # que devuelve este callback es el acumulador de Finch, que no es de este
+    # modulo para vaciarlo.
+    acc
   end
 
   def breaker_name(url) do

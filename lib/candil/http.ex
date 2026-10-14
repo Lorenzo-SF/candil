@@ -8,6 +8,33 @@ defmodule Candil.HTTP do
 
   Transport is provided by `Apero.Http` — a dedicated Finch pool managed
   by `Apero.Http.Finch`.
+
+  ## Lo que el circuit breaker **no** hace hoy
+
+  Nada. No es una opinion: no hay **ningun** breaker registrado, y
+  `Arrea.CircuitBreaker.call/2` sobre un nombre que no esta registrado ejecuta la
+  funcion y ya esta. Medido el 2026-10-14: **0** breakers registrados al
+  arrancar Candil, y **10 excepciones seguidas** dejan el circuito en
+  `:closed`.
+
+  Y tampoco abririan aunque lo hubiera, por dos razones independientes:
+
+  1. `Client.breaker_name/1` cae a `:default_breaker` para casi todo. Devuelve el
+     host **solo si ese atomo ya existe en la VM**, y `127.0.0.1` no existe; lo
+     mismo pasa con `api.openai.com`. Medido: las tres dan
+     `:default_breaker`. Si se arreglara el registro sin arreglar el nombre,
+     un destino caido abriria el circuito de todos los demas.
+  2. Un error de red llega a Arrea como `{:error, _}` y cuenta como **exito**:
+     `call/3` solo registra fallo cuando la funcion **lanza**. Este modulo
+     convierte todo en `{:error, _}`, asi que nada lo abre.
+
+  El reintento (`Apero.Retry`) si funciona, y el limitador tambien. Lo que no
+  existe es el corte: un destino caido se sigue intentando, siempre.
+
+  Que abra un circuito y con que politica —que errores cuentan, cuantos abren,
+  cuanto dura abierto— es **decision del dueno** y no se inventa aqui. Lo que si
+  se hace es que el modulo lo diga, para que nadie lo de por hecho: hay un test
+  que afirma el estado real en `test/candil/http_test.exs`.
   """
 
   alias Candil.Error

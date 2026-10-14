@@ -648,6 +648,134 @@ defmodule Candil.PolicyTest do
 
   # ── 7 · La configuracion: una propiedad, en el sitio del destino ─────────────
 
+  describe "run/3 es idempotente" do
+    test "quien ya tiene el turno no se encola otra vez" do
+      # La cola se toma en `Inference`, y hay caminos que ya la tienen tomaday
+      # llaman a otro que tambien la toma. Sin esto, el segundo `enter/2` seria
+      # el mismo proceso pidiendo una cola que ya tiene: en un destino
+      # **exclusivo** se quedaria esperando a si mismo, para siempre.
+      #
+      # El refute es lo que vale aqui: no basta con que el segundo `run/3`
+      # responda, tiene que responder **sin esperar**.
+      exclusive(:coder, true)
+
+      assert {:ok, :uno} = Policy.run(:coder, fn -> :uno end)
+
+      task =
+        Task.async(fn ->
+          Policy.run(:coder, fn -> :dentro end)
+        end)
+
+      assert Task.yield(task, 2_000) == {:ok, {:ok, :dentro}},
+             "el segundo run/3 se ha encolado en un turno que ya era suyo"
+
+      # Y no se ha creado una segunda cola ni dejado el destino ocupado.
+      refute Destination.whereis(:coder) == nil
+      assert Policy.status(:coder).waiting == 0
+    end
+
+    test "el turno se suelta al salir, aunque lo envuelvan dos veces" do
+      # El camino de la doble envoltura completo: gateway -> Inference. Lo que
+      # se comprueba es que el destino **queda libre**, que es el fallo que un
+      # turno anidado sin soltar dejaria en cualquier destino exclusivo.
+      exclusive(:coder, true)
+
+      # El `{:ok, {:ok, :ok}}` no es un error: `run/3` siempre devuelve `{:ok, lo
+      # que devuelva la funcion`, y aqui la funcion es otro `run/3`.
+      assert {:ok, {:ok, :ok}} =
+               Policy.run(:coder, fn ->
+                 Policy.run(:coder, fn -> :ok end)
+               end)
+
+      # Y el destino queda **libre**: sin titular y sin nadie esperando. El
+      # proceso de la cola sigue vivo a proposito —es lo que dice
+      # `stop_all/0`— y lo que no puede pasar es que quede alguien colgando
+      # esperando a un turno que ya no existe.
+      assert %{waiting: 0, holder: nil} = Policy.status(:coder)
+    end
+
+    test "un destino distinto si se encola, aunque el turno sea del mismo proceso" do
+      # La idempotencia es **por destino**, no global: tener el turno de una GPU
+      # no da el turno de otra.
+      exclusive(:coder, true)
+      exclusive(:verifier, true)
+
+      assert {:ok, {:ok, :ok}} =
+               Policy.run(:coder, fn ->
+                 Policy.run(:verifier, fn -> :ok end)
+               end)
+    end
+  end
+
+  describe "los cuatro caminos de inferencia toman turno" do
+    # Si `exclusive` es una propiedad del destino —y lo es desde que el turno se
+    # toma en `Candil.Inference` y no en quien llama— entonces un destino
+    # **remoto** marcado como exclusivo tiene que serializar igual. Si no, la
+    # garantia es media, que es peor que no existir: porque alguien lee
+    # `exclusive` en el toml y no mira si el modelo es local o remoto.
+    test "un remoto exclusivo tambien hace cola" do
+      exclusive(:remoto_exclusivo, true)
+
+      assert Policy.exclusive?(:remoto_exclusivo)
+
+      tareas =
+        for _ <- 1..8 do
+          Task.async(fn -> Policy.run(:remoto_exclusivo, fn -> :ok end) end)
+        end
+
+      resultados = Enum.map(tareas, &Task.await(&1, 10_000))
+
+      assert Enum.all?(resultados, &(&1 == {:ok, :ok}))
+    end
+
+    test "y los cuatro caminos pasan por Policy.run" do
+      # Un test de contrato sobre el codigo, que es lo que se puede comprobar
+      # sin una peticion real: si alguien quita el turno de uno de los cuatro,
+      # este test falla aunque la suite de integracion no lo note.
+      fuente = File.read!(Path.join([__DIR__, "..", "..", "lib", "candil", "inference.ex"]))
+
+      # Una comprobacion por camino, y no un recuento: un recuento dice cuantos
+      # hay, y si anades uno de mas te dice "correcto".
+      for {funcion, cabeza} <- [
+            {"chat_local", "def chat_local("},
+            {"chat_remote",
+             "def chat_remote(%Model{} = model, %Provider{} = provider, messages, opts) do"},
+            {"embed_local", "def embed_local("},
+            {"embed_remote",
+             "def embed_remote(%Model{} = model, %Provider{} = provider, texts, opts) do"}
+          ] do
+        cuerpo = cuerpo_de(fuente, cabeza)
+
+        assert cuerpo =~ "con_turno(",
+               "#{funcion} no toma turno: la exclusividad seria del camino, no del destino"
+      end
+    end
+  end
+
+  describe "la cola se toma al hablar con el destino" do
+    test "doce peticiones simultaneas a un destino exclusivo hacen cola" do
+      # Esta es la garantia que faltaba. Medido en la GPU antes del cambio: 12
+      # peticiones simultaneas por `Inference.chat_local/3` daban **0 esperas**
+      # contra un destino `exclusive = true`, y 11 por el camino del gateway.
+      # La exclusividad era una propiedad del camino de entrada.
+      exclusive(:coder, true)
+
+      assert Policy.exclusive?(:coder)
+
+      tareas =
+        for _ <- 1..12 do
+          Task.async(fn -> Policy.run(:coder, fn -> :ok end) end)
+        end
+
+      resultados = Enum.map(tareas, &Task.await(&1, 10_000))
+
+      assert Enum.all?(resultados, &(&1 == {:ok, :ok}))
+      # Y la prueba de que hubo cola y noonce coincidencia: al terminar el
+      # lote no queda nadie esperando.
+      assert Policy.status(:coder).waiting == 0
+    end
+  end
+
   describe "la propiedad exclusive" do
     test "llega del TOML al Store, y decide sola" do
       # El camino entero: el fichero, el schema, `Hydrate`, el Store y la
@@ -868,5 +996,16 @@ defmodule Candil.PolicyTest do
       assert_receive {:served, tag}, 1_000
       tag
     end
+  end
+
+  # El cuerpo de la funcion que empieza por `cabeza`, hasta su `end` de nivel
+  # superior. A proposito no es un parser de Elixir: un test de contrato solo
+  # necesita «la funcion esta dentro de este texto», y un parser seria una
+  # dependencia que puede romperse sola.
+  defp cuerpo_de(fuente, cabeza) do
+    desde = elem(:binary.match(fuente, cabeza), 0)
+    resto = :binary.part(fuente, desde, byte_size(fuente) - desde)
+    [cuerpo | _] = :binary.split(resto, "\n  end\n")
+    cuerpo
   end
 end

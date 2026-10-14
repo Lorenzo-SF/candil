@@ -202,6 +202,11 @@ defmodule Candil.Telemetry.Quality do
   def init(_opts) do
     :ets.new(@table, [:named_table, :public, :set, write_concurrency: true])
 
+    # La del historico tambien se crea **aqui**, y no a demanda desde el
+    # handler. Creada a demanda, su dueno es el proceso de la peticion —esa
+    # tabla se va con el— y dos peticiones simultaneas compiten por crearla.
+    __MODULE__.Remember.create(@remember)
+
     # Si la telemetria no esta lista todavia —que pasa en el arranque, segun el
     # orden de `EngineLog`— se reintenta en el siguiente arranque. Sin esto, el
     # contador arrancaria mudo y el sintoma seria «no cuenta nada», que es
@@ -283,10 +288,27 @@ defmodule Candil.Telemetry.Quality do
   defmodule Remember do
     @moduledoc false
     @cache 300_000
+    @opts [:named_table, :public, :set, write_concurrency: true]
 
+    @doc false
+    # Crear la tabla es tarea de quien **vive mas que las peticiones**: el
+    # GenServer. Una tabla creada por el proceso de una peticion se va con esa
+    # peticion, y se lleva el historico entero sin que nada falle a la vista.
+    def create(table) do
+      case :ets.whereis(table) do
+        :undefined -> new(table)
+        ref -> ref
+      end
+    end
+
+    # Y escribir **no** crea. Que la tabla falte no es un fallo de quien
+    # escribe: significa que el contador no esta levantado, y ahi lo que se
+    # hace es no contar, igual que en `bump/2`. Crear aqui era lo que hacia
+    # que la tabla cambiara de dueno en cada peticion.
     def put(table, key, value) do
-      ensure(table)
       :ets.insert(table, {key, value, mono()})
+    rescue
+      ArgumentError -> :ok
     end
 
     def get(table, key) do
@@ -301,11 +323,14 @@ defmodule Candil.Telemetry.Quality do
       ArgumentError -> nil
     end
 
-    defp ensure(table) do
-      if :ets.whereis(table) == :undefined,
-        do: :ets.new(table, [:named_table, :public, :set, write_concurrency: true])
-
-      true
+    # El `rescue` no es decorativo: dos procesos pueden ver `:undefined` a la
+    # vez —por ejemplo si el GenServer se reinicia mientras llegan peticiones— y
+    # los dos crean. El que pierde coge la tabla que gano. Sin esto era un
+    # `ArgumentError` que tumbaba el handler de telemetria en pleno arranque.
+    defp new(table) do
+      :ets.new(table, @opts)
+    rescue
+      ArgumentError -> :ets.whereis(table)
     end
 
     defp mono, do: System.monotonic_time(:millisecond)
