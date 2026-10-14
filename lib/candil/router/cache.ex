@@ -43,9 +43,21 @@ defmodule Candil.Router.Cache do
   prompt alone means whichever consumer routed first decides for all of them.
   That is the exact leak the `{consumer, session_id}` partitioning exists to
   prevent, reappearing in the cache.
+
+  ## Y los flags de forzado tambien, y esto no es cosmético
+
+  `cache` se consulta **antes** que la capa forzada. Con una clave de
+  `{consumer, hash}` la entrada guardada de un `auto` se devuelve a una peticion
+  que pide explicitamente otra capa: se pide «esta va por reglas» y contesta la
+  capa de siempre. Medido el 2026-10-13.
+
+  La clave NO es «saltarse la cache cuando hay forzado» —la cache es la capa
+  mas barata y saltarsela es pagar una decision que ya esta tomada—. Es que
+  **son dos entradas distintas de la misma peticion**: una sin forzado y otra con
+  el. Quien pide el forzado paga su decision; quien no, recibe la cache.
   """
-  @spec key([map()], atom()) :: {atom(), binary()}
-  def key(messages, consumer \\ :default) do
+  @spec key([map()], atom(), keyword()) :: {atom(), atom() | nil, atom() | nil, binary()}
+  def key(messages, consumer \\ :default, opts \\ []) do
     last_user =
       messages
       |> Enum.reverse()
@@ -59,20 +71,25 @@ defmodule Candil.Router.Cache do
       |> Base.encode16(case: :lower)
       |> binary_part(0, 32)
 
-    {consumer, hash}
+    {
+      consumer,
+      Keyword.get(opts, :force_model),
+      Keyword.get(opts, :force_strategy),
+      hash
+    }
   end
 
   @doc """
   Reads a decision from the cache.
   """
-  @spec get([map()], atom()) :: {:ok, Decision.t()} | :miss
-  def get(messages, consumer \\ :default) do
-    case :ets.lookup(@table, key(messages, consumer)) do
+  @spec get([map()], atom(), keyword()) :: {:ok, Decision.t()} | :miss
+  def get(messages, consumer \\ :default, opts \\ []) do
+    case :ets.lookup(@table, key(messages, consumer, opts)) do
       [{_key, decision, expires_at}] ->
         if DateTime.compare(DateTime.utc_now(), expires_at) == :lt do
           {:ok, decision}
         else
-          :ets.delete(@table, key(messages, consumer))
+          :ets.delete(@table, key(messages, consumer, opts))
           :miss
         end
 
@@ -94,7 +111,7 @@ defmodule Candil.Router.Cache do
     consumer = Keyword.get(opts, :consumer, :default)
     ttl = Keyword.get(opts, :ttl_seconds, @default_ttl_seconds)
     expires_at = DateTime.add(DateTime.utc_now(), ttl, :second)
-    :ets.insert(@table, {key(messages, consumer), decision, expires_at})
+    :ets.insert(@table, {key(messages, consumer, opts), decision, expires_at})
     :ok
   rescue
     ArgumentError -> :ok

@@ -228,7 +228,7 @@ defmodule Candil.Router.DecisionEngine do
         :miss
 
       true ->
-        case Cache.get(messages, consumer(opts)) do
+        case Cache.get(messages, consumer(opts), opts) do
           {:ok, decision} ->
             # La cache se marca como capa consultada, y el evento la dice.
             #

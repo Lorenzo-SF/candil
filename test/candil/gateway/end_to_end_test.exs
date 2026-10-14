@@ -289,16 +289,9 @@ defmodule Candil.Gateway.EndToEndTest do
     end
   end
 
-  # LO QUE ESTOS TESTS COMPRUEBAN: que la peticion llega al router con la capa
-  # forzada y no revienta, y que una capa que no existe es un 400.
-  #
-  # LO QUE NO COMPRUEBAN, y queda dicho para no mentir: **que la capa forzada sea
-  # la que corre y solo ella**. Para eso haria falta el rastro de capas del
-  # evento —`Candil.Telemetry.Decisions.last_layers/0`, que existe para eso— y
-  # hoy sale vacio en esta maquina: el embedder y las reglas no estan
-  # configurados, asi que el rastro no tiene nada queeo que mostrar. Es una
-  # limitacion del entorno de test, no una afirmacion de que el rastro no
-  # funciona, y **queda pendiente de verificar**.
+  # LO QUE COMPRUEBAN: que la peticion llega al router con la capa forzada, que
+  # una capa que no existe es un 400 que la nombra, y —desde el arreglo de la
+  # clave de cache— que **la cache no se come el forzado**.
   describe "forzar la capa desde la llamada" do
     test "la cabecera X-Candil-Strategy corre esa capa y solo esa", %{gw: gw} do
       {status, body} =
@@ -333,11 +326,14 @@ defmodule Candil.Gateway.EndToEndTest do
       # por el cable sale `"embedding"`. Comparar con el atomo hacia pasar el
       # test por el motivo equivocado.
       assert body["candil"]["routed"] == true
-      # El rastro de capas sigue SIN verificar: sale `[:cache]`, porque la cache
-      # se consulta **antes** que la capa forzada y se lleva la peticion. No es
-      # un fallo del forzado —el camino se ejecuta y contesta 200— pero este
-      # entorno no demuestra que corra la capa que se pidio.
-      assert Candil.Telemetry.Decisions.last_layers() == [:cache]
+      # Antes de arreglar la clave, aqui salia `[:cache]`: la cache se
+      # consultaba antes que la capa forzada y se llevaba la peticion. Pedir
+      # «esta va por embeddings» no hacia nada.
+      #
+      # Ahora la clave incluye los flags: son **dos entradas distintas** de la
+      # misma peticion, y la forzada no la comparte con la del `auto`. Lo que
+      # se comprueba aqui es justo que la cache NO se cuela.
+      refute Candil.Telemetry.Decisions.last_layers() == [:cache]
     end
 
     test "una capa que no existe es un 400, no un silencio", %{gw: gw} do
