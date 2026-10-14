@@ -100,6 +100,20 @@ defmodule Candil.Inference.Chat do
     {:ok,
      %{
        content: get_in(choice, ["message", "content"]) || "",
+       # El razonamiento **no se pierde y no se inventa**: si el servidor lo
+       # manda en `reasoning_content`, aqui esta; si no lo manda, `nil`.
+       #
+       # Medido el 2026-10-14 con `Qwen3.8-27B` y `--reasoning-format
+       # deepseek`, que es como lo tiene el catalogo: 1996 bytes de
+       # razonamiento —con la duda de si contaba al granjero— y `content` con
+       # la respuesta final. Antes ese razonamiento se caia al suelo sin dejar
+       # rastro, y `finish_reason` es `"stop"` en las dos casos: un cliente no
+       # tenia forma de saber que habia habido razonamiento.
+       #
+       # Y no todos los modelos razonan: con `Qwen3-Coder-30B` y el mismo flag
+       # la respuesta **no trae** `reasoning_content`. Por eso `nil` es una
+       # respuesta valida y no un fallo.
+       reasoning: get_in(choice, ["message", "reasoning_content"]),
        role: get_in(choice, ["message", "role"]) || "assistant",
        model: body["model"] || "",
        finish_reason: choice["finish_reason"],

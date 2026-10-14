@@ -28,6 +28,10 @@ defmodule Candil.Stream do
 
   @type chunk :: %{
           content: binary(),
+          # El trozo de razonamiento de este delta, o `nil` si este delta era
+          # solo contenido. No todos los modelos razonan, y no todos razonan
+          # siempre: que sea `nil` es una respuesta normal, no un fallo.
+          reasoning: binary() | nil,
           finish_reason: binary() | nil,
           done: boolean()
         }
@@ -336,8 +340,19 @@ defmodule Candil.Stream do
     case Jason.decode(json) do
       {:ok, %{"choices" => [choice | _]}} ->
         content = get_in(choice, ["delta", "content"]) || ""
+        # El razonamiento llega aqui **troceado**, igual que el contenido: cada
+        # delta trae su parte. Sin esto se caia al suelo por chunk, que es peor
+        # que perderlo entero en `/chat/completions`: ahi se podia leer el
+        # razonamiento del log del servidor, y aqui no.
+        reasoning = get_in(choice, ["delta", "reasoning_content"])
         finish_reason = choice["finish_reason"]
-        %{content: content, finish_reason: finish_reason, done: finish_reason != nil}
+
+        %{
+          content: content,
+          reasoning: reasoning,
+          finish_reason: finish_reason,
+          done: finish_reason != nil
+        }
 
       _ ->
         nil

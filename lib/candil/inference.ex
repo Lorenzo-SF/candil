@@ -62,6 +62,10 @@ defmodule Candil.Inference do
 
   @type response :: %{
           content: binary(),
+          # El razonamiento, si el servidor lo manda en `reasoning_content`.
+          # `nil` cuando el modelo no razona, que es lo normal y no un fallo.
+          # Ver `Candil.Inference.Chat.parse_openai_response/1`.
+          reasoning: binary() | nil,
           role: binary(),
           model: binary(),
           finish_reason: binary() | nil,

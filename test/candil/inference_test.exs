@@ -2,6 +2,7 @@ defmodule Candil.InferenceTest do
   use ExUnit.Case, async: false
 
   alias Candil.Inference
+  alias Candil.Inference.Chat
 
   describe "module interface" do
     test "module loads and exports expected functions" do
@@ -54,6 +55,53 @@ defmodule Candil.InferenceTest do
       assert Map.has_key?(resp, :content)
       assert Map.has_key?(resp, :role)
       assert Map.has_key?(resp, :model)
+    end
+  end
+
+  # Las tres formas que devuelve un servidor de verdad. Medido el 2026-10-14 con
+  # `Qwen3.8-27B` y `--reasoning-format deepseek` —como lo tiene el catalogo— y
+  # con `Qwen3-Coder-30B` y el mismo flag, que **no** razona.
+  describe "el razonamiento de la respuesta" do
+    defp parse(body), do: Chat.parse_openai_response({:ok, %{status: 200, body: body}})
+
+    defp cuerpo(extra) do
+      %{
+        "choices" => [
+          %{
+            "finish_reason" => "stop",
+            "message" => Map.merge(%{"role" => "assistant", "content" => "10 patas"}, extra)
+          }
+        ],
+        "usage" => %{"prompt_tokens" => 1, "completion_tokens" => 2, "total_tokens" => 3}
+      }
+    end
+
+    test "cuando el servidor razonó, el razonamiento viene" do
+      # El caso de P-8: 1996 bytes con la duda de si contaba al granjero, que
+      # antes se caian al suelo sin dejar rastro.
+      razonamiento = "We need answer user request. 3+2=5 birds, 10 legs. But maybe farmer?"
+
+      assert {:ok, respuesta} = parse(cuerpo(%{"reasoning_content" => razonamiento}))
+
+      assert respuesta.content == "10 patas"
+      assert respuesta.reasoning == razonamiento
+    end
+
+    test "cuando el modelo no razona, nil es una respuesta y no un fallo" do
+      # Con `Qwen3-Coder-30B` la respuesta no trae `reasoning_content` en
+      # absoluto. Y `finish_reason` es "stop" en los dos casos: por eso el
+      # razonamiento tiene que ir explicito y no deducirse.
+      assert {:ok, respuesta} = parse(cuerpo(%{}))
+
+      assert respuesta.content == "10 patas"
+      assert respuesta.reasoning == nil
+      assert respuesta.finish_reason == "stop"
+    end
+
+    test "un razonamiento vacio se conserva tal cual" do
+      assert {:ok, respuesta} = parse(cuerpo(%{"reasoning_content" => ""}))
+
+      assert respuesta.reasoning == ""
     end
   end
 end

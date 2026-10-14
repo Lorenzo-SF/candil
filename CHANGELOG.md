@@ -9,6 +9,31 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **El razonamiento del modelo se descartaba, y no habia forma de saber que
+  habia habido.** `parse_openai_response/1` leia `message.content` y nada mas.
+  Medido el 2026-10-14 con `Qwen3.8-27B` y `--reasoning-format deepseek` —como
+  lo tiene el catalogo—: la respuesta trae `content` con la respuesta final
+  («10. En total hay 10 patas.») y al lado **1996 bytes de
+  `reasoning_content`**, con la duda del modelo de si contaba al granjero. Eso
+  se iba al suelo.
+
+  Y lo que hacia el dano no era perderlo: era que **`finish_reason` es `stop`
+  en los dos casos**, con razonamiento y sin el. Un cliente no tenia forma de
+ entre «pienso y contesto» y «contesto sin pensar».
+
+  Ahora el razonamiento viaja en `response().reasoning` y sale en
+  `choices[0].message.reasoning_content`, que es donde lo esperan los clientes
+  que saben leerlo. **Y solo si hay**: ponerlo siempre seria anadir una clave a
+  las respuestas que no razonan, que es como se rompe un cliente que valida el
+  esquema estricto.
+
+  En el **streaming** se perdia por chunk, que es peor: cada delta trae su
+  parte y todas se caian. Ahora el `chunk` lleva su `reasoning`.
+
+  Y `nil` es una respuesta valida, no un fallo: con `Qwen3-Coder-30B` y el mismo
+  flag la respuesta **no trae** `reasoning_content` en absoluto, porque ese
+  modelo no razona asi.
+
 - **El circuit breaker de Candil no protegia nada, y el modulo lo anunciaba.**
   Medido el 2026-10-14: **0 breakers registrados** al arrancar Candil, porque
   `Arrea.CircuitBreaker.call/2` sobre un nombre sin registrar ejecuta la funcion
