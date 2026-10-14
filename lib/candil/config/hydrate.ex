@@ -392,11 +392,12 @@ defmodule Candil.Config.Hydrate do
   # typo deja un modelo sin servir peticiones sin que nadie se entere.
   defp usage_and_capabilities(name, spec) do
     declarados = Map.get(spec, "usage") || ["chat"]
-    {endpoints, capacidades, invalidos} = Model.split_usage(declarados)
-    declaradas_capacidades = Map.get(spec, "capabilities") || []
-    capacidades = capacidades ++ Enum.map(declaradas_capacidades, &atom/1)
+    {endpoints, migradas, invalidos} = Model.split_usage(declarados)
 
-    Enum.each(capacidades, fn capacidad ->
+    declaradas = Map.get(spec, "capabilities") || []
+    capacidades = migradas ++ Enum.map(declaradas, &atom/1)
+
+    Enum.each(migradas, fn capacidad ->
       Logger.warning(
         "[Candil.Config] el modelo '#{name}' declara \"#{capacidad}\" en usage, " <>
           "y eso no es un endpoint sino una capacidad. Migra a 'capabilities'. " <>

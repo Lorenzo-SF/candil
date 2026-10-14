@@ -141,30 +141,52 @@ defmodule Candil.Provider do
   Includes authentication headers appropriate to the provider type.
   """
   @spec auth_headers(t()) :: [{binary(), binary()}]
-  def auth_headers(%__MODULE__{type: :openai, api_key: key, org_id: org, headers: extra})
-      when is_binary(key) do
-    base = [{"authorization", "Bearer #{key}"}, {"content-type", "application/json"}]
+  def auth_headers(%__MODULE__{type: :openai, api_key: key, org_id: org, headers: extra}) do
+    base = [{"content-type", "application/json"}]
     merged = if org, do: [{"openai-organization", org} | base], else: base
-    merged ++ extra
+
+    case key_of(key) do
+      nil ->
+        merged ++ extra
+
+      clave ->
+        # `merged` y no `base`: `merged` es la que lleva el `org`, y perderlo
+        # seria un segundo 401 en el mismo camino.
+        [{"authorization", "Bearer #{clave}"} | merged] ++ extra
+    end
   end
 
-  def auth_headers(%__MODULE__{type: :openai_compatible, api_key: key, headers: extra})
-      when is_binary(key) do
-    [{"authorization", "Bearer #{key}"}, {"content-type", "application/json"} | extra]
+  def auth_headers(%__MODULE__{type: :openai_compatible, api_key: key, headers: extra}) do
+    case key_of(key) do
+      nil ->
+        [{"content-type", "application/json"} | extra]
+
+      clave ->
+        [
+          {"authorization", "Bearer #{clave}"},
+          {"content-type", "application/json"}
+          | extra
+        ]
+    end
   end
 
-  def auth_headers(%__MODULE__{type: :openai_compatible, headers: extra}) do
-    [{"content-type", "application/json"} | extra]
-  end
+  def auth_headers(%__MODULE__{type: :anthropic, api_key: key, headers: extra}) do
+    case key_of(key) do
+      nil ->
+        [
+          {"anthropic-version", "2023-06-01"},
+          {"content-type", "application/json"}
+          | extra
+        ]
 
-  def auth_headers(%__MODULE__{type: :anthropic, api_key: key, headers: extra})
-      when is_binary(key) do
-    [
-      {"x-api-key", key},
-      {"anthropic-version", "2023-06-01"},
-      {"content-type", "application/json"}
-      | extra
-    ]
+      clave ->
+        [
+          {"x-api-key", clave},
+          {"anthropic-version", "2023-06-01"},
+          {"content-type", "application/json"}
+          | extra
+        ]
+    end
   end
 
   def auth_headers(%__MODULE__{type: :ollama, headers: extra}) do
@@ -189,4 +211,25 @@ defmodule Candil.Provider do
   @spec embeddings_url(t()) :: binary()
   def embeddings_url(%__MODULE__{type: :ollama, base_url: base}), do: "#{base}/api/embeddings"
   def embeddings_url(%__MODULE__{base_url: base}), do: "#{base}/v1/embeddings"
+
+  # `api_key` se escribe en el toml como `env = "VAR"`, y `Hydrate` lo deja
+  # **como tupla** `{:system, "VAR"}`. Las guardas de `auth_headers/1` pedian
+  # `is_binary(key)`, asi que una tupla no pasaba por ninguna y la peticion
+  # salia **sin cabecera de autorizacion**: un 401 sin explicacion, contra el
+  # proveedor que el propio usuario habia configurado bien.
+  #
+  # Medido el 2026-10-14 con la variable puesta en el entorno:
+  #
+  #     api_key:        {:system, "PRUEBA_KEY"}
+  #     Engine.api_key: "sk-secreto-de-verdad"
+  #     auth_headers:   [{"content-type", "application/json"}]   <- sin auth
+  #
+  # La clave se resuelve en un sitio y se usa en otro, y el segundo se quedo
+  # atras. Se resuelve aqui igual que alli.
+  defp key_of({:system, var}) when is_binary(var), do: key_of(System.get_env(var))
+  defp key_of(key) when is_binary(key), do: nil_or(key)
+  defp key_of(_), do: nil
+
+  defp nil_or(""), do: nil
+  defp nil_or(key), do: key
 end

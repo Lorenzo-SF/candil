@@ -139,6 +139,75 @@ defmodule Candil.ProviderTest do
     end
   end
 
+  describe "auth_headers/1 con la clave en el entorno" do
+    # El fallo: `Hydrate` deja `api_key: {:system, "VAR"}` —una tupla— y las
+    # guardas de `auth_headers/1` pedian `is_binary(key)`. Una tupla no pasaba
+    # por ninguna, asi que la peticion salia **sin cabecera de autorizacion**:
+    # un 401 sin explicacion contra el proveedor que el usuario habia
+    # configurado bien. Medido el 2026-10-14.
+    setup do
+      System.put_env("CANDIL_TEST_PROVIDER_KEY", "sk-del-entorno")
+      on_exit(fn -> System.delete_env("CANDIL_TEST_PROVIDER_KEY") end)
+      :ok
+    end
+
+    defp con_env(tipo, extra \\ %{}) do
+      struct!(Provider, %{
+        alias: :p,
+        type: tipo,
+        base_url: "https://api.minimax.io/v1",
+        api_key: {:system, "CANDIL_TEST_PROVIDER_KEY"},
+        headers: []
+      })
+      |> then(&struct(&1, extra))
+    end
+
+    test "openai_compatible manda el bearer" do
+      headers = Provider.auth_headers(con_env(:openai_compatible))
+
+      assert {"authorization", "Bearer sk-del-entorno"} in headers
+      assert {"content-type", "application/json"} in headers
+    end
+
+    test "openai manda el bearer y conserva la org" do
+      headers = Provider.auth_headers(con_env(:openai, %{org_id: "org-1"}))
+
+      assert {"authorization", "Bearer sk-del-entorno"} in headers
+      assert {"openai-organization", "org-1"} in headers
+    end
+
+    test "anthropic manda x-api-key" do
+      headers = Provider.auth_headers(con_env(:anthropic))
+
+      assert {"x-api-key", "sk-del-entorno"} in headers
+      assert {"anthropic-version", "2023-06-01"} in headers
+    end
+
+    test "una clave literal sigue funcionando" do
+      # Lo de antes no se ha roto por arreglar lo de despues.
+      headers =
+        Provider.auth_headers(%Provider{
+          alias: :p,
+          type: :openai_compatible,
+          base_url: "u",
+          api_key: "sk-literal"
+        })
+
+      assert {"authorization", "Bearer sk-literal"} in headers
+    end
+
+    test "sin la variable puesta no se inventa una cabecera de autorizacion" do
+      # `nil` es «no hay autenticacion», que es lo que un servidor local
+      # quiere. Lo que no puede es mandar `Bearer ` con la clave vacia.
+      System.delete_env("CANDIL_TEST_PROVIDER_KEY")
+
+      headers = Provider.auth_headers(con_env(:openai_compatible))
+
+      refute Enum.any?(headers, fn {nombre, _} -> nombre == "authorization" end)
+      assert {"content-type", "application/json"} in headers
+    end
+  end
+
   describe "auth_headers/1" do
     test "returns correct headers for openai with org" do
       provider = %Provider{

@@ -319,6 +319,65 @@ defmodule Candil.Config.HydrateTest do
     end
   end
 
+  describe "el aviso solo avisa de lo que vino de usage" do
+    # El aviso de migracion recorria la lista de capacidades **ya unida**, que
+    # incluye lo que el usuario escribio en `capabilities`. O sea: decia
+    # «migra esto a capabilities» de algo que ya estaba en `capabilities`.
+    #
+    # Suena a tonto escrito, y lo es. Pero es el aviso que mas se lee del
+    # arranque, y el que hace ir a mirar el toml a quien no deberia.
+    import ExUnit.CaptureLog
+
+    test "quien escribe capabilities bien no recibe ni un aviso" do
+      log =
+        capture_log(fn ->
+          assert %{models: [:codigo]} =
+                   Hydrate.hydrate(%{
+                     "model" => %{
+                       "codigo" => %{
+                         "type" => "local",
+                         "engine" => "nope",
+                         "model_dir" => "/modelos",
+                         "filename" => "codigo.gguf",
+                         "usage" => ["chat"],
+                         "capabilities" => ["vision", "reasoning"]
+                       }
+                     }
+                   })
+        end)
+
+      # Que el log salga **vacio** es lo que hay que afirmar: no hay nada que
+      # migrar. Y esto no es un test que pasa por no mirar nada, porque el test
+      # de abajo comprueba que `capture_log` si recoge un aviso de verdad: si
+      # `capture_log` no funcionara, ese otro fallaria.
+      assert log == "", "avisa de migrar algo que ya esta en capabilities: #{inspect(log)}"
+
+      model = elem(Store.get_model(:codigo), 1)
+      assert model.usage == [:chat]
+      assert model.capabilities == [:vision, :reasoning]
+    end
+
+    test "y quien lo tiene en usage, si" do
+      log =
+        capture_log(fn ->
+          Hydrate.hydrate(%{
+            "model" => %{
+              "codigo" => %{
+                "type" => "local",
+                "engine" => "nope",
+                "model_dir" => "/modelos",
+                "filename" => "codigo.gguf",
+                "usage" => ["chat", "code"]
+              }
+            }
+          })
+        end)
+
+      assert log =~ "code"
+      assert log =~ "Migra a"
+    end
+  end
+
   describe "el catalogo real, sin tocar" do
     test "las cuatro combinaciones de usage del catalogo siguen arrancando" do
       # Estas son las que hay en `~/.config/candil/candil.toml` el 2026-10-14.
