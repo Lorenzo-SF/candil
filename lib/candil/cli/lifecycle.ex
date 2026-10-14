@@ -457,6 +457,7 @@ defmodule Candil.CLI.Lifecycle do
   defp json_row(row) do
     %{
       model: row.model,
+      gpu_layers: row.model && gpu_layers_of(to_alias(row.model)),
       port: row.port,
       pid: row.pid && inspect(row.pid),
       state: row.state,
@@ -469,7 +470,7 @@ defmodule Candil.CLI.Lifecycle do
 
   defp print_table(instances) do
     Table.print(
-      headers: ["SLOT", "PORT", "STATE", "MODEL", "PID", "UPTIME", "ENGINE", "OWNER"],
+      headers: ["GPU LAYERS", "PORT", "STATE", "MODEL", "PID", "UPTIME", "ENGINE", "OWNER"],
       rows: Enum.map(instances, &row/1),
       headers_color: :cyan,
       headers_effects: [:bold],
@@ -483,7 +484,7 @@ defmodule Candil.CLI.Lifecycle do
   # for it sends the user to debug the wrong thing.
   defp row(row) do
     [
-      slot(row.port),
+      gpu_layers(row.model),
       to_string(row.port),
       row.state,
       row.model,
@@ -505,9 +506,36 @@ defmodule Candil.CLI.Lifecycle do
     if Engine.healthy?(alias_name), do: "ON", else: "DOWN"
   end
 
-  # A slot is the number of hundreds in the port, which is the only thing that
-  # distinguishes a GPU instance from a CPU one in the default range.
-  defp slot(port), do: if(rem(port, 100) >= 90, do: "dGPU", else: "CPU")
+  # Lo que el puerto **no** dice, medido el 2026-10-14 sobre el catalogo real:
+  #
+  #     verifier   port 9998   tags ["cpu", "reasoning"]   decia "dGPU"
+  #     designer   port 9998   tags ["cpu", "reasoning"]   decia "dGPU"
+  #     coder      port 9999   tags ["gpu", "moe"]         decia "dGPU"
+  #
+  # Los seis modelos del catalogo caian en `rem(port, 100) >= 90`, asi que la
+  # columna decia "dGPU" **siempre**: no era una lectura del hardware, era un
+  # formato de puerto. Y se contradijia con las propias `tags` del fichero.
+  #
+  # Ahora dice lo que Candil sabe de verdad del modelo —cuantas capas van a
+  # GPU— y cuando no lo sabe dice que no lo sabe. Un `-1` significa «las que
+  # quepan», que **no** es lo mismo que «todas en la GPU», asi que se escribe
+  # asi y no "dGPU".
+  @doc false
+  def gpu_layers(alias_name) do
+    case alias_name |> to_alias() |> gpu_layers_of() do
+      nil -> "—"
+      0 -> "0 · CPU"
+      -1 -> "todas (-1), las que quepan"
+      n -> "#{n} de GPU"
+    end
+  end
+
+  defp gpu_layers_of(alias_name) do
+    case Store.get_model(alias_name) do
+      {:ok, model} -> model.gpu_layers
+      {:error, _} -> nil
+    end
+  end
 
   defp uptime(nil), do: "—"
   defp uptime(ms) when ms < 0, do: "—"
@@ -550,7 +578,25 @@ defmodule Candil.CLI.Lifecycle do
   # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
   defp to_alias(name), do: String.to_atom(name)
 
-  defp safe_alias(name), do: to_alias(name)
+  # Se llama `safe` porque **antes no lo era**: era exactamente `to_alias/1`, o
+  # sea `String.to_atom/1`. Un nombre con esta pinta puede venir de una linea de
+  # comandos, de un fichero de configuracion o de una instancia detached
+  # registrada; ninguno es un peer, pero ninguno esta tampoco garantizado, y
+  # un atomo creado con un string ajeno no se recoge nunca.
+  #
+  # Los alias de Candil **ya existen** como atomos —los creo `Hydrate` al
+  # cargar el catalogo—, asi que `to_existing_atom/1` los encuentra y solo
+  # devuelve `nil` para lo que no es un alias de verdad. Con eso, `stop_one/1`
+  # y `start_one/2` dicen «no such model» en vez de crear un atomo por cada
+  # nombre que alguien teclee.
+  @doc false
+  def safe_alias(name) when is_binary(name) do
+    String.to_existing_atom(name)
+  rescue
+    ArgumentError -> nil
+  end
+
+  def safe_alias(name) when is_atom(name), do: name
 
   defp report(reasons), do: Enum.each(reasons, &error/1)
 
