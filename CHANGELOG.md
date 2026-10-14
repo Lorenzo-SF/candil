@@ -7,7 +7,47 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **El circuit breaker de Candil no protegia nada, y el modulo lo anunciaba.**
+  Medido el 2026-10-14: **0 breakers registrados** al arrancar Candil, porque
+  `Arrea.CircuitBreaker.call/2` sobre un nombre sin registrar ejecuta la funcion
+  y ya esta. Y aunque se arreglara el registro, no abririan por dos motivos mas:
+  todos los destinos caian a `:default_breaker` —el host solo se aceptaba si ese
+  atomo ya existia en la VM, y ni `127.0.0.1` ni `api.openai.com` existen—, y
+  un error de red contaba como **exito**, porque `call/3` solo registra fallo
+  cuando la funcion **lanza**.
+
+  Ahora hay un circuito por destino, con dueno supervisado y arrancado bajo
+  demanda, y la politica de que cuenta como fallo esta escrita:
+
+  | Que pasa | Cuenta como fallo |
+  |---|---|
+  | **5xx** — el destino esta roto | si |
+  | **429** — le has pedido demasiado | si |
+  | **error de red, timeout, conexion rechazada** | si |
+  | **otros 4xx** — tu peticion estaba mal | **no** |
+  | excepcion | si |
+
+  5 fallos consecutivos y 30 000 ms abierto antes de dejar pasar una sonda —el
+  plazo de `Arrea.Command`, no uno inventado.
+
+  El **429 cuenta** y es el unico 4xx que cuenta: es el destino diciendo «baja
+  el ritmo», no tu peticion diciendo «esta mal». Y Candil ya lo reintentaba.
+
+- **Un destino que no esta en el catalogo se sirve sin circuito.** Ni un
+  circuito global compartido —un destino desconocido abria el de todos los
+  demas, que es lo que se probo primero y tumbaba media suite— ni un atomo por
+  peticion, que es un denial of service esperando a que alguien mande una URL.
+  Los circuitos se crean para los destinos de `candil.toml`, que es de donde
+  salen todas las URLs.
+
 ### Changed
+
+- **Dependencia `arrea` actualizada** a `7268233`, con el umbral de fallos
+  consecutivos arreglado y sus `@spec` corregidos —decian `atom()` y el codigo
+  mete el nombre en un `{:via, Registry, {_, name}}`, donde cabe cualquier
+  termino—.
 
 - **`usage` se parte en dos: endpoints y capacidades.** `usage` contestaba a
   dos preguntas distintas y el codigo las leia con dos semanticas: el

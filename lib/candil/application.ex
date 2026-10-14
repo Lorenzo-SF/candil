@@ -76,6 +76,10 @@ defmodule Candil.Application do
       # una cola que se cae no puede llevarse por delante los engines que
       # estan sirviendo.
       {DynamicSupervisor, name: Candil.Policy.Supervisor, strategy: :one_for_one},
+      # Un circuito por destino HTTP. Sin esto, `Arrea.CircuitBreaker.call/2`
+      # encuentra el nombre sin registrar y ejecuta la funcion sin proteccion
+      # ninguna: medido, 0 breakers registrados.
+      {DynamicSupervisor, name: Candil.HTTP.Breaker.Supervisor, strategy: :one_for_one},
       {DynamicSupervisor, name: Candil.EngineSupervisor, strategy: :one_for_one}
     ]
 
