@@ -18,7 +18,8 @@ defmodule Candil.CLI.Lifecycle do
 
   alias Alaja.Components.Table
   alias Alaja.Printer, as: Say
-  alias Candil.CLI.{Colorize, Detach, Ports, Preflight}
+  alias Candil.CLI.{Colorize, Detach, Ports}
+  alias Candil.Preflight
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
   alias Candil.Instances.Probe, as: Probe
 
