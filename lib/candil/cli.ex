@@ -181,8 +181,9 @@ defmodule Candil.CLI do
     run({Doctor, :run})
   end
 
-  command "stats", "What fraction of requests the routing policy resolved" do
-    flag(:json, :boolean, default: false, help: "machine-readable output, undecorated")
+  command "stats",
+          "What fraction of requests the routing policy resolved, and how each model is doing" do
+    flag(:quality, :boolean, default: false, help: "per-model quality: anomalies and retries")
 
     run({Candil.CLI.Stats, :run})
   end
