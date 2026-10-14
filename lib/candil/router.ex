@@ -150,8 +150,17 @@ defmodule Candil.Router do
   @spec pin(atom(), atom()) :: :ok | {:error, term()}
   def pin(consumer, model_alias) when is_atom(consumer) and is_atom(model_alias) do
     case Store.get_model(model_alias) do
-      {:ok, _model} -> Consumer.pin(consumer, model_alias)
-      {:error, :not_found} -> {:error, {:unknown_model, model_alias}}
+      {:ok, _model} ->
+        :ok = Consumer.pin(consumer, model_alias)
+        # Pinear cambia a donde va una peticion, asi que **invalida la cache**.
+        # Sin esto, `candil pin` no hace nada hasta que caduca el TTL, y la
+        # primera peticion tras el pin se va al modelo viejo desde la cache.
+        # Parecia funcionar y no hacia nada, que es la peor forma de fallar.
+        Cache.flush()
+        :ok
+
+      {:error, :not_found} ->
+        {:error, {:unknown_model, model_alias}}
     end
   end
 
@@ -159,7 +168,13 @@ defmodule Candil.Router do
   Removes a pin.
   """
   @spec unpin(atom()) :: :ok
-  def unpin(consumer), do: Consumer.unpin(consumer)
+  def unpin(consumer) do
+    :ok = Consumer.unpin(consumer)
+    # Por lo mismo que en `pin/2`: quitar un pin tambien cambia el destino, y
+    # una entrada cacheada seguiria mandando al modelo pineado.
+    Cache.flush()
+    :ok
+  end
 
   @doc """
   The pinned model for a consumer, if any.
