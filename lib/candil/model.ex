@@ -243,37 +243,38 @@ defmodule Candil.Model do
              valid_capabilities: [capability()],
              invalid: [binary()]
   def split_usage(values) when is_list(values) do
-    {endpoints, capabilities, invalid} =
-      Enum.reduce(values, {[], [], []}, fn value, {e, c, i} ->
-        name = to_string(value)
-
-        cond do
-          name in Enum.map(@usage_types, &Atom.to_string/1) ->
-            {[to_existing(value) | e], c, i}
-
-          name in Enum.map(@capability_types, &Atom.to_string/1) ->
-            {e, [to_existing(value) | c], i}
-
-          true ->
-            {e, c, [name | i]}
-        end
-      end)
-
-    {Enum.reverse(endpoints), Enum.reverse(capabilities), Enum.reverse(invalid)}
+    Enum.reduce(values, {[], [], []}, fn value, {e, c, i} ->
+      case atom_de(value) do
+        nil -> {e, c, [inspeccion(value) | i]}
+        v when v in @usage_types -> {[v | e], c, i}
+        v -> {e, [v | c], i}
+      end
+    end)
+    |> then(fn {e, c, i} -> {Enum.reverse(e), Enum.reverse(c), Enum.reverse(i)} end)
   end
 
-  # Los atomos de la lista ya existen —son `@usage_types` y `@capability_types`—
-  # asi que `String.to_existing_atom/1` es seguro y no crea nada. Un atomo
-  # desconocido se devuelve tal cual para que la comparacion de arriba lo
-  # rechace y no alimente una tabla de atomos.
-  defp to_existing(value) when is_atom(value) and not is_nil(value) and not is_boolean(value) do
-    if Atom.to_string(value) in Enum.map(@usage_types ++ @capability_types, &Atom.to_string/1),
-      do: value,
-      else: Atom.to_string(value)
-  end
+  def split_usage(otro), do: {[], [], [inspeccion(otro)]}
 
-  defp to_existing(value) when is_binary(value), do: String.to_existing_atom(value)
-  defp to_existing(value), do: value
+  # El atomo de un valor escrito, **solo si ya existe**: se busca en las dos
+  # listas de este modulo comparando el texto, no con `String.to_atom`, que
+  # crearia el atomo y lo dejaria en la tabla para siempre con un string que
+  # solo vino de un fichero.
+  #
+  # Y si el valor no es ni texto ni atomo —un mapa, una lista, un numero— no
+  # revienta: `to_string/1` sobre un mapa es un `Protocol.UndefinedError`, y un
+  # modulo que responde a "que te paso aqui" con un stack trace no ayuda a
+  # nadie.
+  defp atom_de(value) when is_atom(value) and not is_nil(value) and not is_boolean(value),
+    do: value
+
+  defp atom_de(value) when is_binary(value),
+    do: Enum.find(@usage_types ++ @capability_types, &(Atom.to_string(&1) == value))
+
+  defp atom_de(_otro), do: nil
+
+  defp inspeccion(value) when is_binary(value), do: value
+  defp inspeccion(value) when is_atom(value) and not is_nil(value), do: Atom.to_string(value)
+  defp inspeccion(value), do: inspect(value)
 
   @doc """
   Returns the full path to the model file on disk.

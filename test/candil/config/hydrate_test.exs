@@ -294,6 +294,31 @@ defmodule Candil.Config.HydrateTest do
     end
   end
 
+  describe "split_usage/1 con valores raros" do
+    # `to_string/1` sobre un mapa es un `Protocol.UndefinedError`. Como
+    # `split_usage/1` es publica, que reventara con un stack trace no ayuda a
+    # quien tiene un `usage` raro: ayuda un mensaje que diga que paso.
+    test "un mapa no revienta, vuelve como invalido" do
+      assert {[], [], ["%{\"chatt\" => 1}"]} = Model.split_usage([%{"chatt" => 1}])
+    end
+
+    test "un numero tampoco" do
+      assert {[], [], ["123"]} = Model.split_usage([123])
+    end
+
+    test "algo que no es una lista" do
+      assert {[], [], ["no es lista"]} = Model.split_usage("no es lista")
+    end
+
+    test "la lista vacia no es un error" do
+      assert {[], [], []} = Model.split_usage([])
+    end
+
+    test "los atomos tambien valen, que es como se construye un %Model{}" do
+      assert {[:chat], [:reasoning], []} = Model.split_usage([:chat, :reasoning])
+    end
+  end
+
   describe "el catalogo real, sin tocar" do
     test "las cuatro combinaciones de usage del catalogo siguen arrancando" do
       # Estas son las que hay en `~/.config/candil/candil.toml` el 2026-10-14.
