@@ -62,9 +62,17 @@ defmodule Candil.Inference do
 
   @type response :: %{
           content: binary(),
-          # El razonamiento, si el servidor lo manda en `reasoning_content`.
+          # El razonamiento, **venga de donde venga**: `message.reasoning_content`
+          # en OpenAI-compatible y llama.cpp, `message.thinking` en Ollama, y
+          # los bloques `{"type": "thinking"}` en Anthropic.
+          #
+          # El **nombre** lo decide el engine o el proveedor —`--reasoning-format`
+          # en llama.cpp, `think` en Ollama, `thinking` en la peticion de
+          # Anthropic—, asi que el campo es lo unico que Candil normaliza. Con
+          # `--reasoning-format none` llama.cpp deja los pensamientos **dentro de
+          # `content`**, y ahi no hay nada que separar: separarlo seria inventar.
+          #
           # `nil` cuando el modelo no razona, que es lo normal y no un fallo.
-          # Ver `Candil.Inference.Chat.parse_openai_response/1`.
           reasoning: binary() | nil,
           role: binary(),
           model: binary(),

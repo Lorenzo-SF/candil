@@ -34,6 +34,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   flag la respuesta **no trae** `reasoning_content` en absoluto, porque ese
   modelo no razona asi.
 
+- **El razonamiento se normaliza venga de donde venga.** El nombre del campo
+  **no lo decide Candil**, lo decide el engine o el proveedor, y son tres:
+
+  | de donde viene | donde esta el razonamiento |
+  |---|---|
+  | llama.cpp, vLLM, cualquier OpenAI-compatible | `message.reasoning_content` |
+  | Ollama | `message.thinking` |
+  | Anthropic | bloques `{"type": "thinking", "thinking": ...}` dentro de `content` |
+
+  `parse_anthropic_response/1` leia **solo** el primer bloque `"text"` y
+  tiraba el resto sin mirar que eran; con extended thinking enabled el
+  razonamiento es justo lo que viene antes, asi que se perdia entero. Y no se
+  quedaba con el primero: Claude trocea el pensamiento en varios bloques y
+  ahora se concatenan todos.
+
+  `parse_ollama_response/1` leia `content` y nada mas, y Ollama si separa el
+  razonamiento en `message.thinking`.
+
+  `response().reasoning` es el campo canonico y los tres dan al mismo sitio.
+  Un vacio se convierte en `nil`, porque un modelo que no razona no tiene un
+  razonamiento vacio: no tiene razonamiento.
+
 - **El circuit breaker de Candil no protegia nada, y el modulo lo anunciaba.**
   Medido el 2026-10-14: **0 breakers registrados** al arrancar Candil, porque
   `Arrea.CircuitBreaker.call/2` sobre un nombre sin registrar ejecuta la funcion

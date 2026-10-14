@@ -104,4 +104,88 @@ defmodule Candil.InferenceTest do
       assert respuesta.reasoning == ""
     end
   end
+
+  # Los otros dos proveedores, con la forma que devuelve cada uno. El campo
+  # canonico es el mismo; lo que cambia es el nombre, porque el nombre lo decide
+  # el engine o el proveedor y no Candil.
+  describe "el mismo campo canonico, venga de donde venga" do
+    test "Anthropic: bloques \"thinking\" concatenados" do
+      # Claude trocea el pensamiento en varios bloques y anade el texto
+      # despues. Quedarse con el primero seria tan falso como quedarse con
+      # ninguno.
+      body = %{
+        "role" => "assistant",
+        "model" => "claude",
+        "stop_reason" => "end_turn",
+        "content" => [
+          %{"type" => "thinking", "thinking" => "primero esto", "signature" => "sig"},
+          %{"type" => "thinking", "thinking" => "luego esto", "signature" => "sig2"},
+          %{"type" => "text", "text" => "la respuesta"}
+        ],
+        "usage" => %{"input_tokens" => 3, "output_tokens" => 5}
+      }
+
+      assert {:ok, respuesta} =
+               Chat.parse_anthropic_response({:ok, %{status: 200, body: body}})
+
+      assert respuesta.content == "la respuesta"
+      assert respuesta.reasoning == "primero esto\nluego esto"
+    end
+
+    test "Anthropic sin extended thinking: nil, no una cadena vacia" do
+      body = %{
+        "role" => "assistant",
+        "content" => [%{"type" => "text", "text" => "hola"}],
+        "stop_reason" => "end_turn"
+      }
+
+      assert {:ok, respuesta} =
+               Chat.parse_anthropic_response({:ok, %{status: 200, body: body}})
+
+      assert respuesta.content == "hola"
+      assert respuesta.reasoning == nil
+    end
+
+    test "Ollama: message.thinking" do
+      # Documentacion de Ollama, "Thinking": `message.thinking` lleva el
+      # razonamiento y `message.content` la respuesta.
+      body = %{
+        "model" => "deepseek-r1",
+        "message" => %{
+          "role" => "assistant",
+          "content" => "10 patas",
+          "thinking" => "cuento las patas"
+        },
+        "done" => true
+      }
+
+      assert {:ok, respuesta} = Chat.parse_ollama_response({:ok, %{status: 200, body: body}})
+
+      assert respuesta.content == "10 patas"
+      assert respuesta.reasoning == "cuento las patas"
+    end
+
+    test "Ollama sin thinking: nil" do
+      body = %{
+        "model" => "llama3",
+        "message" => %{"role" => "assistant", "content" => "hola"},
+        "done" => true
+      }
+
+      assert {:ok, respuesta} = Chat.parse_ollama_response({:ok, %{status: 200, body: body}})
+
+      assert respuesta.reasoning == nil
+    end
+
+    test "Ollama con thinking vacio: nil, no cadena vacia" do
+      body = %{
+        "message" => %{"role" => "assistant", "content" => "hola", "thinking" => ""},
+        "done" => true
+      }
+
+      assert {:ok, respuesta} = Chat.parse_ollama_response({:ok, %{status: 200, body: body}})
+
+      assert respuesta.reasoning == nil
+    end
+  end
 end
