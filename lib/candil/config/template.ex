@@ -212,12 +212,23 @@ defmodule Candil.Config.Template do
     #   # cual la da el clasificador. No se normaliza aqui.
     #   confidence_threshold = 0.70
     #   embedding_threshold  = 0.55
-    #   # Las reglas de palabras van aparte, en [router.rules], y su
-    #   # vocabulario es tuyo —el de las preguntas que te hacen de verdad.
-    #   #   [router.rules]
-    #   #   codigo     = "coder"
-    #   #   reasoning  = "verifier"
-    #   #   rapido     = "gpt4o"
+    #   # Las reglas de palabras van aparte, en [router.rules], y el vocabulario
+    #   # es tuyo —el de las preguntas que te hacen de verdad. Sin esto la capa
+    #   # usa un vocabulario ingles de reserva que no casa con tus prompts.
+    #   #
+    #   # Se indexa por ALIAS, no por categoria: escribir el alias es anadirlo.
+    #   # La forma de antes pedia configurar dos cosas —la categoria y a que
+    #   # alias iba— y una de las dos estaba en el codigo.
+    #   #
+    #   #   [router.rules.coder]
+    #   #   words = ["arregla", "bug", "compila", "test", "refactor"]
+    #   #
+    #   #   [router.rules.verificador]
+    #   #   words = ["analiza", "compara", "demuestra", "por que"]
+    #   #
+    #   # Ojo al punto por punto: una peticion tiene que casar con una fraccion
+    #   # de TU lista. Con tres palabras hacen falta dos; con veinte, cuatro. Un
+    #   # vocabulario mas rico hace la capa MAS DIFICIL, no mas facil.
     #
     # ── provider.<nombre> ───────────────────────────────────────────────────
     #

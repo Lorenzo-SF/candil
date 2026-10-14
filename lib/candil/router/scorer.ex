@@ -117,10 +117,12 @@ defmodule Candil.Router.Scorer do
   —o sin que haya algo registrado con ese nombre— la capa devuelve `:miss`.
   """
   @spec score([map()], [atom()], layer(), map()) :: result()
-  def score(messages, candidates, :rule, _settings) do
+  def score(messages, candidates, :rule, settings) do
+    rules = configured_rules(settings)
+
     ranked =
       candidates
-      |> Enum.map(fn alias -> {alias, rule_score(messages, alias)} end)
+      |> Enum.map(fn alias -> {alias, rule_score(messages, alias, rules)} end)
       |> Enum.reject(fn {_alias, score} -> score == 0.0 end)
       |> Enum.sort_by(&elem(&1, 1), :desc)
 
@@ -178,17 +180,85 @@ defmodule Candil.Router.Scorer do
   The rule score of one model: matched keywords over rule size.
   """
   @spec rule_score([map()], atom()) :: float()
-  def rule_score(messages, model_alias) do
+  def rule_score(messages, model_alias, rules \\ nil) do
     text = prompt_text(messages)
     lowered = String.downcase(text)
 
-    @rules
-    |> Enum.filter(fn {category, _words} -> target_for(category) == model_alias end)
-    |> Enum.map(fn {_category, words} ->
-      hits = Enum.count(words, &String.contains?(lowered, &1))
-      hits / length(words)
+    (rules || default_rules_map())
+    |> words_for(model_alias)
+    |> case do
+      [] -> 0.0
+      words -> Enum.count(words, &String.contains?(lowered, &1)) / length(words)
+    end
+  end
+
+  # Las palabras de UN alias, del mapa que toque.
+  defp words_for(map, model_alias) do
+    case Map.get(map, model_alias) do
+      words when is_list(words) -> Enum.filter(words, &is_binary/1)
+      _other -> []
+    end
+  end
+
+  # El vocabulario que sale de `[router.rules.<alias>] words = [...]`.
+  #
+  # Se **indexa por alias y no por categoria** a proposito: el `@rules` viejo
+  # tenia dos niveles —categoria, y categoria -> alias en `@default_rules`— y
+  # eso obligaba a configurar **dos** cosas para anadir un modelo. Con una sola,
+  # escribir el alias es anadirlo. Y las dos cosas que se configuraban una era
+  # codigo.
+  #
+  # Un `@rules` que se queda aqui es lo que se usa cuando no hay `[router.rules]`.
+  # Sigue siendo el comportamiento de antes, y sigue siendo el que no se puede
+  # tocar; la diferencia es que ahora hay una manera de tocarlo.
+  defp configured_rules(%{rules: rules}) when is_map(rules) do
+    # Un alias del toml que no exista como atomo **se descarta**, no se crea.
+    # El Store ya hizo sus atomos al leer el toml de modelos; si uno de aqui no
+    # esta, es que no hay ningun modelo con ese nombre y la regla no tiene a
+    # quien aplicarse. Crear el atomo seria inventar un destino, y ademas
+    # initions las llama con `existing/1`, no con `to_atom/1`: un `to_atom`
+    # aqui es un `String.to_atom` por peticion disfrazado.
+    rules
+    |> Enum.flat_map(fn {alias, value} ->
+      case existing(alias) do
+        {:ok, atom} -> [{atom, words_of(value)}]
+        :error -> []
+      end
     end)
-    |> Enum.max(fn -> 0.0 end)
+    |> Map.new()
+  end
+
+  defp configured_rules(_settings), do: nil
+
+  # Del toml llegan DOS formas y las dos valen:
+  #
+  #     [router.rules.coder]              -> %{"coder" => %{"words" => [...]}}
+  #     rules = { coder = [...] }         -> %{coder: [...]}
+  #
+  # Aceptar las dos no es laxitud: la primera es la que dice la plantilla, y la
+  # segunda es la que sale de un `rules = {...}` a pelo. Exigir una sola obliga
+  # a quien escribe el fichero a recordar cual de las dos es.
+  defp words_of(%{"words" => words}) when is_list(words), do: words
+  defp words_of(words) when is_list(words), do: words
+  defp words_of(_other), do: []
+
+  # El toml trae strings; los alias son atomos de verdad, los que estan en el
+  # Store. Un alias inventado aqui crearia un atomo por peticion.
+  defp existing(name) when is_atom(name), do: {:ok, name}
+
+  defp existing(name) when is_binary(name) do
+    {:ok, String.to_existing_atom(name)}
+  rescue
+    ArgumentError -> :error
+  end
+
+  # `@rules` + `@default_rules` aplanados a `{alias => palabras}`, que es la
+  # forma que entiende `words_for/2`.
+  defp default_rules_map do
+    @rules
+    |> Enum.reduce(%{}, fn {category, words}, acc ->
+      Map.update(acc, target_for(category), words, &(&1 ++ words))
+    end)
   end
 
   @doc """
