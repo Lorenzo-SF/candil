@@ -52,6 +52,14 @@ defmodule Candil.Router do
               # parece a uno que decide con la misma informacion, y la
               # diferencia se descubre cuando ya no enruta bien.
               degraded: [],
+              # QUE CAPAS CORRIERON, en orden. No es decoracion: es lo que
+              # faltaba para que «la cache se come el forzado» se viera en la
+              # primera peticion y no en tres horas de mediciones.
+              #
+              # Se documenta como lo que CORRIO, no como lo que alguien queria
+              # que corriera: un `force_strategy` que se respeta mal es
+              # justamente el bug que la hizo necesaria.
+              layers_ran: [],
               confidence: :full,
               timestamp: nil
 
