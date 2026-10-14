@@ -21,7 +21,7 @@ defmodule Candil.Router.DecisionRulesTest do
       score: 0.5,
       reason: "no layer cleared its threshold",
       alternatives: [],
-      degraded: [],
+      confidence_reasons: [],
       confidence: :full,
       timestamp: DateTime.utc_now()
     }
@@ -111,7 +111,7 @@ defmodule Candil.Router.DecisionRulesTest do
       # El veto manda. Un `prefer` de diez puntos no resucita a un vetado: es
       # la regla de D-09 puesta en el sitio donde se puede comprobar.
       assert d.model_alias == :otro
-      assert d.degraded != []
+      assert d.confidence_reasons != []
     end
 
     test "veto quita el modelo aunque una regla anterior lo forzara" do

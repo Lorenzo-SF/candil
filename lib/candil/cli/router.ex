@@ -55,8 +55,8 @@ defmodule Candil.CLI.Router do
     Say.print("   confianza   #{decision.confidence}")
     Say.print("   reason      #{decision.reason}")
 
-    if decision.degraded != [] do
-      Say.print_warning("   NO se miraron: #{Enum.join(decision.degraded, ", ")}")
+    if decision.confidence_reasons != [] do
+      Say.print_warning("   NO se miraron: #{Enum.join(decision.confidence_reasons, ", ")}")
     end
 
     unless decision.alternatives == [] do

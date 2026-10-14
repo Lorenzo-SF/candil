@@ -97,6 +97,33 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`Decision.degraded` pasa a llamarse `Decision.confidence_reasons`, y
+  `confidence` tiene tres niveles.** Antes `confidence` era `:full | :degraded`,
+  y `:degraded` no distinguia dos cosas que al consumidor le importan de forma
+  distinta:
+
+  ```elixir
+  confidence: :full | :reduced | :minimal
+  confidence_reasons: [:embedding]        # qué capas faltaron, como átomos
+  reason: "…"                             # la prosa, para leerla
+  ```
+
+  - `:reduced` — se saltó el embedder pero una regla bastó. **Cosmético.**
+  - `:minimal` — dos o más capas se saltaron. **Sustantivo.**
+
+  `confidence_reasons` es una **lista de átomos, no prosa**, a propósito: un
+  cliente que quiera alertar sobre «se saltó el embedder» compara una lista, y
+  no hace `String.contains?(reason, "embedding")`, que se rompe el día que el
+  mensaje se escribe distinto y no se entera hasta que deja de funcionar.
+
+  **Si dependías de `degraded`:** pasa a `confidence_reasons`. Y si contabas
+  con dos niveles de confianza, `:degraded` ahora es `:reduced` **o** `:minimal`
+  según cuántas capas se saltaran — que es justo lo que antes no se podía saber.
+
+- **La confianza del gateway ahora lleva los tres**, no solo `confidence`: un
+  cliente programático necesita `confidence_reasons` para decidir si reintenta,
+  y esa decisión puede ser automática.
+
 - **Las fases que decía el código no eran las del plan.** Los stubs de
   `Candil.RAG` ponían «phase 10» y los de `Candil.MCP` «phase 9», del orden
   anterior a la renumeración del 2026-10-11: **RAG es la 6 y MCP la 7**. No es

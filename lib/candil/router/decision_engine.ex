@@ -139,7 +139,7 @@ defmodule Candil.Router.DecisionEngine do
         model: decision.model_alias,
         consumer: consumer,
         score: decision.score,
-        degraded: decision.degraded,
+        confidence_reasons: decision.confidence_reasons,
         confidence: decision.confidence,
         layers_ran: layers,
         # `:llm in layers` y NO `decision.strategy == :llm`. El clasificador
@@ -235,7 +235,7 @@ defmodule Candil.Router.DecisionEngine do
        score: 0.5,
        reason: "no layer cleared its threshold; fell back to #{inspect(strategy)}",
        alternatives: [],
-       degraded: degraded,
+       confidence_reasons: degraded,
        confidence: confidence(degraded),
        timestamp: DateTime.utc_now()
      }}
@@ -303,7 +303,7 @@ defmodule Candil.Router.DecisionEngine do
              score: 1.0,
              reason: "forzado a mano con --model #{alias}; el resto de capas ni se miran",
              alternatives: List.delete(candidates, alias),
-             degraded: degraded,
+             confidence_reasons: degraded,
              confidence: confidence(degraded),
              timestamp: DateTime.utc_now()
            }}
@@ -334,7 +334,7 @@ defmodule Candil.Router.DecisionEngine do
            strategy: :pinned,
            score: 1.0,
            reason: "pin de #{consumer} a #{pinned_alias}; gana a todas las capas",
-           degraded: degraded,
+           confidence_reasons: degraded,
            confidence: confidence(degraded),
            timestamp: DateTime.utc_now()
          }}
@@ -350,7 +350,7 @@ defmodule Candil.Router.DecisionEngine do
            score: 1.0,
            reason:
              "este consumidor solo tiene un candidato, #{only}; no hay pin ni decision que tomar",
-           degraded: degraded,
+           confidence_reasons: degraded,
            confidence: confidence(degraded),
            timestamp: DateTime.utc_now()
          }}
@@ -507,7 +507,7 @@ defmodule Candil.Router.DecisionEngine do
              score: score,
              reason: reason,
              alternatives: rest,
-             degraded: degraded,
+             confidence_reasons: degraded,
              confidence: confidence(degraded),
              timestamp: DateTime.utc_now()
            }}
@@ -572,8 +572,17 @@ defmodule Candil.Router.DecisionEngine do
   # Confianza degradada, scores SIN renormalizar. Renormalizar haria que un
   # modelo con 0.2 pareciera competir con uno de 0.9, que es mentir sobre lo
   # poco que se sabe.
+  # Tres niveles, y no dos, porque `:reduced` no distingue dos cosas que al
+  # consumidor le importan de forma distinta:
+  #
+  #   · se salto el embedder pero una regla baso ........ reduction COSMETICA
+  #   · ninguna capa barata savio y se cayo al default .... reduction SUSTANTIVA
+  #
+  # Con dos niveles los dos eran `:degraded` y no habia forma de separarlos sin
+  # leer `reason`, que es prosa.
   defp confidence([]), do: :full
-  defp confidence(_degraded), do: :degraded
+  defp confidence([_una]), do: :reduced
+  defp confidence(_dos_o_mas), do: :minimal
 
   defp embedder_available? do
     Store.list_models()

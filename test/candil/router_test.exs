@@ -276,8 +276,8 @@ defmodule Candil.RouterTest do
       assert {:ok, decision} =
                Router.DecisionEngine.decide(@code, [:coder, :verifier], consumer: :test_consumer)
 
-      assert decision.confidence == :degraded
-      assert :embedding in decision.degraded
+      assert decision.confidence == :reduced
+      assert :embedding in decision.confidence_reasons
       assert decision.model_alias == :coder
     end
 
@@ -286,7 +286,7 @@ defmodule Candil.RouterTest do
                Router.DecisionEngine.decide(@code, [:coder, :verifier], consumer: :test_consumer)
 
       assert decision.confidence == :full
-      assert decision.degraded == []
+      assert decision.confidence_reasons == []
     end
 
     test "los scores NO se renormalizan al degradar" do
@@ -299,7 +299,7 @@ defmodule Candil.RouterTest do
                Router.DecisionEngine.decide(@code, [:coder, :verifier], consumer: :test_consumer)
 
       assert decision.score < 1.0
-      assert decision.confidence == :degraded
+      assert decision.confidence == :reduced
     end
   end
 

@@ -51,7 +51,14 @@ defmodule Candil.Router do
               # router que decide con menos informacion y no lo dice se
               # parece a uno que decide con la misma informacion, y la
               # diferencia se descubre cuando ya no enruta bien.
-              degraded: [],
+              # QUE CAPAS FALTARON, como atomos. Antes se llamaba `degraded` y
+              # solo significaba «se salto una capa», sin decir cuales.
+              #
+              # Es un enum y no prosa a proposito: un cliente que quiera
+              # alertar sobre «se salto el embedder» compara una lista, no
+              # hace `String.contains?(reason, "embedding")` y descubre el
+              # cambio cuando el mensaje se escribe distinto.
+              confidence_reasons: [],
               # QUE CAPAS CORRIERON, en orden. No es decoracion: es lo que
               # faltaba para que «la cache se come el forzado» se viera en la
               # primera peticion y no en tres horas de mediciones.
@@ -75,8 +82,8 @@ defmodule Candil.Router do
             score: float(),
             reason: String.t() | nil,
             alternatives: [{atom(), float()}],
-            degraded: [:rule | [atom()]],
-            confidence: :full | :degraded,
+            confidence_reasons: [atom()],
+            confidence: :full | :reduced | :minimal,
             timestamp: DateTime.t() | nil
           }
   end
