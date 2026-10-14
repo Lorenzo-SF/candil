@@ -98,7 +98,7 @@ defmodule Candil.Router do
     with {:ok, candidates} <- resolve_candidates(consumer, opts),
          {:ok, decision} <-
            DecisionEngine.decide(messages, candidates, opts) do
-      Cache.put(messages, decision, consumer: consumer)
+      Cache.put(messages, decision, Keyword.put(opts, :consumer, consumer))
       {:ok, decision}
     end
   end
