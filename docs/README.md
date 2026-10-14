@@ -175,6 +175,7 @@ las tres veces.
 | [`06-capacidad-y-politica`](06-capacidad-y-politica/) | **qué es una capacidad y quién va primero** |
 | [`07-local-aparcado`](07-local-aparcado/) | el trabajo local, con su estado y su motivo |
 | [`08-decisiones`](08-decisiones/) | **qué se decidió, cuándo, por qué y qué costó** |
+| [`BITACORA-CANDIL.md`](BITACORA-CANDIL.md) | **los ocho errores de una sesión** y lo que se aprendió de cada uno. Un registro que solo dice aciertos no se lee |
 | [`09-deuda-y-pendientes`](09-deuda-y-pendientes/) | **deuda, problemas abiertos, y lo que falta por probar** |
 
 **Si acabas de llegar y tienes una máquina delante, empieza por
