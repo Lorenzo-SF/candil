@@ -171,8 +171,8 @@ defmodule Candil.Gateway.EndToEndTest do
   # Las dos formas estan **comprobadas**, no supuestas: `:httpc` tiene
   # `request/1,2,4,5` y el body va en `Options` como `body:`. Adivinar la firma
   # es el error nº 7 de la bitacora, y aqui se ha repetido dos veces.
-  defp request(method, url, body \\ nil) do
-    headers = if body, do: [{"content-type", "application/json"}], else: []
+  defp request(method, url, body \\ nil, extra \\ []) do
+    headers = if body, do: [{"content-type", "application/json"} | extra], else: extra
     payload = if body, do: Jason.encode!(body), else: nil
 
     case Finch.request(Finch.build(method, url, headers, payload), Finch) do
@@ -186,7 +186,7 @@ defmodule Candil.Gateway.EndToEndTest do
 
   defp get(url), do: request(:get, url)
 
-  defp post(url, body), do: request(:post, url, body)
+  defp post(url, body, headers \\ []), do: request(:post, url, body, headers)
 
   defp chat(url, extra \\ %{}) do
     post(url, Map.merge(%{messages: [%{role: "user", content: "hola"}]}, extra))
@@ -286,6 +286,84 @@ defmodule Candil.Gateway.EndToEndTest do
       # `total` de D-04.
       assert status == 404
       assert body["error"]["message"] =~ "no_existe_este_consumer"
+    end
+  end
+
+  # LO QUE COMPRUEBAN: que la peticion llega al router con la capa forzada, que
+  # una capa que no existe es un 400 que la nombra, y —desde el arreglo de la
+  # clave de cache— que **la cache no se come el forzado**.
+  describe "forzar la capa desde la llamada" do
+    test "la cabecera X-Candil-Strategy corre esa capa y solo esa", %{gw: gw} do
+      {status, body} =
+        request(
+          :post,
+          gw <> "/v1/chat/completions",
+          %{model: "auto", messages: [%{role: "user", content: "hola"}]},
+          [{"x-candil-strategy", "rule"}]
+        )
+
+      assert status == 200
+      # Un prompt que **no** se ha usado antes en este test: la cache esta
+      # encendida y una peticion repetida se corta ANTES de la capa forzada —
+      # que no es un fallo, es lo que hace una cache, pero hace que este test
+      # midiera otra cosa.
+      assert body["candil"]["routed"] == true
+    end
+
+    test "el campo del cuerpo tambien, y gana si estan los dos", %{gw: gw} do
+      {status, body} =
+        post(
+          gw <> "/v1/chat/completions",
+          %{
+            model: "auto",
+            messages: [%{role: "user", content: "hola"}],
+            candil: %{strategy: "embedding"}
+          }
+        )
+
+      assert status == 200
+      # Jason codifica los atomos como strings: `decision.strategy` es un atomo y
+      # por el cable sale `"embedding"`. Comparar con el atomo hacia pasar el
+      # test por el motivo equivocado.
+      assert body["candil"]["routed"] == true
+      # Antes de arreglar la clave, aqui salia `[:cache]`: la cache se
+      # consultaba antes que la capa forzada y se llevaba la peticion. Pedir
+      # «esta va por embeddings» no hacia nada.
+      #
+      # Ahora la clave incluye los flags: son **dos entradas distintas** de la
+      # misma peticion, y la forzada no la comparte con la del `auto`. Lo que
+      # se comprueba aqui es justo que la cache NO se cuela.
+      refute Candil.Telemetry.Decisions.last_layers() == [:cache]
+    end
+
+    test "una capa que no existe es un 400, no un silencio", %{gw: gw} do
+      {status, body} =
+        post(
+          gw <> "/v1/chat/completions",
+          %{
+            model: "auto",
+            messages: [%{role: "user", content: "hola"}],
+            candil: %{strategy: "magia"}
+          }
+        )
+
+      # Pedir una capa que no existe y recibir otra **sin enterarse** es peor que
+      # una que se equivoca diciendo: por eso 400 y no 200 con lo de siempre.
+      assert status == 400
+      assert body["error"]["message"] =~ "magia"
+    end
+
+    test "sin forzar, corre la escalera de siempre", %{gw: gw} do
+      Candil.Telemetry.Decisions.reset()
+
+      {status, body} = chat(gw <> "/v1/chat/completions", %{model: "auto"})
+
+      assert status == 200
+      assert body["candil"]["routed"] == true
+      # Sin `[router.rules]` en la maquina de pruebas la capa :rule se salta, y
+      # sin embedder la de :embedding tambien: aqui solo se ve que **no** hay
+      # forzado.
+      refute Candil.Telemetry.Decisions.last_layers() == [:embedding]
     end
   end
 

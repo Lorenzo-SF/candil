@@ -52,6 +52,14 @@ defmodule Candil.Router do
               # parece a uno que decide con la misma informacion, y la
               # diferencia se descubre cuando ya no enruta bien.
               degraded: [],
+              # QUE CAPAS CORRIERON, en orden. No es decoracion: es lo que
+              # faltaba para que «la cache se come el forzado» se viera en la
+              # primera peticion y no en tres horas de mediciones.
+              #
+              # Se documenta como lo que CORRIO, no como lo que alguien queria
+              # que corriera: un `force_strategy` que se respeta mal es
+              # justamente el bug que la hizo necesaria.
+              layers_ran: [],
               confidence: :full,
               timestamp: nil
 
@@ -98,7 +106,7 @@ defmodule Candil.Router do
     with {:ok, candidates} <- resolve_candidates(consumer, opts),
          {:ok, decision} <-
            DecisionEngine.decide(messages, candidates, opts) do
-      Cache.put(messages, decision, consumer: consumer)
+      Cache.put(messages, decision, Keyword.put(opts, :consumer, consumer))
       {:ok, decision}
     end
   end
@@ -232,7 +240,20 @@ defmodule Candil.Router do
     # `nil` = la capa usa su vocabulario de reserva. Ausente es **inerte**, y
     # tiene que serlo: una capa que decide por su cuenta con unas reglas que
     # nadie ha puesto es lo contrario de configurable.
-    rules: nil
+    rules: nil,
+    # Que pasa cuando NINGUNA capa sabe. `:last` es el defecto y es lo que
+    # habia siempre: el ultimo candidato, que es lo que el consumer declaro
+    # como default. Se cambia desde `[router]`.
+    fallback: :last,
+    # Las reglas de DECISION: declarativas, con condicion sobre lo que ya ha
+    # pasado y una accion sobre el veredicto. `[router.decision]`.
+    #
+    # Distinto de `rules:` —que es el DICCIONARIO de palabras de la capa
+    # `:rule`—. Aqui no hay vocabulario: hay `when` y hay `force`/`prefer`/`veto`.
+    # En SINGULAR, que es como lo escribe el toml: `[[router.decision]]`. Con
+    # `decisions` aqui, el `Map.take` de `config_settings/0` se lo lleva entero y
+    # las reglas desaparecen sin decir nada —que es lo que hacia esta pieza.
+    decision: []
   }
 
   @spec settings() :: map()

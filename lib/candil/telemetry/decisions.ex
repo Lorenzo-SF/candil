@@ -49,6 +49,7 @@ defmodule Candil.Telemetry.Decisions do
 
   @table __MODULE__
   @key :__counters__
+  @last_layers :__last_layers__
 
   # ── API ───────────────────────────────────────────────────────────────────
 
@@ -63,6 +64,23 @@ defmodule Candil.Telemetry.Decisions do
       nil -> empty()
       snapshot -> snapshot
     end
+  end
+
+  @doc """
+  Que capas se ejecutaron en la **ultima** decision.
+
+  Para cuando la cifra no basta: saber *cuantas* se resolvieron dice cuanto; saber
+  *cuales* corrieron dice por que. Un `1` con `[:embedding]` forced y un `1` con
+  la escalera entera son el mismo numero y son dos motores distintos.
+  """
+  @spec last_layers() :: [atom()]
+  def last_layers do
+    case :ets.lookup(@table, @last_layers) do
+      [{_, layers}] -> layers
+      _other -> []
+    end
+  rescue
+    ArgumentError -> []
   end
 
   @doc """
@@ -170,6 +188,13 @@ defmodule Candil.Telemetry.Decisions do
           end)
 
         :ets.insert(@table, {@key, nuevo})
+        # El rastro se lee de los **metadatos del evento**, que es donde
+        # `DecisionEngine` lo deja. Leerlo del diccionario de procesos con una
+        # clave propia no encuentra nada: la bandera vive bajo
+        # `{Candil.Router.DecisionEngine, :layers_ran}` y aqui se estaria
+        # mirando `{Candil.Telemetry.Decisions, :layers_ran}`, que no existe.
+        # Sale vacio y parece que ninguna capa corrio.
+        :ets.insert(@table, {@last_layers, meta[:layers_ran] || []})
         :ok
     end
   end

@@ -13,7 +13,7 @@ defmodule Candil.Router.DecisionEngine do
   """
 
   alias Candil.{Error, Router, Store}
-  alias Candil.Router.{Cache, Consumer, Decision, Scorer}
+  alias Candil.Router.{Cache, Consumer, Decision, DecisionRules, Fallback, Scorer}
   alias Candil.Telemetry
 
   # Que capas se han probed de verdad en ESTA decision. Una bandera de proceso,
@@ -60,7 +60,7 @@ defmodule Candil.Router.DecisionEngine do
              :miss <- cached(messages, opts, settings),
              :miss <- pinned(consumer(opts), candidates, degraded),
              :miss <- forced(messages, candidates, opts, settings, degraded),
-             :miss <- by_rules(messages, candidates, settings, degraded) do
+             :miss <- by_rules(messages, candidates, settings, degraded, forced_layer) do
           # `||` NO vale aqui: solo funciona con booleanos, y estas capas devuelven
           # `:miss` o una tupla. Un `||` sobre `:miss` revienta con BadBooleanError
           # en la PRIMERA peticion que llega a la capa de embeddings.
@@ -69,14 +69,47 @@ defmodule Candil.Router.DecisionEngine do
             other -> other
           end
         end
-        |> finish(messages, candidates, settings, degraded)
+        |> finish(messages, candidates, settings, degraded, consumer(opts))
 
-      announce(result, consumer(opts), started)
-      result
+      result = aplicar_reglas(result, candidates, consumer(opts), settings)
+
+      resultado = con_traza(result)
+
+      announce(resultado, consumer(opts), started)
+      resultado
     after
       Process.delete(@layers_ran)
     end
   end
+
+  # Las reglas de decision se aplican DESPUES de que las capas opinen, y antes
+  # de anunciar nada: si una regla cambia el veredicto, el evento del tribunal
+  # tiene que llevar el veredicto final. Un evento que dice `:rule` y una
+  # respuesta que fue forzada a mano son dos verdades sobre la misma peticion.
+  defp aplicar_reglas(result, candidates, consumer, settings) do
+    case result do
+      {:ok, decision} ->
+        case DecisionRules.from_config(settings) do
+          [] ->
+            result
+
+          rules ->
+            case DecisionRules.apply(rules, decision, consumer, candidates) do
+              {:ok, cambiada} -> {:ok, cambiada}
+              {:error, reason} -> {:error, reason}
+            end
+        end
+
+      _otra ->
+        result
+    end
+  end
+
+  defp con_traza({:ok, decision}) do
+    {:ok, %{decision | layers_ran: Process.get(@layers_ran, [])}}
+  end
+
+  defp con_traza(otra), do: otra
 
   # ── La metrica del tribunal ──────────────────────────────────────────────
   #
@@ -134,17 +167,32 @@ defmodule Candil.Router.DecisionEngine do
     if embedder_available?(), do: [], else: [:embedding]
   end
 
-  defp finish({:ok, decision}, _messages, _candidates, _settings, _degraded), do: {:ok, decision}
+  defp finish({:ok, decision}, _messages, _candidates, _settings, _degraded, _consumer),
+    do: {:ok, decision}
 
   # La capa LLM encendida y sin modelo se propaga TAL CUAL. Sin esta clausula
   # el error caia en el `FunctionClauseError` de abajo, que es peor que el
   # fallo que queria comunicar: el llamante recibia un crash por una capa
   # apagada, en vez de un `{:classifier_unavailable, error}` con el motivo.
-  defp finish({:classifier_unavailable, error}, _messages, _candidates, _settings, _degraded),
-    do: {:classifier_unavailable, error}
+  defp finish(
+         {:classifier_unavailable, error},
+         _messages,
+         _candidates,
+         _settings,
+         _degraded,
+         _consumer
+       ),
+       do: {:classifier_unavailable, error}
 
-  defp finish({:model_not_eligible, error}, _messages, _candidates, _settings, _degraded),
-    do: {:error, error}
+  defp finish(
+         {:model_not_eligible, error},
+         _messages,
+         _candidates,
+         _settings,
+         _degraded,
+         _consumer
+       ),
+       do: {:error, error}
 
   # Una capa que se ha roto de verdad —un embedder con vectores de otra
   # dimensión, un clasificador que revienta— corta aqui, y se dice cual era. Un
@@ -152,19 +200,27 @@ defmodule Candil.Router.DecisionEngine do
   # mal y no lo dice: si no, esa decision con un 0.0 de similitud es
   # indistinguible de una decision en la que la capa funciono y no se parecio
   # nada.
-  defp finish({:error, reason}, _messages, _candidates, _settings, _degraded),
+  defp finish({:error, reason}, _messages, _candidates, _settings, _degraded, _consumer),
     do: {:error, reason}
 
-  defp finish(:miss, _messages, candidates, _settings, degraded) do
-    # The last candidate, not the first. The list is ordered most preferred
-    # first, and when nothing scored, the most conservative choice is the one
-    # the consumer listed last as its default.
+  defp finish(:miss, _messages, candidates, settings, degraded, consumer) do
+    # Cuando nada puntua. Antes esto era `List.last(candidates)` y punto: el
+    # ultimo de la lista, escrito como si fuera una politica. Medido, es la
+    # decision que MAS veces se toma —74 de 84 peticiones reales—, asi que lo
+    # que hay debajo del enrutado no es un resto, es la mayor parte.
+    #
+    # Ahora sale de `[router] fallback`, y el `reason` dice **que** se uso, para
+    # que un `:default`|round_robin` no se lea igual que un `:default`|last`.
+    strategy = Fallback.configured(settings)
+
+    {:ok, model_alias} = Fallback.pick(strategy, candidates, consumer)
+
     {:ok,
      %Decision{
-       model_alias: List.last(candidates),
+       model_alias: model_alias,
        strategy: :default,
        score: 0.5,
-       reason: "no layer cleared its threshold; fell back to the default",
+       reason: "no layer cleared its threshold; fell back to #{inspect(strategy)}",
        alternatives: [],
        degraded: degraded,
        confidence: confidence(degraded),
@@ -183,7 +239,7 @@ defmodule Candil.Router.DecisionEngine do
         :miss
 
       true ->
-        case Cache.get(messages, consumer(opts)) do
+        case Cache.get(messages, consumer(opts), opts) do
           {:ok, decision} ->
             # La cache se marca como capa consultada, y el evento la dice.
             #
@@ -305,8 +361,22 @@ defmodule Candil.Router.DecisionEngine do
     end
   end
 
-  defp by_rules(messages, candidates, settings, degraded) do
-    decide_by(messages, candidates, :rule, settings, degraded)
+  # `forced_layer` se mira aqui por la **misma** razon que en
+  # `by_embeddings/5`: `force_strategy` significa «corre ESTA capa», y si la
+  # capa forzada ya corrio y no paso su umbral, volver a correr otra capa no es
+  # «intentar otra vez», es **ignorar lo que se pidio**.
+  #
+  # Sin esto se median dos rastros que no son verdad: forzando `:rule` salia
+  # `[:rule, :rule, :embedding]` —las reglas dos veces— y forzando `:embedding`
+  # salia `[:embedding, :rule]`, con la capa de reglas entrando igual. Y
+  # `[:candil, :router, :decision]` documenta que su `:layers_ran` son las capas
+  # que **corrieron**, no las que alguien queria que corrieran.
+  defp by_rules(messages, candidates, settings, degraded, forced_layer) do
+    if forced_layer == :rule do
+      :miss
+    else
+      decide_by(messages, candidates, :rule, settings, degraded)
+    end
   end
 
   defp by_embeddings(messages, candidates, settings, degraded, forced_layer) do

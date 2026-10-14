@@ -53,7 +53,8 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
   defp handle(conn, context) do
     with {:ok, body} <- read_json(conn),
          {:ok, messages} <- messages(body),
-         {:ok, model_alias, decision} <- resolve(body["model"], messages, context) do
+         {:ok, capa} <- capa_forzada(conn, body),
+         {:ok, model_alias, decision} <- resolve(body["model"], messages, context, capa) do
       with {:ok, response} <- infer(model_alias, messages, body),
            {:ok, model} <- fetch(model_alias) do
         {:ok, envelope(response, model_alias, decision, model)}
@@ -61,10 +62,63 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
     end
   end
 
+  # ── forzar la capa ───────────────────────────────────────────────────────
+
+  # Que un cliente diga **que capa quiere**, sin tocar la configuracion global.
+  #
+  # Y que corra **esa y solo esa**: `force_strategy` le dice al motor que se
+  # salte el resto de la escalera. Medido el 2026-10-13: sin el arreglo, forzar
+  # `:embedding` ejecutaba tambien `:rule`, y forzar `:rule` ejecutaba las
+  # reglas **dos veces**. Prometido aqui, comprobado ahi.
+  #
+  # Dos caminos por quienes los usan: la **cabecera `X-Candil-Strategy`** es lo
+  # unico que se puede mandar sin que el cuerpo deje de ser un cuerpo OpenAI —
+  # que es lo que aceptan opencode y los demas—, y el **campo `candil.strategy`**
+  # es para quien solo controla el JSON. Si vienen los dos, gana el cuerpo: quien
+  # manda el cuerpo entero esta mas cerca de la peticion.
+  #
+  # Un nombre desconocido es un **400**, no un silencio. Quien pide una capa y
+  # recibe otra no se entera nunca, y un enrutado que se equivoca sin decirlo es
+  # peor que uno que se equivoca diciendo.
+  @capas ~w(rule embedding llm)
+
+  defp capa_forzada(conn, body) do
+    # El cuerpo gana sobre la cabecera: quien manda el cuerpo entero esta mas
+    # cerca de la peticion que quien pone una cabecera por encima.
+    cuerpo = get_in(body, ["candil", "strategy"])
+    cabecera = conn |> Plug.Conn.get_req_header("x-candil-strategy") |> List.first()
+    cruda = if is_binary(cuerpo), do: cuerpo, else: cabecera
+
+    # SIEMPRE `{:ok, capa | nil}`. Devolver un `:ok` a secas haria que el
+    # `with` de arriba no casara —`{:ok, capa} <- :ok` es `false`— y saliera
+    # sin decidir: un 500 en vez de una respuesta. Un helper que puede devolver
+    # dos formas de lo mismo es un helper que alguien va a usar mal.
+    case cruda do
+      nil ->
+        {:ok, nil}
+
+      valor when is_binary(valor) ->
+        capa = valor |> String.trim() |> String.downcase()
+
+        if capa in @capas do
+          {:ok, String.to_existing_atom(capa)}
+        else
+          {:error,
+           Error.invalid_request(
+             "unknown candil strategy #{inspect(valor)}. One of: #{Enum.join(@capas, ", ")}."
+           )}
+        end
+
+      _otra ->
+        {:error, Error.invalid_request("`candil.strategy` has to be a string")}
+    end
+  end
+
   # ── quien contesta ─────────────────────────────────────────────────────────
 
-  defp resolve("auto", messages, context) do
+  defp resolve("auto", messages, context, capa) do
     opts = context.opts[:route] || []
+    opts = if capa, do: opts ++ [force_strategy: capa], else: opts
 
     case Router.route(messages, opts ++ [consumer: context.consumer]) do
       {:ok, decision} -> {:ok, decision.model_alias, decision}
@@ -72,10 +126,10 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
     end
   end
 
-  defp resolve(nil, _messages, _context),
+  defp resolve(nil, _messages, _context, _capa),
     do: {:error, Error.invalid_request("the request has no `model`; use a name or \"auto\"")}
 
-  defp resolve(name, _messages, _context) when is_binary(name) do
+  defp resolve(name, _messages, _context, _capa) when is_binary(name) do
     case existing_alias(name) do
       nil -> {:error, Error.invalid_request("no model named #{inspect(name)} is registered")}
       alias_atom -> {:ok, alias_atom, nil}
