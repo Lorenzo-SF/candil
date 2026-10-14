@@ -15,7 +15,7 @@ defmodule Candil.CLI.Router do
 
   alias Alaja.Printer, as: Say
   alias Candil.Router
-  alias Candil.Router.{Cache, Consumer}
+  alias Candil.Router.Consumer
 
   @doc """
   `candil route "<prompt>" [--model X] [--consumer Y]`.
@@ -122,7 +122,6 @@ defmodule Candil.CLI.Router do
     consumer = normalize_consumer(get(opts, :consumer))
     :ok = Router.unpin(consumer)
     Say.print_success("pin de #{consumer}: ninguno")
-    Cache.flush()
     :ok
   end
 
