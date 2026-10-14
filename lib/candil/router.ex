@@ -98,7 +98,29 @@ defmodule Candil.Router do
         }
 
   @default_threshold 0.70
-  @default_embedding_threshold 0.55
+
+  # Este **no** venia de una medicion de Candil: era la escala de similitud de
+  # otro modelo de embeddings, heredada sin comprobar. Medido el 2026-10-14 con
+  # 106 peticiones reales en cuatro idiomas, y el numero de aciertos que la
+  # capa estatica conseguia:
+  #
+  #   0.55 ->  9/106   ( 5/ 5 aciertos)   la capa resuelve el 10% de los casos
+  #   0.35 -> 32/106   (11/11 aciertos)   el 30%, y sin perder ni uno
+  #   0.30 -> 43/106   (12/13 aciertos)   el 40%, con un error
+  #   0.25 -> 72/106   (14/19 aciertos)   el 68%, y acierto por la mitad
+  #
+  # 0.35 triplica lo que resuelve la capa **sin perder un solo acierto**, que
+  # es el unico movimiento que no cambia lo que se responde. A 0.30 ya entra un
+  # error, y a 0.25 la mitad de lo que decide la capa es una suposicion.
+  #
+  # Y no es solo que resuelva mas. Con 0.35, sobre un corpus distinto —48 casos
+  # etiquetados a mano en cinco idiomas, medido el 2026-10-13— mandar todo al
+  # modelo normal daba 12/48 frente a 34/48 del reparto: el reparto gana **+22**.
+  #
+  # El numero depende del embedder, asi que esto es el defecto **de este
+  # embedder**, no una constante universal. Por eso existe
+  # `embedding_threshold` en el toml: si cambias de embedder, recalibra.
+  @default_embedding_threshold 0.35
 
   @doc """
   Decides which model should answer `messages`.

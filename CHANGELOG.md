@@ -7,6 +7,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **El umbral por defecto de la capa `:embedding` pasa de 0.55 a 0.35.** El
+  0.55 no venia de una medicion de Candil: era la escala de similitud de otro
+  modelo de embeddings, heredada sin comprobar.
+
+  Barrido con embedder real sobre 106 peticiones en cuatro idiomas, repetido
+  el 2026-10-14 con el mismo resultado:
+
+  | umbral | resuelve | de esas, acierta | manos al LLM |
+  |---|---|---|---|
+  | 0.55 | 9/106 | 5/5 | 97 |
+  | 0.50 | 13/106 | 7/7 | 93 |
+  | 0.45 | 14/106 | 7/7 | 92 |
+  | 0.40 | 20/106 | 10/10 | 86 |
+  | **0.35** | **32/106** | **11/11** | **74** |
+  | 0.30 | 43/106 | 12/13 | 63 |
+  | 0.25 | 72/106 | 14/19 | 34 |
+  | 0.20 | 86/106 | 16/21 | 20 |
+
+  0.35 **triplica** lo que resuelve la capa sin perder un solo acierto, que es
+  el unico movimiento que no cambia lo que se responde. A 0.30 entra ya un
+  error y a 0.25 se decide la mitad de lo que la capa decide.
+
+  Y no es solo que resuelva mas: con 0.35, mandarlo todo al modelo normal da
+  12/48 frente a 34/48 del reparto — el reparto gana **+22**.
+
+  El numero es **del embedder**, no de Candil: por eso sigue siendo
+  configurable en el toml, y recalibrarlo es lo primero que hay que hacer al
+  cambiar de embedder.
+
 ### Fixed
 
 - **El streaming no funcionaba, y no lo decia.** `Finch.stream/5` —el adapter
