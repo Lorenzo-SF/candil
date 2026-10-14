@@ -113,8 +113,9 @@ defmodule Candil.Router do
   # es el unico movimiento que no cambia lo que se responde. A 0.30 ya entra un
   # error, y a 0.25 la mitad de lo que decide la capa es una suposicion.
   #
-  # Y no es solo que resuelva mas: con 0.35, mandar todo al modelo normal da
-  # 12/48 frente a 34/48 del reparto. El reparto gana **+22**.
+  # Y no es solo que resuelva mas. Con 0.35, sobre un corpus distinto —48 casos
+  # etiquetados a mano en cinco idiomas, medido el 2026-10-13— mandar todo al
+  # modelo normal daba 12/48 frente a 34/48 del reparto: el reparto gana **+22**.
   #
   # El numero depende del embedder, asi que esto es el defecto **de este
   # embedder**, no una constante universal. Por eso existe
