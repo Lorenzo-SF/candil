@@ -200,8 +200,32 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
     |> Map.put(:model, to_string(alias_atom))
     |> Map.put(:created, System.system_time(:second))
     |> Map.put(:usage, usage(response))
+    |> then(&con_razonamiento(&1, reasoning(response)))
     |> Map.put(:candil, meta(decision, model))
   end
+
+  # El razonamiento va en el **mensaje**, que es donde lo esperan los clientes
+  # que lo saben leer (`reasoning_content` es ya campo estandar en varios
+  # proveedores OpenAI-compatible), y **solo si hay**. Ponerlo siempre seria
+  # anadir una clave a las respuestas que no razonan, que es como se rompe un
+  # cliente que valida el esquema estricto.
+  defp con_razonamiento(base, nil), do: base
+
+  defp con_razonamiento(base, razonamiento) when is_binary(razonamiento) and razonamiento != "" do
+    [opcion | resto] = base.choices
+
+    %{
+      base
+      | choices: [
+          %{opcion | message: Map.put(opcion.message, :reasoning_content, razonamiento)} | resto
+        ]
+    }
+  end
+
+  defp con_razonamiento(base, _otro), do: base
+
+  defp reasoning(%{reasoning: razonamiento}), do: razonamiento
+  defp reasoning(_), do: nil
 
   # Lo que enrutó Candil, para el cliente que quiera saberlo. **No es la
   # respuesta OpenAI**: va aparte, y un cliente que no lo conesca lo ignora.

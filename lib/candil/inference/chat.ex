@@ -100,6 +100,20 @@ defmodule Candil.Inference.Chat do
     {:ok,
      %{
        content: get_in(choice, ["message", "content"]) || "",
+       # El razonamiento **no se pierde y no se inventa**: si el servidor lo
+       # manda en `reasoning_content`, aqui esta; si no lo manda, `nil`.
+       #
+       # Medido el 2026-10-14 con `Qwen3.8-27B` y `--reasoning-format
+       # deepseek`, que es como lo tiene el catalogo: 1996 bytes de
+       # razonamiento —con la duda de si contaba al granjero— y `content` con
+       # la respuesta final. Antes ese razonamiento se caia al suelo sin dejar
+       # rastro, y `finish_reason` es `"stop"` en las dos casos: un cliente no
+       # tenia forma de saber que habia habido razonamiento.
+       #
+       # Y no todos los modelos razonan: con `Qwen3-Coder-30B` y el mismo flag
+       # la respuesta **no trae** `reasoning_content`. Por eso `nil` es una
+       # respuesta valida y no un fallo.
+       reasoning: get_in(choice, ["message", "reasoning_content"]),
        role: get_in(choice, ["message", "role"]) || "assistant",
        model: body["model"] || "",
        finish_reason: choice["finish_reason"],
@@ -167,17 +181,36 @@ defmodule Candil.Inference.Chat do
 
   @doc false
   def parse_anthropic_response({:ok, %{status: status, body: body}}) when status in 200..299 do
-    content =
-      body
-      |> Map.get("content", [])
-      |> Enum.find_value("", fn
-        %{"type" => "text", "text" => text} -> text
+    bloques = Map.get(body, "content", [])
+
+    # Anthropic manda el razonamiento en bloques `{"type": "thinking",
+    # "thinking": "..."}` y el texto en `{"type": "text"}`. Antes solo se leia
+    # el texto y cualquier otro bloque se descartaba **sin mirar que era**.
+    #
+    # Se **concatenan todos** los bloques de razonamiento: Claude trocea el
+    # pensamiento en varios, y quedarse con el primero es tan falso como
+    # quedarse con ninguno.
+    texto =
+      Enum.find_value(bloques, "", fn
+        %{"type" => "text", "text" => texto} -> texto
         _ -> nil
       end)
 
+    razonamiento =
+      bloques
+      |> Enum.flat_map(fn
+        %{"type" => "thinking", "thinking" => pensando} when is_binary(pensando) -> [pensando]
+        _ -> []
+      end)
+      |> case do
+        [] -> nil
+        partes -> Enum.join(partes, "\n")
+      end
+
     {:ok,
      %{
-       content: content,
+       content: texto,
+       reasoning: razonamiento,
        role: body["role"] || "assistant",
        model: body["model"] || "",
        finish_reason: body["stop_reason"],
@@ -200,6 +233,15 @@ defmodule Candil.Inference.Chat do
     {:ok,
      %{
        content: msg["content"] || "",
+       # Ollama separa el razonamiento en `message.thinking` y la respuesta en
+       # `message.content` —documentacion de Ollama, "Thinking"—. Y vacio es
+       # `nil`, no una cadena: un modelo que no razona no tiene un
+       # razonamiento vacio, no tiene razonamiento.
+       reasoning:
+         case msg["thinking"] do
+           vacio when vacio in [nil, ""] -> nil
+           pensando -> pensando
+         end,
        role: msg["role"] || "assistant",
        model: body["model"] || "",
        finish_reason: if(body["done"], do: "stop", else: nil),
