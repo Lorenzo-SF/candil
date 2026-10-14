@@ -73,8 +73,10 @@ defmodule Candil.Router.DecisionEngine do
 
       result = aplicar_reglas(result, candidates, consumer(opts), settings)
 
-      announce(result, consumer(opts), started)
-      result
+      resultado = con_traza(result)
+
+      announce(resultado, consumer(opts), started)
+      resultado
     after
       Process.delete(@layers_ran)
     end
@@ -92,13 +94,22 @@ defmodule Candil.Router.DecisionEngine do
             result
 
           rules ->
-            {:ok, DecisionRules.apply(rules, decision, consumer, candidates)}
+            case DecisionRules.apply(rules, decision, consumer, candidates) do
+              {:ok, cambiada} -> {:ok, cambiada}
+              {:error, reason} -> {:error, reason}
+            end
         end
 
       _otra ->
         result
     end
   end
+
+  defp con_traza({:ok, decision}) do
+    {:ok, %{decision | layers_ran: Process.get(@layers_ran, [])}}
+  end
+
+  defp con_traza(otra), do: otra
 
   # ── La metrica del tribunal ──────────────────────────────────────────────
   #

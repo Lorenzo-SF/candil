@@ -92,10 +92,10 @@ defmodule Candil.Router.DecisionRules do
   defp actionable?(rule) when is_map(rule),
     do: pick(rule, :force) || pick(rule, :prefer) || present?(rule, :veto)
 
+  defp actionable?(_other), do: false
+
   defp present?(map, clave) when is_atom(clave),
     do: Map.has_key?(map, clave) or Map.has_key?(map, Atom.to_string(clave))
-
-  defp actionable?(_other), do: false
 
   defp priority(rule) when is_map(rule) do
     case pick(rule, :priority, 0) do
@@ -181,7 +181,7 @@ defmodule Candil.Router.DecisionRules do
   `force` sobre un candidato que no existe devolveria `:none` y una peticion que
   si tiene modelos se quedaria sin responder.
   """
-  @spec apply([map()], map(), atom(), [atom()]) :: map()
+  @spec apply([map()], map(), atom(), [atom()]) :: {:ok, map()} | {:error, atom()}
   def apply(rules, decision, consumer, candidates) do
     facts = facts(decision, consumer)
 
@@ -194,12 +194,17 @@ defmodule Candil.Router.DecisionRules do
 
     supervivientes = Enum.reject(candidates, &(&1 in eliminados))
 
-    decision
-    |> Map.put(:alternatives, [])
-    |> then(&sacar_vetado(&1, eliminados, supervivientes))
-    |> then(&force_after_veto(&1, aplicables, supervivientes))
-    |> then(&preferir(&1, aplicables, supervivientes))
-    |> Map.put(:degraded, unique(decision.degraded ++ tags_de(eliminados)))
+    try do
+      decision
+      |> Map.put(:alternatives, [])
+      |> then(&sacar_vetado(&1, eliminados, supervivientes))
+      |> then(&force_after_veto(&1, aplicables, supervivientes))
+      |> then(&preferir(&1, aplicables, supervivientes))
+      |> Map.put(:degraded, unique(decision.degraded ++ tags_de(eliminados)))
+      |> then(&{:ok, &1})
+    catch
+      :all_candidates_vetoed -> {:error, :all_candidates_vetoed}
+    end
   end
 
   defp facts(decision, consumer) do
@@ -240,7 +245,12 @@ defmodule Candil.Router.DecisionRules do
     if to_atom_string(decision.model_alias) in Enum.map(eliminados, &to_atom_string/1) do
       case survivors do
         [] ->
-          decision
+          # **Todos vetados no es «sin decision»: es una decision imposible.**
+          # Antes aqui se devolvia la decision tal cual, apuntando al modelo
+          # vetado — y eso rompe la regla DURA de D-09: *«ninguna puede devolver
+          # un modelo vetado»*. No lo ha visto nadie porque nadie ha vetado los
+          # tres candidatos a la vez.
+          throw(:all_candidates_vetoed)
 
         [siguiente | resto] ->
           %{

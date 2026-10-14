@@ -80,7 +80,7 @@ defmodule Candil.Router.DecisionRulesTest do
     test "force elige otro modelo y lo dice" do
       reglas = [%{reason: "a mano", priority: 1, when: %{}, force: "otro", prefer: nil, veto: []}]
 
-      d = DecisionRules.apply(reglas, decision(:original), :default, [:original, :otro])
+      {:ok, d} = DecisionRules.apply(reglas, decision(:original), :default, [:original, :otro])
 
       assert d.model_alias == :otro
       assert d.reason =~ "a mano"
@@ -106,7 +106,7 @@ defmodule Candil.Router.DecisionRulesTest do
         }
       ]
 
-      d = DecisionRules.apply(reglas, decision(:prohibido), :default, [:prohibido, :otro])
+      {:ok, d} = DecisionRules.apply(reglas, decision(:prohibido), :default, [:prohibido, :otro])
 
       # El veto manda. Un `prefer` de diez puntos no resucita a un vetado: es
       # la regla de D-09 puesta en el sitio donde se puede comprobar.
@@ -127,7 +127,7 @@ defmodule Candil.Router.DecisionRulesTest do
         }
       ]
 
-      d = DecisionRules.apply(reglas, decision(:otro), :default, [:prohibido, :otro])
+      {:ok, d} = DecisionRules.apply(reglas, decision(:otro), :default, [:prohibido, :otro])
 
       assert d.model_alias == :otro
     end
@@ -144,7 +144,7 @@ defmodule Candil.Router.DecisionRulesTest do
         }
       ]
 
-      d = DecisionRules.apply(reglas, decision(:original), :default, [:original])
+      {:ok, d} = DecisionRules.apply(reglas, decision(:original), :default, [:original])
 
       # Forzar algo que no existe no es forzar: es mentir. Se aplica lo que
       # hubiera ganado y se dice.
@@ -163,10 +163,48 @@ defmodule Candil.Router.DecisionRulesTest do
         }
       ]
 
-      d = DecisionRules.apply(reglas, decision(:original), :default, [:original])
+      {:ok, d} = DecisionRules.apply(reglas, decision(:original), :default, [:original])
 
       assert d.model_alias == :original
       refute d.reason =~ "fantasma"
+    end
+  end
+
+  describe "TODOS vetados" do
+    test "es un ERROR explicito, no una decision que devuelve un vetado" do
+      # La regla de D-09 —*«ninguna politica puede devolver un modelo vetado»*—
+      # es BINARIA: o hay un superviviente o no hay decision. Antes aqui se
+      # devolvia la decision tal cual apuntando al vetado, y solo porque nadie
+      # habia vetado los tres candidatos a la vez nadie lo habia visto.
+      reglas = [
+        %{
+          reason: "veto total",
+          priority: 1,
+          when: %{},
+          force: nil,
+          prefer: nil,
+          veto: ["uno", "dos", "tres"]
+        }
+      ]
+
+      assert DecisionRules.apply(reglas, decision(:uno), :default, [:uno, :dos, :tres]) ==
+               {:error, :all_candidates_vetoed}
+    end
+
+    test "y si solo queda uno sin vetar, ese gana" do
+      reglas = [
+        %{
+          reason: "veto a dos",
+          priority: 1,
+          when: %{},
+          force: nil,
+          prefer: nil,
+          veto: ["uno", "dos"]
+        }
+      ]
+
+      assert {:ok, d} = DecisionRules.apply(reglas, decision(:uno), :default, [:uno, :dos, :tres])
+      assert d.model_alias == :tres
     end
   end
 
@@ -191,7 +229,8 @@ defmodule Candil.Router.DecisionRulesTest do
         }
       ]
 
-      d = DecisionRules.apply(reglas, decision(:original), :default, [:original, :nuevo, :embed])
+      {:ok, d} =
+        DecisionRules.apply(reglas, decision(:original), :default, [:original, :nuevo, :embed])
 
       assert d.model_alias == :nuevo
     end
@@ -208,14 +247,14 @@ defmodule Candil.Router.DecisionRulesTest do
         }
       ]
 
-      d =
+      {:ok, d} =
         DecisionRules.apply(reglas, decision(:original, :default), :default, [:original, :nuevo])
 
       assert d.model_alias == :original
     end
 
     test "sin reglas, la decision se queda igual" do
-      d = DecisionRules.apply([], decision(:original), :default, [:original])
+      {:ok, d} = DecisionRules.apply([], decision(:original), :default, [:original])
 
       assert d.model_alias == :original
       assert d.reason == "no layer cleared its threshold"
