@@ -194,6 +194,32 @@ defmodule Candil.Error do
   end
 
   @doc """
+  Crea el error de **refusal**: nadie puede contestar ahora mismo.
+
+  No es lo mismo que `rate_limited/1`, que es un 429 del servidor. Esto es un
+  503 con `context.reason_origen` —`:no_models_for_consumer`,
+  `:all_candidates_vetoed` o `:insufficient_capacity`— para que quien lo mire
+  sepa **que** no daba sin tener que interpretar el mensaje.
+
+  El `retry_after` va en el contexto y **no** en la respuesta de Candil: asi un
+  cliente HTTP lo pone en la cabecera sin tener que saber de donde salio. Ver
+  `Candil.Refusal`.
+  """
+  @spec no_capacity(atom(), non_neg_integer()) :: t()
+  def no_capacity(reason_origen, retry_after_ms) do
+    %__MODULE__{
+      reason: :no_capacity,
+      context: %{
+        reason_origen: reason_origen,
+        retry_after: retry_after_ms,
+        message:
+          "no hay quien conteste esta pregunta ahora mismo (#{inspect(reason_origen)}); " <>
+            "reintenta en #{div(retry_after_ms, 1000)} s"
+      }
+    }
+  end
+
+  @doc """
   Creates an invalid API key error.
   """
   @spec invalid_api_key :: t()
