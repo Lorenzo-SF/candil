@@ -26,9 +26,29 @@ defmodule Candil.Inference do
         usage: %{prompt_tokens: 12, completion_tokens: 8, total_tokens: 20}
       }
 
+  ## El turno se toma aqui, y no en quien llama
+
+  La cola de `Candil.Policy` se toma en este modulo, que es donde se habla con
+  el destino de verdad, y no en el camino de entrada. Antes se tomaba en el
+  gateway, y eso hacia que la exclusividad fuera una propiedad del **camino**:
+  quien llamaba a `chat_local/3` desde Elixir —que es la API publica de una
+  libreria— entraba a un destino `exclusive = true` sin hacer cola. Medido: 12
+  peticiones simultaneas a un destino exclusivo, 0 esperas por este camino y 11
+  por el del gateway, con el mismo destino y la misma carga.
+
+  Que sea una propiedad del destino y no de quien llame es toda la diferencia
+  entre una garantia y un deseo, y el coste de pagarla es **1,45 microsegundos**
+  por llamada —medido, 200.000 iteraciones— contra inferencias de miles de
+  milisegundos. En un destino no exclusivo no se arranca ningun proceso: es el
+  camino caliente de `Candil.Policy`, que sigue siendo lo que su `@moduledoc`
+  promete.
+
+  Y es seguro que lo envuelvan dos: `Policy.run/3` es idempotente por proceso y
+  destino, asi que el gateway que ya tiene el turno no se encola otra vez.
+
   """
 
-  alias Candil.{Error, Model, Provider, Store}
+  alias Candil.{Error, Model, Policy, Provider, Store}
 
   alias Candil.Inference.{Chat, Embeddings}
 
@@ -69,7 +89,9 @@ defmodule Candil.Inference do
     with {:ok, model} <- Store.get_model(model_alias),
          false <- model.type == :remote,
          true <- :chat in model.usage || :completion in model.usage do
-      Chat.do_chat_local(model_alias, messages, opts)
+      # El turno envuelve **la llamada entera**, no el dispatch: lo que se
+      # ordena es quien esta usando la GPU, y eso dura lo que dura la peticion.
+      con_turno(model_alias, fn -> Chat.do_chat_local(model_alias, messages, opts) end)
     else
       {:error, :not_found} ->
         {:error, Error.model_not_found(model_alias)}
@@ -81,6 +103,20 @@ defmodule Candil.Inference do
         {:error, Error.invalid_request("Model #{model_alias} does not support chat")}
     end
   end
+
+  # `Policy.run/3` devuelve `{:ok, fun.()}` y `fun` ya devuelve `{:ok, respuesta}`.
+  # Sin quitar la capa de aqui sale `{:ok, {:ok, respuesta}}`, que es un 200 con
+  # `content: ""` que parece respuesta.
+  defp unwrap({:ok, resultado}), do: resultado
+  defp unwrap({:error, reason}), do: {:error, reason}
+
+  # Los cuatro caminos de inferencia toman turno, **tambien los remotos**: si
+  # `exclusive` es una propiedad del destino —y lo es desde que el turno se toma
+  # aqui y no en quien llama— un destino remoto marcado como exclusivo tiene que
+  # serializar igual. Dejar fuera los remotos haria la garantia media, que es
+  # peor que no hacerla: porque alguien puede leer «exclusive» y no mirar si el
+  # modelo es local o remoto.
+  defp con_turno(model_alias, fun), do: unwrap(Policy.run(model_alias, fun))
 
   @doc """
   Runs a chat completion against a remote provider.
@@ -94,7 +130,7 @@ defmodule Candil.Inference do
   @spec chat_remote(Model.t(), Provider.t(), [message()], keyword()) ::
           {:ok, response()} | {:error, Error.t()}
   def chat_remote(%Model{} = model, %Provider{} = provider, messages, opts) do
-    Chat.do_chat_remote(model, provider, messages, opts)
+    con_turno(model.alias, fn -> Chat.do_chat_remote(model, provider, messages, opts) end)
   end
 
   @doc """
@@ -108,7 +144,10 @@ defmodule Candil.Inference do
     with {:ok, model} <- Store.get_model(model_alias),
          false <- model.type == :remote,
          true <- :embeddings in model.usage do
-      Embeddings.do_embed_local(model_alias, texts)
+      # Mismo turno y mismo motivo que en `chat_local/3`: un embedder local
+      # tambien es una GPU, y compartiendola con una inferencia lo que se
+      # rompe es la GPU, no el embedder.
+      con_turno(model_alias, fn -> Embeddings.do_embed_local(model_alias, texts) end)
     else
       {:error, :not_found} ->
         {:error, Error.model_not_found(model_alias)}
@@ -127,10 +166,10 @@ defmodule Candil.Inference do
   @spec embed_remote(Model.t(), Provider.t(), [binary()], keyword()) ::
           {:ok, embed_response()} | {:error, Error.t()}
   def embed_remote(%Model{} = model, %Provider{type: :ollama} = provider, texts, opts) do
-    Embeddings.do_embed_remote(model, provider, texts, opts)
+    con_turno(model.alias, fn -> Embeddings.do_embed_remote(model, provider, texts, opts) end)
   end
 
   def embed_remote(%Model{} = model, %Provider{} = provider, texts, opts) do
-    Embeddings.do_embed_remote(model, provider, texts, opts)
+    con_turno(model.alias, fn -> Embeddings.do_embed_remote(model, provider, texts, opts) end)
   end
 end

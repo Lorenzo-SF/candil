@@ -68,7 +68,7 @@ defmodule Candil.Stream do
   Streams a chat completion from a remote provider.
   """
   @spec chat(Model.t(), Provider.t(), [Inference.message()], stream_callback(), keyword()) ::
-          :ok | {:error, Error.t()}
+          :ok | {:error, term()}
   def chat(%Model{} = model, %Provider{type: :anthropic} = provider, messages, callback, opts)
       when is_function(callback, 1) do
     body =
@@ -157,44 +157,67 @@ defmodule Candil.Stream do
     # If the caller dies the stream task doesn't propagate the EXIT
     # signal to the streaming HTTP task, allowing the resource
     # teardown below to shut it down cleanly via Port.close.
+    #
+    # Y el pid de quien consume se captura **aqui**, no dentro del Task:
+    # dentro del Task, `self()` es el Task, y los chunks se quedaban en su inbox
+    # mientras quien habia pedido el stream esperaba a mensajes que no iban a
+    # llegar nunca.
+    consumer = self()
+
     {:ok, task} =
       Task.start(fn ->
-        HTTP.post_streaming(
-          url,
-          body,
-          headers,
-          [timeout_ms: timeout, retry: false],
-          into: receive_inbox(self(), receive_timeout)
-        )
+        case HTTP.post_streaming(
+               url,
+               body,
+               headers,
+               [timeout_ms: timeout, retry: false],
+               into: receive_inbox(consumer, receive_timeout)
+             ) do
+          # `{:ok, _}` ya avisó por el `receive_inbox/2`: el `:done` del
+          # adapter llegó a `consumer`.
+          {:ok, _} ->
+            :ok
+
+          # Y si fallo, **el motivo se propaga**. Antes no se propagaba nada y
+          # quien esperaba se enteraba de que habia un problema porque se le
+          # acababa el tiempo: un `:timeout` que no era un timeout. El Task es
+          # el unico que sabe por que fallo, asi que el aviso sale de ahi.
+          {:error, reason} ->
+            send(consumer, {:sse_error, reason, self()})
+        end
       end)
 
-    result =
-      Stream.resource(
-        fn -> initial_state end,
-        fn state ->
-          receive do
-            {:sse_data, data} ->
-              consume_data(data, state, parse_fn, callback)
-
-            {:sse_done, _pid} ->
-              {:halt, %{state | done: true}}
-
-            {:sse_error, reason, _pid} ->
-              {:halt, %{state | done: true, error: reason}}
-          after
-            receive_timeout + timeout ->
-              {:halt, %{state | done: true, error: :timeout}}
-          end
-        end,
-        fn _ -> :ok end
-      )
-      |> Enum.take_while(fn _ -> true end)
+    # Y esto **no** es un `Stream.resource/3`. Aqui no se produce una lista: se
+    # produce un efecto, el `callback/1`, y lo que importa es quien recibe. En
+    # `resource/3` el elemento emitido y el acumulador son la misma cosa, asi
+    # que el estado del parser acababa siendo elemento de la lista y
+    # `Enum.take_while` reventaba al iterarlo.
+    resultado = recibir(initial_state, parse_fn, callback, receive_timeout + timeout)
 
     Process.exit(task, :kill)
 
-    case result do
-      [] -> :ok
-      _ -> :ok
+    case resultado do
+      %{error: nil} -> :ok
+      %{error: reason} -> {:error, reason}
+    end
+  end
+
+  @doc false
+  @spec recibir(map(), (binary() -> chunk() | nil), stream_callback(), pos_integer()) :: map()
+  defp recibir(%{done: true} = state, _parse_fn, _callback, _limite), do: state
+
+  defp recibir(state, parse_fn, callback, limite) do
+    receive do
+      {:sse_data, data} ->
+        recibir(consume_data(data, state, parse_fn, callback), parse_fn, callback, limite)
+
+      {:sse_done, _pid} ->
+        %{state | done: true}
+
+      {:sse_error, reason, _pid} ->
+        %{state | done: true, error: reason}
+    after
+      limite -> %{state | done: true, error: :timeout}
     end
   end
 
@@ -202,10 +225,9 @@ defmodule Candil.Stream do
   # events to the callback. Stateful across calls (handles arbitrary
   # TCP chunks that split an SSE event across reads). Returns the
   # updated parser state.
-  @spec consume_data(binary(), map(), (binary() -> chunk() | nil), stream_callback()) ::
-          {:cont, map()} | {:halt, map()}
+  @spec consume_data(binary(), map(), (binary() -> chunk() | nil), stream_callback()) :: map()
   defp consume_data(_data, %{done: true} = state, _parse_fn, _callback) do
-    {:halt, state}
+    state
   end
 
   defp consume_data(data, state, parse_fn, callback) do
@@ -289,18 +311,22 @@ defmodule Candil.Stream do
   # is busy, AperoHTTP's stream buffers up to its internal limit.
   @spec receive_inbox(pid(), pos_integer()) :: (... -> any())
   defp receive_inbox(consumer_pid, _idle_timeout) do
+    # Devuelve **el acumulador**, no `""`. Lo que este callback devuelve es el
+    # acumulador de Finch —`Finch.stream/5` lo envuelve en `{:cont, _}`—, y
+    # devolver una cadena vacia lo llenaba de `" "` a cada chunk. Aqui no se lee,
+    # pero un acumulador que no es un acumulador es una trampa para quien lo lea.
     fn
-      {:data, data}, _acc ->
+      {:data, data}, acc ->
         send(consumer_pid, {:sse_data, data})
-        ""
+        acc
 
-      :done, _acc ->
+      :done, acc ->
         send(consumer_pid, {:sse_done, self()})
-        ""
+        acc
 
-      {:error, reason}, _acc ->
+      {:error, reason}, acc ->
         send(consumer_pid, {:sse_error, reason, self()})
-        ""
+        acc
     end
   end
 

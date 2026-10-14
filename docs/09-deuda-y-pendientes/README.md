@@ -134,11 +134,22 @@ estático se quede en 60% y nadie lo mire»* — y ahora sí hay alguien mirando
 
 > **Y dice más cosas, que es lo que lo hace útil.** La tabla de similitudes sale
 > al final del script, y en el catálogo de la máquina el modelo correcto **ya es
-> el primero** en casi todos los prompts: lo que falla es que el umbral de la
-> capa `:embedding` está en **0.55** y los scores buenos están en **0.49-0.54**.
+> el primero** en casi todos los prompts: lo que fallaba era que el umbral de la
+> capa `:embedding` estaba en **0.55** y los scores buenos estaban en **0.49-0.54**.
 > No es el caso malo que el documento avisa —«un embedder no arregla un
 > catálogo que no distingue»—: aquí **el catálogo sí distingue y el listón está
 > alto**. Por eso este dato sí permite decidir, y el otro no.
+
+> **RESUELTO el 2026-10-14.** El umbral por defecto de la capa `:embedding` pasa
+> de **0.55 a 0.35**, con el barrido completo sobre 106 peticiones reales en
+> cuatro idiomas: `0.55 -> 9/106` (5/5 aciertos), `0.35 -> 32/106` (**11/11**),
+> `0.30 -> 43/106` (12/13), `0.25 -> 72/106` (14/19). 0.35 triplica lo que
+> resuelve la capa **sin perder un solo acierto**, y con él el reparto gana
+> **+22** sobre "mandarlo todo al modelo normal" (34/48 frente a 12/48). A 0.30
+> ya entra un error y a 0.25 se decide la mitad de lo que la capa decide.
+>
+> El número es del embedder, no de Candil: por eso sigue siendo configurable en
+> el toml, y recalibrarlo es lo primero que hay que hacer al cambiar de embedder.
 
 **Lo que queda por decidir no es el dato, es la política**: qué señales tocar y
 hasta dónde. Eso es del dueño, no del motor.

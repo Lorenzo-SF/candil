@@ -31,7 +31,97 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Un valor que no sea ni endpoint ni capacidad **es un error al cargar**, no se
   ignora: un catalogo que se traga lo que no entiende deja un modelo que finge
   saber algo, en silencio.
+- **El umbral por defecto de la capa `:embedding` pasa de 0.55 a 0.35.** El
+  0.55 no venia de una medicion de Candil: era la escala de similitud de otro
+  modelo de embeddings, heredada sin comprobar.
+
+  Barrido con embedder real sobre 106 peticiones en cuatro idiomas, repetido
+  el 2026-10-14 con el mismo resultado:
+
+  | umbral | resuelve | de esas, acierta | manos al LLM |
+  |---|---|---|---|
+  | 0.55 | 9/106 | 5/5 | 97 |
+  | 0.50 | 13/106 | 7/7 | 93 |
+  | 0.45 | 14/106 | 7/7 | 92 |
+  | 0.40 | 20/106 | 10/10 | 86 |
+  | **0.35** | **32/106** | **11/11** | **74** |
+  | 0.30 | 43/106 | 12/13 | 63 |
+  | 0.25 | 72/106 | 14/19 | 34 |
+  | 0.20 | 86/106 | 16/21 | 20 |
+
+  0.35 **triplica** lo que resuelve la capa sin perder un solo acierto, que es
+  el unico movimiento que no cambia lo que se responde. A 0.30 entra ya un
+  error y a 0.25 se decide la mitad de lo que la capa decide.
+
+  Y no es solo que resuelva mas: con 0.35, mandarlo todo al modelo normal da
+  12/48 frente a 34/48 del reparto — el reparto gana **+22**.
+
+  El numero es **del embedder**, no de Candil: por eso sigue siendo
+  configurable en el toml, y recalibrarlo es lo primero que hay que hacer al
+  cambiar de embedder.
+
 ### Fixed
+
+- **El streaming no funcionaba, y no lo decia.** `Finch.stream/5` —el adapter
+  de verdad— emite `:done` como atomo suelto, y el `stream_fun` de
+  `Candil.HTTP.Client.do_post_streaming/5` solo matcheaba `{:done, _}`, que
+  Finch nunca emite: `:done` caia en el brazo de abajo y **el final del stream
+  no se propagaba nunca**. Quien esperaba se comia el timeout entero —150 s con
+  los valores por defecto— y recibia `:ok`, que es indistinguible de que
+  hubiera ido bien. Encima el pid del consumidor se capturaba **dentro** del
+  `Task` (así que los chunks iban a su inbox, no al de quien espera),
+  `consume_data/4` devolvia un mapa donde su `@spec` pide una tupla, y
+  `Stream.resource/3` se usaba para algo que no produce una lista. Medido
+  contra `llama-server` con DeepCoder-14B y el adapter Finch de verdad, antes
+  del arreglo: **0 chunks**. Despues: **123 chunks en 12,9 s**, con el texto
+  integro en el callback.
+- **Un stream que se cortaba devolvia `:ok`.** `do_stream/6` acababa en un
+  `case` con `:ok` en los dos brazos, asi que un timeout, un error de red y
+  una respuesta buena eran lo mismo. Y el Task, que es el unico que sabe por
+  que fallo, no avisaba a nadie: quien esperaba se enteraba porque se le
+  acababa el tiempo. Ahora el error se propaga —`{:error, :econnrefused}`, no
+  un `:timeout` que no era timeout— y `chat/5` devuelve `:ok | {:error, _}`.
+- **`exclusive` era una propiedad del camino de entrada, no del destino.** La
+  cola se tomaba en el gateway, asi que quien llamaba a
+  `Candil.Inference.chat_local/3` desde Elixir —que es la API publica de una
+  libreria— entraba a un destino `exclusive = true` sin hacer cola. Medido en
+  la RTX 5080, 12 peticiones simultaneas al mismo destino: **0 esperas** por
+  la API y 11 por el gateway. Ahora la cola se toma en `Candil.Inference`,
+  que es donde se habla con el destino, y tambien para `embed_local/3`. Mismo
+  destino y misma carga: **11 esperas** por los dos caminos. El coste es
+  **1,45 microsegundos** por llamada —200.000 iteraciones— contra inferencias
+  de miles de milisegundos.
+- **Envolver dos veces la llamada se colgaba en un destino exclusivo.**
+  `Policy.run/3` es ahora idempotente por proceso y destino: si este proceso ya
+  tiene el turno, ejecuta y no se encola. Sin esto, el gateway que toma el
+  turno y llama a `Inference`, que tambien lo toma, seria el mismo proceso
+  esperando a si mismo.
+- **La tabla del historico de reintentos se perdia en silencio.** Se creaba a
+  demanda desde el proceso de la peticion y sin dueno supervisado, asi que se
+  iba con esa peticion y se llevaba el historico entero: `retry_rate` salia 0
+  sin que nada fallara a la vista. Ademas era un check-then-act —con doce
+  peticiones a la vez, las doce creaban y la que perdia se comia un
+  `ArgumentError` que tumbaba el handler de telemetria. Medido antes del
+  arreglo: 8 corridas, 1 con 4 de 12 procesos muertos. Despues: **0 en 8**.
+  Ahora la crea `init/1`, con el proceso supervisado como dueno, y escribir no
+  crea.
+
+### Documented
+
+- **El circuit breaker de Candil no hace nada, y ahora se dice.**
+  `Candil.HTTP` lo anuncia en su `@moduledoc`. No es una exageracion: hay
+  **0 breakers registrados** —`Arrea.CircuitBreaker.call/2` sobre un nombre sin
+  registrar ejecuta y ya esta, y Arrea 3.1 no tiene `ensure_started/1`— y
+  **10 excepciones seguidas** dejan el circuito en `:closed`. Y aun
+  registrandose no abriria, por dos motivos mas: `Client.breaker_name/1` cae a
+  `:default_breaker` para casi todo (devuelve el host solo si ese atomo ya
+  existe en la VM, y ni `127.0.0.1` ni `api.openai.com` existen), y un error
+  de red llega a Arrea como `{:error, _}`, que cuenta como **exito** porque
+  `call/3` solo registra fallo cuando la funcion **lanza**. El reintento y el
+  limitador si funcionan; lo que no existe es el corte. Tres tests en
+  `test/candil/http_test.exs` lo afirman, uno de ellos con un breaker de
+  verdad: cinco `{:error, _}` lo dejan en `:closed` y cinco excepciones lo
+  abren.
 
 - **`candil run` arrancaba un engine de mentira y lo anunciaba como si fuera
   real.** `EnginePool.put/5` solo guarda un mapa en el estado del pool y
