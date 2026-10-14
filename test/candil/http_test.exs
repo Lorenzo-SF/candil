@@ -4,7 +4,7 @@ defmodule Candil.HTTPTest do
 
   alias Arrea.CircuitBreaker
   alias Candil.{Error, HTTP, HTTPAdapterMock}
-  alias Candil.HTTP.RateLimit
+  alias Candil.HTTP.{Breaker, RateLimit}
 
   setup :verify_on_exit!
 
@@ -23,38 +23,148 @@ defmodule Candil.HTTPTest do
   end
 
   describe "el circuit breaker: lo que hay y lo que no" do
-    test "NO hay ningun breaker registrado: hoy no hay proteccion" do
-      # Este test existe para que nadie crea lo que no hay. El `@moduledoc` de
-      # `Candil.HTTP` lo dice, pero un modulo que lo dice se lee una vez y un
-      # test que lo afirma se lee cada vez que alguien rompe algo.
-      #
-      # Medido el 2026-10-14: 0 breakers registrados, 10 excepciones seguidas y
-      # el circuito sigue en `:closed`.
-      registrados =
-        Arrea.CircuitBreaker.Registry
-        |> Registry.select([{{:"$1", :_, :_}, [], [:"$1"]}])
+    # Este grupo **cambio de verdad el 2026-10-14**. Antes decia que el modulo
+    # no tenia proteccion ninguna —0 breakers registrados— y era verdad; ahora
+    # hay uno por destino, arrancado bajo demanda y con dueno. Los tres tests
+    # que hay debajo no son el texto anterior invertido: son las tres cosas que
+    # la politica decidio y que hay que volver a comprobar.
 
-      assert registrados == [], """
-      Candil tiene breakers registrados: #{inspect(registrados)}.
+    test "hay un circuito por destino, y se registra al usarlo" do
+      # Antes: 0 registrados. `Arrea.CircuitBreaker.call/2` sobre un nombre sin
+      # registrar ejecuta la funcion y ya esta, sin proteccion ninguna.
+      url = "http://127.0.0.1:9971/v1/chat"
+      with_provider(:gpu_9971, url)
 
-      Eso cambia el contrato del modulo, asi que hay que decidir la politica
-      (que errores abren el circuito, cuantos, cuanto dura) y reescribir el
-      `@moduledoc` de `Candil.HTTP`, que hoy dice que no hay proteccion.
-      """
+      assert Arrea.CircuitBreaker.get_state(Breaker.name(url)) == :closed
+
+      Breaker.ensure_started(Breaker.name(url))
+
+      nombre = Breaker.name(url)
+      assert [{pid, _}] = Registry.lookup(Arrea.CircuitBreaker.Registry, nombre)
+
+      # Y el dueno es el supervisor de Candil, no el proceso de la peticion: un
+      # circuito no puede morirse con la peticion que lo provoco.
+      assert Candil.HTTP.Breaker.Supervisor |> Process.whereis() != nil
+
+      hijos =
+        Candil.HTTP.Breaker.Supervisor
+        |> DynamicSupervisor.which_children()
+        |> Enum.map(fn {_, pid, _, _} -> pid end)
+
+      assert pid in hijos, "el circuito no cuelga del supervisor de Candil"
     end
 
-    test "y aunque lo hubiera, casi todo caeria al mismo nombre" do
-      # El nombre sale del host **solo si ese atomo ya existe**. `127.0.0.1` no
-      # existe, y `api.openai.com` tampoco: los tres dan `:default_breaker`.
-      # El `existing_atom` es a proposito —sin el, un peer remoto podria crear
-      # atomos con cada URL que mandase—, pero su efecto secundario es que no
-      # hay un circuito por destino.
-      for url <- [
-            "http://127.0.0.1:9999/v1/chat/completions",
-            "http://127.0.0.1:11434/api/chat",
-            "https://api.openai.com/v1/chat/completions"
-          ] do
-        assert Candil.HTTP.Client.breaker_name(url) == :default_breaker, url
+    test "y cada destino tiene el suyo, no uno para todo" do
+      # El nombre viejo caia a `:default_breaker` para casi todo, porque
+      # devolvia el host solo si ese atomo ya existia en la VM, y ni
+      # `127.0.0.1` ni `api.openai.com` existen. Un destino caido abria el
+      # circuito de todos los demas.
+      # Los tres son destinos que NO estan en el catalogo de este test, asi
+      # que caen al nombre global: lo que se comprueba aqui es que el nombre
+      # global es uno solo y que el atomo se construye con un prefijo fijo.
+      base_urls = [
+        "http://127.0.0.1:9981/v1/chat",
+        "http://127.0.0.1:9981/api",
+        "http://127.0.0.1:9982/v1/chat"
+      ]
+
+      # Aliases literales y no `:"destino_#{n}"`: en un test no hace falta
+      # ahorrar un atomo, y `Credo.Check.Warning.UnsafeToAtom` tiene razon.
+      destinos = [destino_uno: hd(base_urls), destino_dos: Enum.at(base_urls, 1)]
+
+      for {alias_, url} <- destinos, do: with_provider(alias_, url)
+
+      with_provider(:destino_tres, Enum.at(base_urls, 2))
+
+      nombres = Enum.map(base_urls, &Breaker.name/1)
+
+      # Dos en el mismo host:puerto comparten destino, y por tanto circuito; el
+      # tercero, con otro puerto, tiene el suyo.
+      assert length(Enum.uniq(nombres)) == 2
+      assert Enum.all?(nombres, &is_atom/1)
+
+      # Y lo que **no** esta en el catalogo no tiene circuito. Ni global
+      # compartido —un destino desconocido abriria el de todos los demas— ni un
+      # atomo por peticion, que es un denial of service esperando.
+      assert Breaker.name("http://inventado-que-no-esta:1234/x") == nil
+    end
+
+    test "los errores de red SI cuentan, y los 4xx no" do
+      # La linea que divide las dos mitades: un 4xx es un error **del
+      # cliente**, y cerrar el circuito por eso apaga Candil entero con el
+      # destino en perfecto estado. Un 5xx es del **destino**, que es lo que
+      # un corteprotecta existe para no golpear.
+      refute Breaker.fallo?({:ok, %{status: 404}})
+      refute Breaker.fallo?({:ok, %{status: 400}})
+      refute Breaker.fallo?({:ok, %{status: 422}})
+
+      assert Breaker.fallo?({:ok, %{status: 500}})
+      assert Breaker.fallo?({:ok, %{status: 503}})
+      assert Breaker.fallo?({:ok, %{status: 429}})
+      assert Breaker.fallo?({:error, %Candil.Error{reason: :timeout}})
+      assert Breaker.fallo?({:error, :econnrefused})
+    end
+
+    test "un destino roto abre el suyo y deja a los demas en paz" do
+      gpu = "http://127.0.0.1:9972/v1/chat"
+      ollama = "http://127.0.0.1:9973/api/chat"
+
+      # Los dos en el catalogo, que es la unica forma de que cada uno reciba
+      # un circuito propio: un destino que no esta en `candil.toml` cae al
+      # global a proposito, para no crear un atomo por URL.
+      with_provider(:gpu_test, gpu)
+      with_provider(:ollama_test, ollama)
+
+      refute Breaker.name(gpu) == Breaker.name(ollama)
+
+      for _ <- 1..5, do: Breaker.call(gpu, fn -> {:ok, %{status: 503}} end)
+
+      assert {:error, :circuit_open} = Breaker.call(gpu, fn -> :ejecutada end)
+      assert {:ok, %{status: 200}} = Breaker.call(ollama, fn -> {:ok, %{status: 200}} end)
+    end
+
+    defp with_provider(alias_, base_url) do
+      Candil.Store.register_provider(%Candil.Provider{
+        alias: alias_,
+        type: :openai,
+        base_url: base_url,
+        api_key: "sk-test"
+      })
+
+      :ok
+    end
+
+    test "un destino que no esta en el catalogo se sirve SIN circuito" do
+      # La tercera opcion, y la que faltaba: ni un circuito global compartido
+      # —un destino desconocido abriria el de todos los demas, medido: eso
+      # tumbaba media suite— ni un atomo por peticion, que es un denial of
+      # service esperando a que alguien mande una URL.
+      url = "http://desconocido-que-no-esta-en-el-catalogo:1234/x"
+
+      assert Breaker.name(url) == nil
+      assert {:ok, %{status: 200}} = Breaker.call(url, fn -> {:ok, %{status: 200}} end)
+
+      # Tampoco hay limite de tasa, porque el limitador va por el mismo nombre.
+      assert Breaker.limit_name(url) == nil
+    end
+
+    test "un 4xx repetido no abre el circuito" do
+      roto = "http://127.0.0.1:9974/v1/chat"
+      with_provider(:roto_test, roto)
+
+      for _ <- 1..9, do: Breaker.call(roto, fn -> {:ok, %{status: 404}} end)
+
+      assert :ejecutada = Breaker.call(roto, fn -> :ejecutada end)
+    end
+
+    test "call/3 espera una URL, no un nombre de circuito" do
+      # Los dos son strings y el error era silencioso:
+      # `URI.parse("candil-breaker-127.0.0.1-9999")` no da error, da
+      # `host: nil`, y el nombre sale `candil-breaker--`: el mismo para todos
+      # los destinos, o sea un circuito para todo. Paso por un test sin
+      # querer.
+      assert_raise ArgumentError, ~r/espera una URL/, fn ->
+        Breaker.call(Breaker.name("http://127.0.0.1:9975/x"), fn -> :ok end)
       end
     end
 

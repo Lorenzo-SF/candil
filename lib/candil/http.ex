@@ -9,32 +9,36 @@ defmodule Candil.HTTP do
   Transport is provided by `Apero.Http` — a dedicated Finch pool managed
   by `Apero.Http.Finch`.
 
-  ## Lo que el circuit breaker **no** hace hoy
+  ## El circuito: uno por destino, y que cuenta como fallo
 
-  Nada. No es una opinion: no hay **ningun** breaker registrado, y
-  `Arrea.CircuitBreaker.call/2` sobre un nombre que no esta registrado ejecuta la
-  funcion y ya esta. Medido el 2026-10-14: **0** breakers registrados al
-  arrancar Candil, y **10 excepciones seguidas** dejan el circuito en
-  `:closed`.
+  Todo esto estaba antes en este `@moduledoc`, pero **era mentira** y por eso se
+  sustituyo por lo de abajo. Lo que se decia, medido el 2026-10-14: no habia
+  **ningun** breaker registrado —`Arrea.CircuitBreaker.call/2` sobre un nombre
+  sin registrar ejecuta la funcion y ya esta—, todos los destinos caian a
+  `:default_breaker` porque el host solo se aceptaba si ese atomo ya existia en
+  la VM, y un error de red contaba como **exito** porque `call/3` solo registra
+  fallo cuando la funcion **lanza**.
 
-  Y tampoco abririan aunque lo hubiera, por dos razones independientes:
+  Las tres cosas tienen su explicacion y su arreglo en `Candil.HTTP.Breaker`,
+  que es donde vive la politica:
 
-  1. `Client.breaker_name/1` cae a `:default_breaker` para casi todo. Devuelve el
-     host **solo si ese atomo ya existe en la VM**, y `127.0.0.1` no existe; lo
-     mismo pasa con `api.openai.com`. Medido: las tres dan
-     `:default_breaker`. Si se arreglara el registro sin arreglar el nombre,
-     un destino caido abriria el circuito de todos los demas.
-  2. Un error de red llega a Arrea como `{:error, _}` y cuenta como **exito**:
-     `call/3` solo registra fallo cuando la funcion **lanza**. Este modulo
-     convierte todo en `{:error, _}`, asi que nada lo abre.
+  | Que pasa | Cuenta como fallo |
+  |---|---|
+  | **5xx** — el destino esta roto | si |
+  | **429** — le has pedido demasiado | si |
+  | **error de red, timeout, conexion rechazada** | si |
+  | **otros 4xx** — tu peticion estaba mal | no |
+  | excepcion | si |
 
-  El reintento (`Apero.Retry`) si funciona, y el limitador tambien. Lo que no
-  existe es el corte: un destino caido se sigue intentando, siempre.
+  Los numeros: **5** fallos consecutivos y **30 000 ms** abierto antes de dejar
+  pasar una sonda, que es el plazo de `Arrea.Command` y no uno inventado aqui.
 
-  Que abra un circuito y con que politica —que errores cuentan, cuantos abren,
-  cuanto dura abierto— es **decision del dueno** y no se inventa aqui. Lo que si
-  se hace es que el modulo lo diga, para que nadie lo de por hecho: hay un test
-  que afirma el estado real en `test/candil/http_test.exs`.
+  Y el nombre es un **string**, `"candil-breaker-<host>-<puerto>"`, no un atomo:
+  el nombre viejo acababa en `:default_breaker` justo porque usaba
+  `String.to_existing_atom`, que existe para no crear atomos con datos de fuera.
+  Con un string el problema desaparece en vez de esquivarse, y un destino caido
+  apaga su circuito y no el de al lado.
+
   """
 
   alias Candil.Error
@@ -55,7 +59,7 @@ defmodule Candil.HTTP do
     * `:timeout_ms` — request timeout in milliseconds (default: 60_000)
     * `:retry` — enable retry with backoff (default: true)
     * `:max_retries` — maximum retry attempts (default: 3)
-    * `:breaker_name` — circuit breaker name (default: from URL host)
+    * `:breaker_threshold` — fallos consecutivos antes de abrir (default: 5)
     * `:rate_limit` — max requests per second (default: no limit)
 
   ## Returns
@@ -67,11 +71,10 @@ defmodule Candil.HTTP do
           {:ok, response()} | {:error, Error.t()}
   def post_json(url, body, headers, opts \\ []) do
     timeout = Keyword.get(opts, :timeout_ms, @default_timeout_ms)
-    breaker = Keyword.get(opts, :breaker_name, Client.breaker_name(url))
     rate_limit = Keyword.get(opts, :rate_limit)
 
-    request(url, breaker, fn -> Client.do_post_json(url, body, headers, timeout) end)
-    |> Retry.run(breaker, rate_limit, opts)
+    request(url, fn -> Client.do_post_json(url, body, headers, timeout) end)
+    |> Retry.run(url, rate_limit, opts)
     |> Client.wrap_error()
   end
 
@@ -91,14 +94,13 @@ defmodule Candil.HTTP do
           {:ok, term()} | {:error, Error.t()}
   def post_streaming(url, body, headers, opts \\ [], streaming_opts \\ []) do
     timeout = Keyword.get(opts, :timeout_ms, @default_stream_timeout_ms)
-    breaker = Keyword.get(opts, :breaker_name, Client.breaker_name(url))
     rate_limit = Keyword.get(opts, :rate_limit)
 
     result =
-      request(url, breaker, fn ->
+      request(url, fn ->
         Client.do_post_streaming(url, body, headers, timeout, streaming_opts)
       end)
-      |> Retry.run(breaker, rate_limit, opts)
+      |> Retry.run(url, rate_limit, opts)
 
     case result do
       {:ok, _} = ok -> ok
@@ -128,9 +130,9 @@ defmodule Candil.HTTP do
   # more than once. Evaluating the request here instead would have handed
   # `Retry.run/4` the *result* of the first attempt as if it were the function,
   # which is how a circuit breaker ends up being called with a tuple.
-  defp request(url, breaker, fun) when is_function(fun, 0) do
+  defp request(url, fun) when is_function(fun, 0) do
     fn ->
-      Telemetry.emit_http(:request, %{url: url, breaker: breaker})
+      Telemetry.emit_http(:request, %{url: url})
       started = System.monotonic_time(:microsecond)
       result = fun.()
       status = status_of(result)
@@ -138,7 +140,7 @@ defmodule Candil.HTTP do
       Telemetry.emit_http(
         :response,
         %{status: status, duration: System.monotonic_time(:microsecond) - started},
-        %{url: url, breaker: breaker}
+        %{url: url}
       )
 
       result
