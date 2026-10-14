@@ -101,4 +101,80 @@ defmodule Candil.Telemetry.QualityTest do
       assert texto =~ "anomalos"
     end
   end
+
+  describe "la tabla del historico" do
+    test "el dueno es el proceso supervisado, no la peticion que la creo" do
+      # La tabla del reintento se creaba a demanda, desde el proceso de la
+      # peticion. Sin dueno supervisado cada peticion se llevaba su historico:
+      # `retry_rate` salia 0 sin que nada fallara visiblemente, porque el dato
+      # que lo calcula se iba con el proceso.
+      tabla = Candil.Telemetry.Quality.Remember
+
+      assert :ets.whereis(tabla) != :undefined, "la tabla no existe sin que pase una peticion"
+      assert :ets.info(tabla, :owner) == Process.whereis(Quality)
+    end
+
+    test "doce peticiones simultaneas no se la llevan por delante" do
+      # El fallo eran dos cosas en una: un check-then-act (las doce creaban la
+      # tabla y la que perdia se comia un ArgumentError y tumbaba el handler) y
+      # un dueno equivocado (la tabla se creaba desde el proceso de la peticion
+      # y se iba con el, llevandose el historico entero).
+      #
+      # Con trafico simultaneo —que es lo que pasa cuando el destino NO es
+      # exclusivo, o cuando se entra por la API y no por el gateway— ninguna de
+      # las dos es una excepcion aislada.
+      #
+      # Tabla real, no una de prueba: el dueno es lo que se quiere comprobar y
+      # una tabla que crea cada proceso se lo lleva el proceso.
+      #
+      # El barrier tambien importa: sin el, los doce se ejecutan en serie y el
+      # test pasa siempre, bug incluido.
+      tabla = Candil.Telemetry.Quality.Remember
+      parent = self()
+      n = 12
+
+      tareas =
+        for i <- 1..n do
+          Task.async(fn ->
+            send(parent, {:llegado, self()})
+
+            receive do
+              :todos -> :ok
+            after
+              5_000 -> :timeout
+            end
+
+            try do
+              tabla.put(tabla, "clave-#{rem(i, 3)}", i)
+              :ok
+            rescue
+              e -> {:crash, Exception.message(e)}
+            catch
+              k, v -> {:crash, "#{inspect(k)} #{inspect(v)}"}
+            end
+          end)
+        end
+
+      for _ <- 1..n do
+        assert_receive {:llegado, _pid}, 5_000
+      end
+
+      Enum.each(tareas, &send(&1.pid, :todos))
+
+      crashed =
+        for tarea <- tareas do
+          case Task.await(tarea, 5_000) do
+            :ok -> nil
+            otro -> otro
+          end
+        end
+        |> Enum.reject(&is_nil/1)
+
+      assert crashed == [], "una peticion se ha comido el error de otra: #{inspect(crashed)}"
+
+      # Y la tabla sigue viva: los doce procesos ya han muerto.
+      assert :ets.whereis(tabla) != :undefined, "la tabla se ha ido con las peticiones"
+      assert :ets.info(tabla, :owner) == Process.whereis(Quality)
+    end
+  end
 end
