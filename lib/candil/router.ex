@@ -7,6 +7,26 @@ defmodule Candil.Router do
   model from Ecto. Here the unit is a `Candil.Model` and the catalogue is
   `Candil.Store`, and nothing in this module knows what a database is.
 
+  ## Este modulo no sabe si una respuesta es correcta
+
+  Decide **a quien** se manda la pregunta. La respuesta la evalua quien ha
+  hecho la pregunta: el usuario de la CLI, o el consumidor del gateway.
+
+  No es una limitacion que quede pendiente: es el reparto de papeles. Medido el
+  2026-10-14 sobre los GGUF de esta maquina, con una pregunta de aritmetica y
+  `temperature 0`, `Devstral` —que es el `coder_lite` del catalogo— contesto
+  «14 patas» cuando eran 10, con un 200 y sin ningun fallo tecnico que mirar.
+  Para distinguirlo de un modelo que si acierta haria falta la verdad terrena,
+  que no existe aqui. Un motor que finge saber si una respuesta es buena es
+  peor que uno que no lo sabe, porque sus decisiones dejan de ser auditables.
+
+  Ver `docs/08-decisiones/README.md` D-12.
+
+  Lo que si se mide es **la decision**: el tribunal de `DISENO-MOTOR` §10 dice
+  cuanto resolvió cada capa, que es otra pregunta. Y `Candil.Telemetry.Quality`
+  mide la **salud del destino** —un `finish_reason` anomalo dice que se quedo
+  corto, un reintento dice que algo fallo—, no si la respuesta es cierta.
+
   ## Four layers, cheapest first
 
   1. **Cache** — the same prompt has already been routed.
