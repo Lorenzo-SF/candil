@@ -9,6 +9,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`usage` se parte en dos: endpoints y capacidades.** `usage` contestaba a
+  dos preguntas distintas y el codigo las leia con dos semanticas: el
+  `DecisionEngine` preguntaba `:chat in usage` (*puedo servir peticiones*) y el
+  filtro de dificultad del `Scorer` preguntaba `:reasoning in usage` (*este
+  modelo es bueno para razonar*). En el catalogo real, cuatro modelos de siete
+  declaraban las dos cosas en la misma lista —
+  `usage = ["chat", "reasoning"]` y `["chat", "code", "completion"]`—.
+
+  Ahora:
+
+  | Campo | Pregunta | Valores |
+  |---|---|---|
+  | `usage` | que endpoints puedo servir | `chat`, `completion`, `embeddings` |
+  | `capabilities` | para que es bueno | `code`, `reasoning`, `vision`, `translation`, `redaction`, `summarisation` |
+
+  **El catalogo actual no se toca y sigue arrancando.** Medido sobre
+  `~/.config/candil/candil.toml` sin modificarlo: **7 modelos, 0 errores**, con
+  cada capacidad en su sitio y cuatro warnings que dicen a donde fue cada una.
+
+  Un valor que no sea ni endpoint ni capacidad **es un error al cargar**, no se
+  ignora: un catalogo que se traga lo que no entiende deja un modelo que finge
+  saber algo, en silencio.
 - **El umbral por defecto de la capa `:embedding` pasa de 0.55 a 0.35.** El
   0.55 no venia de una medicion de Candil: era la escala de similitud de otro
   modelo de embeddings, heredada sin comprobar.

@@ -506,12 +506,21 @@ defmodule Candil.Router.ScorerLayersTest do
   # ── utillaje ─────────────────────────────────────────────────────────────
 
   defp put_model(alias, usage, description) do
+    # La lista mezcla endpoints y capacidades a proposito: estos tests comprueban
+    # de paso que la separacion de `usage` funciona. La logica vive en un solo
+    # sitio, `Model.split_usage/1`.
+    {endpoints, capacidades, invalidos} = Model.split_usage(usage)
+
+    if invalidos != [],
+      do: flunk("usage con valores que no existen: #{inspect(invalidos)}")
+
     :ok =
       Store.register_model(%Model{
         alias: alias,
         type: :local,
         engine: :llama_cpp,
-        usage: usage,
+        usage: endpoints,
+        capabilities: capacidades,
         description: description,
         model_dir: "/models",
         filename: "#{alias}.gguf"

@@ -135,9 +135,14 @@ defmodule Candil.Config.Template do
     #   context_size = 131072
     #   port         = 9999        # el puerto EXACTO; si lo omites, del base_port
     #
-    #   # Para que aparezcan en "what do I use this for": chat, code,
-    #   # completion, reasoning, embeddings, vision.
-    #   usage        = ["chat", "code"]
+    #   # QUE ENDPOINTS sirve este destino. Solo tres: chat, completion,
+    #   # embeddings. Es lo que decide si se le puede pedir una peticion.
+    #   usage        = ["chat", "completion"]
+    #
+    #   # PARA QUE es bueno, que es otra pregunta. Si no lo dices, no se inventa:
+    #   # un modelo sin capabilities no se considera bueno para nada en
+    #   # particular, que es distinto de considerarlo bueno para todo.
+    #   capabilities = ["code", "reasoning"]
     #   tags         = ["gpu", "moe", "code"]
     #
     #   # EXCLUSIVO: ¿este destino se puede usar a la vez que otro?

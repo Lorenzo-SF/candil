@@ -129,7 +129,8 @@ defmodule Candil.Gateway.EndToEndTest do
         filename: "enprueba.gguf",
         context_size: 8192,
         port: motor_port,
-        usage: [:chat, :code],
+        usage: [:chat],
+        capabilities: [:code],
         description: "escribe, arregla y refactoriza codigo",
         gpu_layers: -1,
         exclusive: true
