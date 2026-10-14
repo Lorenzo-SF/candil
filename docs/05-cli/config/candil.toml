@@ -162,7 +162,10 @@
 #   # La confianza con la que la capa `:llm` se compara con el umbral, tal
 #   # cual la da el clasificador. No se normaliza aqui.
 #   confidence_threshold = 0.70
-#   embedding_threshold  = 0.55
+#   # Depende del embedder. El defecto (0.35) se midio con 106 peticiones
+#   # reales en cuatro idiomas; el 0.55 heredado resolvia el 10% con el mismo
+#   # acierto. Si cambias de embedder, recalibra este numero.
+#   embedding_threshold  = 0.35
 #   # Las reglas de palabras van aparte, en [router.rules], y su
 #   # vocabulario es tuyo —el de las preguntas que te hacen de verdad.
 #   #   [router.rules]

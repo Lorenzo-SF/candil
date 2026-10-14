@@ -211,7 +211,15 @@ defmodule Candil.Config.Template do
     #   # La confianza con la que la capa `:llm` se compara con el umbral, tal
     #   # cual la da el clasificador. No se normaliza aqui.
     #   confidence_threshold = 0.70
-    #   embedding_threshold  = 0.55
+    #
+    #   # El umbral de la capa `:embedding`, con el embedder de este fichero.
+    #   #
+    #   # **Depende del embedder**: no es una constante de Candil. El defecto
+    #   # (0.35) se midio con 106 peticiones reales en cuatro idiomas: la capa
+    #   # estatica resolvia el 30% con acierto perfecto, frente al 10% que
+    #   # resolvia el 0.55 heredado de otro modelo de embeddings. Si cambias de
+    #   # embedder, este numero es el primero que hay que recalibrar.
+    #   embedding_threshold  = 0.35
     #   # Las reglas de palabras van aparte, en [router.rules], y el vocabulario
     #   # es tuyo —el de las preguntas que te hacen de verdad. Sin esto la capa
     #   # usa un vocabulario ingles de reserva que no casa con tus prompts.

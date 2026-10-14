@@ -1276,7 +1276,7 @@ un `with`. Este módulo **agrega encima**; no reordena nada.
                     ├─────────────────────────────────────────┤
                     │ 3. reglas           (palabras)          │──► gana si >= 0.20
                     ├─────────────────────────────────────────┤
-                    │ 4. embeddings       (coseno)            │──► gana si >= 0.55
+                    │ 4. embeddings       (coseno)            │──► gana si >= 0.35
                     ├─────────────────────────────────────────┤
                     │ 5. clasificador LLM (una inferencia)    │──► OFF por defecto
                     ├─────────────────────────────────────────┤
