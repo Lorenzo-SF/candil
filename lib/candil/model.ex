@@ -41,36 +41,65 @@ defmodule Candil.Model do
   Es opcional, y por omisión no se inventa. Un modelo sin descripción
   simplemente no entra en la comparación de esa capa.
 
-  ## Usage types
+  ## `usage` y `capabilities`: dos preguntas distintas
 
-  `:chat`, `:completion`, `:embeddings`, `:reasoning`, `:vision`,
-  `:code`, `:translation`, `:summarisation`
+  Antes de esto eran una sola lista y no se podia contestarla bien. Medido el
+  2026-10-14 sobre el catálogo real: cuatro modelos declaraban
+  `usage = ["chat", "reasoning"]` o `usage = ["chat", "code", "completion"]`, y
+  en esa lista **`chat` y `completion` son endpoints y `reasoning` y `code` no
+  lo son**. El codigo los usaba igual y con dos semanticas distintas: el
+  `DecisionEngine` preguntaba `:chat in usage` (endpoint, puedo servir
+  peticiones) y el `Scorer` preguntaba `:reasoning in usage` (capacidad, este
+  modelo es bueno para razonar).
+
+  Asi que ahora son dos campos, y cada uno contesta una pregunta:
+
+  | Campo | Pregunta | Valores |
+  |---|---|---|
+  | `:usage` | **que endpoints** puedo servir | `:chat`, `:completion`, `:embeddings` |
+  | `:capabilities` | **para que** es bueno | `:code`, `:reasoning`, `:vision`, `:translation`, `:redaction`, `:summarisation` |
+
+  `:usage` sigue siendo obligatoria por defecto (`[:chat, :completion]`) porque
+  es lo que decide si a este modelo se le puede pedir una peticion.
+  `:capabilities` **no se inventa**: el defecto es `[]`, y un modelo sin
+  capacidades no se considera bueno para nada en particular, que es distinto de
+  considerarlo bueno para todo.
+
+  Un valor que no este en ninguna de las dos listas **es un error al cargar**,
+  no se ignora. Un catalogo que dice `"uso": "chatt"` y no dice nada no es un
+  catalogo honesto, es una letra que nadie lee y un modelo que nadie usa.
+
+  ## Lo que se migra, y lo que no
+
+  Un `usage` viejo que mezcle las dos cosas **arranca igual**: cada elemento
+  conocido va a donde le toca (endpoint a `usage`, capacidad a `capabilities`)
+  y se avisa con un warning que dice a donde fue. Un elemento desconocido si es
+  un error, porque migrar a ciegas seria inventar.
+
+  Los valores que se reconocen como capacidad, y por tanto migran solos, son
+  `code`, `reasoning`, `vision`, `translation`, `redaction` y `summarisation`.
   """
 
   alias Candil.Source
 
   @type alias :: atom()
 
-  @usage_types [
-    :chat,
-    :completion,
-    :embeddings,
-    :reasoning,
-    :vision,
-    :code,
-    :translation,
-    :summarisation
-  ]
+  # Los endpoints que puede servir un destino. Es lo unico que decide si se le
+  # puede pedir una peticion.
+  @usage_types [:chat, :completion, :embeddings]
+
+  # Para que es bueno un destino. No decide si se le puede pedir nada: eso es
+  # `usage`. Decide a quien le encaja cuando hay varios candidatos.
+  @capability_types [:code, :reasoning, :vision, :translation, :redaction, :summarisation]
 
   @type model_type :: :local | :remote | :external
-  @type usage ::
-          :chat
-          | :completion
-          | :embeddings
+  @type usage :: :chat | :completion | :embeddings
+  @type capability ::
+          :code
           | :reasoning
           | :vision
-          | :code
           | :translation
+          | :redaction
           | :summarisation
 
   @enforce_keys [:alias, :type]
@@ -113,6 +142,12 @@ defmodule Candil.Model do
             # a GPU slot and a CPU slot.
             port: :auto,
             usage: [:chat, :completion],
+            # PARA QUE es bueno, que es otra pregunta que la de `usage`. El
+            # defecto es `[]` y no se inventa: un modelo sin capacidades no se
+            # considera bueno para nada en particular, que es distinto de
+            # considerarlo bueno para todo. Lo consulta el filtro de dificultad
+            # del router (`:deep` quiere `:reasoning`, `:fast` la excluye).
+            capabilities: [],
             # QUE SABE HACER, en una frase. No es decoracion: es el texto que
             # la capa `:embedding` del router compara con el prompt, y sin el
             # no hay nada comparable. Opcional a proposito —ver el `@moduledoc`—
@@ -157,6 +192,7 @@ defmodule Candil.Model do
           context_size: pos_integer(),
           port: model_port(),
           usage: [usage()],
+          capabilities: [capability()],
           description: binary() | nil,
           model_args: [binary()],
           gpu_layers: integer(),
@@ -175,10 +211,69 @@ defmodule Candil.Model do
   def managed?(%__MODULE__{}), do: true
 
   @doc """
-  Returns all valid usage type atoms.
+  Los endpoints que un modelo puede servir. Un solo sitio donde viven.
+
+  **Solo endpoints.** Para que es bueno el modelo va en `capabilities/0`, que
+  es otra pregunta; ver el `@moduledoc`.
   """
   @spec usage_types() :: [usage()]
   def usage_types, do: @usage_types
+
+  @doc """
+  Las capacidades de un modelo, y donde migran solas las que estaban en
+  `usage`. Un solo sitio donde viven.
+  """
+  @spec capability_types() :: [capability()]
+  def capability_types, do: @capability_types
+
+  @doc """
+  Separa una lista de `usage` viejo en `{endpoints, capacidades}`.
+
+  Es la **migracion**, en un solo sitio: lo usan el `Hydrate` —que avisa— y
+  quien construye un `%Model{}` a mano —que no puede avisar porque ya sabe lo
+  que hace—. Un endpoint se queda, una capacidad se va a su sitio, y lo que no
+  esta en ninguna de las dos listas no se inventa: se queda fuera y el que llama
+  decide, que es lo que evita que un typo se convierta en un modelo que finge.
+
+  Los valores ya atomizados se aceptan igual que los strings, porque un
+  `%Model{}` se construye con atomos y un toml con strings.
+  """
+  @spec split_usage([atom() | binary()]) :: {valid_usage, valid_capabilities, invalid}
+        when valid_usage: [usage()],
+             valid_capabilities: [capability()],
+             invalid: [binary()]
+  def split_usage(values) when is_list(values) do
+    {endpoints, capabilities, invalid} =
+      Enum.reduce(values, {[], [], []}, fn value, {e, c, i} ->
+        name = to_string(value)
+
+        cond do
+          name in Enum.map(@usage_types, &Atom.to_string/1) ->
+            {[to_existing(value) | e], c, i}
+
+          name in Enum.map(@capability_types, &Atom.to_string/1) ->
+            {e, [to_existing(value) | c], i}
+
+          true ->
+            {e, c, [name | i]}
+        end
+      end)
+
+    {Enum.reverse(endpoints), Enum.reverse(capabilities), Enum.reverse(invalid)}
+  end
+
+  # Los atomos de la lista ya existen —son `@usage_types` y `@capability_types`—
+  # asi que `String.to_existing_atom/1` es seguro y no crea nada. Un atomo
+  # desconocido se devuelve tal cual para que la comparacion de arriba lo
+  # rechace y no alimente una tabla de atomos.
+  defp to_existing(value) when is_atom(value) and not is_nil(value) and not is_boolean(value) do
+    if Atom.to_string(value) in Enum.map(@usage_types ++ @capability_types, &Atom.to_string/1),
+      do: value,
+      else: Atom.to_string(value)
+  end
+
+  defp to_existing(value) when is_binary(value), do: String.to_existing_atom(value)
+  defp to_existing(value), do: value
 
   @doc """
   Returns the full path to the model file on disk.
@@ -238,6 +333,7 @@ defmodule Candil.Model do
       |> validate_alias(model)
       |> validate_type_fields(model)
       |> validate_usage(model)
+      |> validate_capabilities(model)
 
     if errors == [], do: :ok, else: {:error, Enum.reverse(errors)}
   end
@@ -347,8 +443,27 @@ defmodule Candil.Model do
 
     if invalid == [],
       do: errors,
-      else: ["invalid usage types: #{inspect(invalid)}" | errors]
+      else: [
+        "invalid usage types: #{inspect(invalid)} (endpoints: #{inspect(@usage_types)})" | errors
+      ]
   end
 
   defp validate_usage(errors, _), do: ["usage must be a list" | errors]
+
+  # Las capacidades se comprueban en el mismo sitio y por la misma razon: un
+  # `usage` con un valor inventado es un catalogo que miente, y una capacidad
+  # inventada tambien. Lo que no se hace es aceptarlas por simpatia: el error
+  # sale en `Store.register_model`, que es donde ya salia el de `usage`.
+  defp validate_capabilities(errors, %{capabilities: capabilities}) when is_list(capabilities) do
+    invalid = Enum.reject(capabilities, &(&1 in @capability_types))
+
+    if invalid == [],
+      do: errors,
+      else: [
+        "invalid capabilities: #{inspect(invalid)} (known: #{inspect(@capability_types)})"
+        | errors
+      ]
+  end
+
+  defp validate_capabilities(errors, _), do: ["capabilities must be a list" | errors]
 end

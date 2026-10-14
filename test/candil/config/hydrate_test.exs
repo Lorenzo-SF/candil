@@ -185,4 +185,128 @@ defmodule Candil.Config.HydrateTest do
       assert %{engines: [], models: [], providers: []} = Hydrate.hydrate(%{})
     end
   end
+
+  defp hydrate_model(usage) do
+    %{
+      "model" => %{
+        "codigo" => %{
+          "type" => "local",
+          "engine" => "nope",
+          "usage" => usage,
+          "model_dir" => "/modelos",
+          "filename" => "codigo.gguf"
+        }
+      }
+    }
+    |> Hydrate.hydrate()
+  end
+
+  # `usage` mezclaba endpoints y capacidades. Medido sobre el catalogo real el
+  # 2026-10-14, cuatro modelos de siete declaraban `["chat", "reasoning"]` o
+  # `["chat", "code", "completion"]`. Estos tests usan **esas cadenas literales**
+  # a proposito: si un dia se rompe la migracion, se rompe aqui y no al arrancar
+  # con el catalogo de alguien.
+  describe "la separacion de usage en endpoints y capacidades" do
+    test "un endpoint se queda en usage" do
+      assert %{models: [:codigo]} = hydrate_model(["chat"])
+    end
+
+    test "una capacidad migra sola a capabilities, y no se pierde" do
+      # `["chat", "code", "completion"]` es literal del catalogo real.
+      %{models: [:codigo]} = hydrate_model(["chat", "code", "completion"])
+
+      model = elem(Store.get_model(:codigo), 1)
+
+      assert model.usage == [:chat, :completion]
+      assert model.capabilities == [:code]
+    end
+
+    test "varias capacidades a la vez" do
+      # `["chat", "reasoning"]` es literal del catalogo real, y `reasoning` es
+      # justo lo que lee el filtro de dificultad del router.
+      %{models: [:codigo]} = hydrate_model(["chat", "reasoning"])
+
+      model = elem(Store.get_model(:codigo), 1)
+
+      assert model.usage == [:chat]
+      assert model.capabilities == [:reasoning]
+    end
+
+    test "solo endpoints deja capabilities vacio" do
+      %{models: [:codigo]} = hydrate_model(["embeddings"])
+
+      model = elem(Store.get_model(:codigo), 1)
+
+      assert model.usage == [:embeddings]
+      assert model.capabilities == []
+    end
+
+    test "un valor que no es ni endpoint ni capacidad NO se inventa" do
+      # Esto es lo que evita que un typo se convierta en un modelo que finge
+      # saber algo: se levanta en vez de dejar el valor donde estaba.
+      assert_raise ArgumentError, ~r/no es ni un endpoint ni una capacidad/, fn ->
+        hydrate_model(["chat", "chatt"])
+      end
+    end
+  end
+
+  describe "escribir capabilities en el toml" do
+    test "la forma nueva se lee, y es la que no migra" do
+      %{models: [:codigo]} =
+        Hydrate.hydrate(%{
+          "model" => %{
+            "codigo" => %{
+              "type" => "local",
+              "engine" => "nope",
+              "model_dir" => "/modelos",
+              "filename" => "codigo.gguf",
+              "usage" => ["chat"],
+              "capabilities" => ["code", "reasoning"]
+            }
+          }
+        })
+
+      model = elem(Store.get_model(:codigo), 1)
+
+      assert model.usage == [:chat]
+      assert model.capabilities == [:code, :reasoning]
+    end
+
+    test "las dos formas juntas: usage sin capacidades y capabilities aparte" do
+      %{models: [:codigo]} =
+        Hydrate.hydrate(%{
+          "model" => %{
+            "codigo" => %{
+              "type" => "local",
+              "engine" => "nope",
+              "model_dir" => "/modelos",
+              "filename" => "codigo.gguf",
+              "usage" => ["chat", "completion"],
+              "capabilities" => ["code"]
+            }
+          }
+        })
+
+      model = elem(Store.get_model(:codigo), 1)
+
+      assert model.usage == [:chat, :completion]
+      assert model.capabilities == [:code]
+    end
+  end
+
+  describe "el catalogo real, sin tocar" do
+    test "las cuatro combinaciones de usage del catalogo siguen arrancando" do
+      # Estas son las que hay en `~/.config/candil/candil.toml` el 2026-10-14.
+      # Si el dia que estas cadenas dejen de arrancar, alguien cambio el formato
+      # y no aviso.
+      for usage <- [
+            ["chat", "code", "completion"],
+            ["chat", "reasoning"],
+            ["chat", "completion"],
+            ["embeddings"]
+          ] do
+        assert %{models: [:codigo]} = hydrate_model(usage), inspect(usage)
+      end
+    end
+  end
 end

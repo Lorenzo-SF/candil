@@ -341,7 +341,7 @@ defmodule Candil.Router.Scorer do
 
   defp keep_by_difficulty(candidates, module, verdict) do
     with :ok <- known_difficulty(verdict.difficulty) do
-      kept = Enum.filter(candidates, &allows?(usage_of(&1), verdict.difficulty))
+      kept = Enum.filter(candidates, &allows?(capabilities_of(&1), verdict.difficulty))
 
       # Cero NO es «todos». Un `:deep` sin ningun modelo de razonamiento tiene
       # que poder decirse, porque mandarlo igualmente con la misma confianza es
@@ -364,17 +364,22 @@ defmodule Candil.Router.Scorer do
   defp known_difficulty(:deep), do: :ok
   defp known_difficulty(other), do: {:error, {:unknown_difficulty, other}}
 
-  defp allows?(usage, :deep), do: :reasoning in usage
-  defp allows?(usage, :fast), do: :reasoning not in usage
-  defp allows?(_usage, :normal), do: true
+  # Esto lee **capacidades**, no `usage`. Antes leia `usage`, y era la misma
+  # lista que decide que endpoints sirve un modelo: dos preguntas distintas en
+  # el mismo sitio. `:reasoning` nunca fue un endpoint —se puede pedir una
+  # peticion de chat a un modelo que razona— asi que lo que se consulta aqui es
+  # `capabilities`.
+  defp allows?(capacidades, :deep), do: :reasoning in capacidades
+  defp allows?(capacidades, :fast), do: :reasoning not in capacidades
+  defp allows?(_capacidades, :normal), do: true
 
   # Un alias que no esta en el catalogo no se puede decir que tenga
   # `:reasoning`, asi que no sobrevive a un `:deep` ni a un `:fast`. En un
   # `:normal` no hay filtro y se queda: el filtro de verdad lo hace el
   # `DecisionEngine`, que ya ha resuelto los candidatos.
-  defp usage_of(alias) do
+  defp capabilities_of(alias) do
     case Store.get_model(alias) do
-      {:ok, model} -> model.usage
+      {:ok, model} -> model.capabilities
       {:error, :not_found} -> []
     end
   end
@@ -382,7 +387,7 @@ defmodule Candil.Router.Scorer do
   defp reason_for(module, verdict, kept) do
     "el clasificador #{module.name()} dijo #{verdict.difficulty} con confianza " <>
       "#{verdict.confidence}, SIN normalizar (#{verdict.why}); " <>
-      "el filtro deja #{inspect(kept)} por `usage`"
+      "el filtro deja #{inspect(kept)} por `capabilities`"
   end
 
   # ── la capa :embedding ───────────────────────────────────────────────────

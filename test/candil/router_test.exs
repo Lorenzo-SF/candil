@@ -30,11 +30,20 @@ defmodule Candil.RouterTest do
   end
 
   defp register(alias, usage) do
+    # Como en `decision_engine_layers_test.exs`: la lista mezcla endpoints y
+    # capacidades a proposito, para que estos tests comprueben tambien la
+    # separacion. Un solo sitio con esa logica: `Model.split_usage/1`.
+    {endpoints, capacidades, invalidos} = Model.split_usage(usage)
+
+    if invalidos != [],
+      do: flunk("usage con valores que no existen: #{inspect(invalidos)}")
+
     model = %Model{
       alias: alias,
       type: :local,
       engine: :llama_cpp,
-      usage: usage,
+      usage: endpoints,
+      capabilities: capacidades,
       model_dir: "/models",
       filename: "#{alias}.gguf"
     }

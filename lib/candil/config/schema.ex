@@ -225,6 +225,7 @@ defmodule Candil.Config.Schema do
       validate_model_args(name, spec) ++
       validate_model_source(name, spec) ++
       validate_model_usage(name, spec) ++
+      validate_model_capabilities(name, spec) ++
       validate_model_description(name, spec) ++
       validate_model_exclusive(name, spec)
   end
@@ -352,17 +353,30 @@ defmodule Candil.Config.Schema do
   end
 
   defp validate_model_usage(name, spec) do
-    case Map.get(spec, "usage") do
+    validate_string_list(name, spec, "usage")
+  end
+
+  # `capabilities` es la forma **nueva**, y opcional: quien tenga `usage` con
+  # capacidades dentro lo ve migrado con un warning y sigue arrancando. Se
+  # valida en el mismo sitio y por la misma razon que `usage`: una capacidad
+  # mal escrita deja un modelo al que el router no le encuentra sitio, y eso es
+  # un fallo silencioso.
+  defp validate_model_capabilities(name, spec) do
+    validate_string_list(name, spec, "capabilities")
+  end
+
+  defp validate_string_list(name, spec, field) do
+    case Map.get(spec, field) do
       nil ->
         []
 
-      usage when is_list(usage) ->
-        if Enum.all?(usage, &is_binary/1),
+      values when is_list(values) ->
+        if Enum.all?(values, &is_binary/1),
           do: [],
-          else: ["model '#{name}'.usage must be a list of strings"]
+          else: ["model '#{name}'.#{field} must be a list of strings"]
 
       other ->
-        ["model '#{name}'.usage must be a list, got: #{inspect(other)}"]
+        ["model '#{name}'.#{field} must be a list, got: #{inspect(other)}"]
     end
   end
 

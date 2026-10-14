@@ -39,6 +39,8 @@ defmodule Candil.Config.Hydrate do
   alias Candil.Config.File, as: ConfigFile
   alias Candil.Store
 
+  require Logger
+
   @doc """
   Registers everything in a decoded document. Returns per-section results.
 
@@ -160,13 +162,16 @@ defmodule Candil.Config.Hydrate do
   end
 
   defp model(name, spec) do
+    {usage, capabilities} = usage_and_capabilities(name, spec)
+
     attrs =
       %{
         alias: alias_of(name),
         type: atom(Map.get(spec, "type", "local")),
         context_size: spec["context_size"] || 4096,
         port: spec["port"] || :auto,
-        usage: Enum.map(spec["usage"] || ["chat"], &atom/1),
+        usage: usage,
+        capabilities: capabilities,
         # Lo unico que la capa `:embedding` del router tiene para comparar con
         # un prompt. Va tal cual y sin relleno: sin descripcion, ese modelo no
         # entra en la comparacion, que es distinto de entrar con un 0.
@@ -369,6 +374,49 @@ defmodule Candil.Config.Hydrate do
       raise ArgumentError,
             "#{inspect(name)} is not a usable alias: expected [a-z][a-z0-9_]*, " <>
               "and refusing it is what keeps this the only String.to_atom/1 in Candil"
+    end
+  end
+
+  # `usage` mezclaba dos preguntas —«que endpoints sirvo» y «para que soy
+  # bueno»— y el codigo las leia con dos semanticas distintas. Aqui se separan.
+  #
+  # Lo que decide el comportamiento es que **un `usage` viejo sigue arrancando**:
+  # cada elemento conocido va a donde le toca y se avisa. Medido sobre el
+  # catalogo real del 2026-10-14, cuatro modelos de siete declaraban
+  # `usage = ["chat", "reasoning"]` o `["chat", "code", "completion"]`, y con
+  # esto arrancan igual que antes, con la capacidad en su sitio.
+  #
+  # Un elemento que no esta en ninguna de las dos listas **es un error**: no se
+  # ignora y no se migra a ciegas. Un `"uso"` mal escrito tiene que decir algo,
+  # porque un catalogo que se traga lo que no entiende es un catalogo donde un
+  # typo deja un modelo sin servir peticiones sin que nadie se entere.
+  defp usage_and_capabilities(name, spec) do
+    declarados = Map.get(spec, "usage") || ["chat"]
+    {endpoints, capacidades, invalidos} = Model.split_usage(declarados)
+    declaradas_capacidades = Map.get(spec, "capabilities") || []
+    capacidades = capacidades ++ Enum.map(declaradas_capacidades, &atom/1)
+
+    Enum.each(capacidades, fn capacidad ->
+      Logger.warning(
+        "[Candil.Config] el modelo '#{name}' declara \"#{capacidad}\" en usage, " <>
+          "y eso no es un endpoint sino una capacidad. Migra a 'capabilities'. " <>
+          "Arranca igual, pero en la proxima version deja de hacerlo."
+      )
+    end)
+
+    Enum.each(invalidos, fn valor ->
+      Logger.error(
+        "[Candil.Config] el modelo '#{name}' declara \"#{valor}\" en usage y no es ni un " <>
+          "endpoint (#{Enum.map_join(Model.usage_types(), ", ", &Atom.to_string/1)}) ni una " <>
+          "capacidad (#{Enum.map_join(Model.capability_types(), ", ", &Atom.to_string/1)})."
+      )
+    end)
+
+    if invalidos == [] do
+      {endpoints, capacidades}
+    else
+      raise ArgumentError,
+            "model '#{name}': #{inspect(invalidos)} en usage no es ni un endpoint ni una capacidad"
     end
   end
 

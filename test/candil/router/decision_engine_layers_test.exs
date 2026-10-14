@@ -244,12 +244,22 @@ defmodule Candil.Router.DecisionEngineLayersTest do
   # ── utillaje ─────────────────────────────────────────────────────────────
 
   defp put_model(alias, usage, description) do
+    # La lista de este helper **mezcla endpoints y capacidades** a proposito:
+    # asi estos tests comprueban de paso que la migracion de `usage` a
+    # `capabilities` funciona, sin tener que reescribirlos uno a uno.
+    {endpoints, capacidades} =
+      case Model.split_usage(usage) do
+        {e, c, []} -> {e, c}
+        {_e, _c, invalidos} -> flunk("usage con valores que no existen: #{inspect(invalidos)}")
+      end
+
     :ok =
       Store.register_model(%Model{
         alias: alias,
         type: :local,
         engine: :llama_cpp,
-        usage: usage,
+        usage: endpoints,
+        capabilities: capacidades,
         description: description,
         model_dir: "/models",
         filename: "#{alias}.gguf"
