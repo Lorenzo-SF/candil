@@ -72,6 +72,15 @@ defmodule Candil.Refusal do
   Asi un destino lento tiene un wait lento **y solo suyo**, y uno rapido no
   espera por culpa de otro.
 
+  Esto **funcionaba antes de estar cableado**: la funcion de abajo leia la
+  clave, pero `Candil.Model` no la tenia en su `defstruct` y el esquema del
+  toml acepta claves desconocidas sin decir nada. O sea que escribir esto en el
+  catalogo no hacia nada y no fallaba. Medido el 2026-10-15; el campo existe
+  ahora en `Candil.Model` y lo lee `Candil.Config.Hydrate`.
+
+  Un valor que no sea un entero de segundos mayor que 0 se **rechaza al cargar**
+  el catalogo, en vez de ignorarse.
+
   ## Lo que NO decide este modulo
 
   **No decide si algo cabe.** Eso lo mide `Arrea.Resource` y lo trae

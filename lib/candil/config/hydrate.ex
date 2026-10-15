@@ -198,8 +198,22 @@ defmodule Candil.Config.Hydrate do
       |> maybe_put(:source, source(spec["source"]))
       |> maybe_put(:draft, source(spec["draft"]))
       |> maybe_put(:enabled, spec["enabled"])
+      |> maybe_put(:typical_latency_s, segundos_de(spec["typical_latency_s"], name))
 
     validate(Model, struct(Model, attrs))
+  end
+
+  # `typical_latency_s` decide cuanto espera el refusal por este destino, asi
+  # que un valor que no es un numero positivo es un error de configuracion y no
+  # algo que se pueda ignorar en silencio: un `0` haria que este destino no
+  # esperase nunca, que es justo lo contrario de lo que el usuario escribio.
+  defp segundos_de(nil, _name), do: nil
+  defp segundos_de(valor, _name) when is_integer(valor) and valor > 0, do: valor
+
+  defp segundos_de(valor, name) do
+    raise ArgumentError,
+          "typical_latency_s de '#{name}' tiene que ser un entero de segundos mayor que 0, " <>
+            "y es #{inspect(valor)}"
   end
 
   # `gpu_layers` es un campo propio, y se lee de dos sitios por orden: el
