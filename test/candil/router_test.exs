@@ -94,7 +94,18 @@ defmodule Candil.RouterTest do
     test "is an error, never head/1 of the model list" do
       # A consumer with nothing configured must not silently get the first
       # model in the store, which here is the embeddings one.
-      assert Router.route(@code, candidates: []) == {:error, :no_models_for_consumer}
+      #
+      # El contrato **cambio a proposito** con la politica de refusal: ahora el
+      # error dice mas, no menos. Antes era un atomo; ahora lleva el motivo por
+      # el que no daba y cuando reintentar, que es lo que un cliente necesita
+      # para no reintentar a ciegas.
+      assert {:error, error} = Router.route(@code, candidates: [])
+
+      assert error.reason == :no_capacity
+      assert error.context.reason_origen == :no_models_for_consumer
+      assert error.context.retry_after == 30_000
+
+      # Y esto NO pasa por la politica: son candidatos, no una falta de capacidad.
       assert Router.candidates(:consumer_sin_configurar) == {:error, :no_models_for_consumer}
     end
   end
