@@ -73,6 +73,86 @@ defmodule Candil.Detector.Devices do
 
   @query ["--query-gpu=index,name,memory.total,memory.free", "--format=csv,noheader,nounits"]
 
+  # Cuanta VRAM gasta CADA PROCESO, no cada GPU. `detect_cuda/0` responde a
+  # «cuanto hay libre en total», que con dos instancias no dice cuanto gasta
+  # cada una. Esta responde a «cuanto gasta ESTE», que es lo que necesita una
+  # tabla con una fila por instancia.
+  @processes_query [
+    "--query-compute-apps=pid,used_gpu_memory",
+    "--format=csv,noheader,nounits"
+  ]
+
+  @type process_usage :: %{pid: pos_integer(), used_mb: non_neg_integer()}
+
+  @doc """
+  La VRAM que usa cada proceso de la GPU, por PID.
+
+  Separado de `detect_cuda/0` porque son dos preguntas: cuanto hay libre en
+  total, y cuanto gasta este proceso. Con dos modelos cargados la primera no
+  alcanza para la tabla de `candil status`, que tiene una fila por instancia y
+  ya tiene el PID en una columna.
+
+  Devuelve `{:ok, []}` cuando nada usa la GPU —que no es un fallo— y
+  `{:error, :no_smi}` cuando la pregunta no se puede hacer.
+  """
+  @spec processes() :: {:ok, [process_usage()]} | {:error, term()}
+  def processes do
+    case System.find_executable("nvidia-smi") do
+      nil -> {:error, :no_smi}
+      _path -> run_processes()
+    end
+  end
+
+  defp run_processes do
+    case System.cmd("nvidia-smi", @processes_query, stderr_to_stdout: true) do
+      {out, 0} -> parse_processes(out)
+      {_out, _rc} -> {:error, :smi_failed}
+    end
+  end
+
+  @doc """
+  Parsea `--query-compute-apps=pid,used_gpu_memory`.
+
+  Una linea que no se entiende es `{:error, :bad_line}`, no una linea saltada:
+  un parser que se come lo raro devuelve una lista mas corta, el `candil
+  status` pone un guion donde deberia haber un numero, y nadie sabe si ese
+  guion es «no usa GPU» o «no lo he entendido».
+  """
+  @spec parse_processes(binary()) :: {:ok, [process_usage()]} | {:error, term()}
+  def parse_processes(output) when is_binary(output) do
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.reduce_while({:ok, []}, fn linea, {:ok, acc} ->
+      case parse_process_line(linea) do
+        {:ok, uso} -> {:cont, {:ok, [uso | acc]}}
+        :error -> {:halt, {:error, :bad_line}}
+      end
+    end)
+    |> case do
+      {:ok, procesos} -> {:ok, Enum.reverse(procesos)}
+      error -> error
+    end
+  end
+
+  # `nounits` quita el "MiB", pero el flag no es de fiar como contrato y una
+  # linea con unidades es una linea real. Se quitan en vez de no aceptarlas.
+  defp parse_process_line(linea) do
+    case linea |> String.split(",", trim: true) |> Enum.map(&String.trim/1) do
+      [pid, used] ->
+        with {p, ""} <- Integer.parse(pid),
+             {m, u} <- Integer.parse(used),
+             true <- p > 0 and m >= 0,
+             true <- String.trim(u) in ["", "MiB"] do
+          {:ok, %{pid: p, used_mb: m}}
+        else
+          _ -> :error
+        end
+
+      _ ->
+        :error
+    end
+  end
+
   @doc """
   Detecta los dispositivos de la máquina.
 

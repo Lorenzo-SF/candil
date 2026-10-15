@@ -375,6 +375,21 @@ defmodule Candil.Engine do
     do_start(engine, model)
   end
 
+  @doc """
+  The **OS** pid of a running engine, or `nil`.
+
+  Not the BEAM pid: `nvidia-smi --query-compute-apps` answers in OS pids, and
+  the VRAM a model occupies is only attributable with that one. Ask it while
+  the engine is alive —`Arrea.LongRunning`'s registry lives in the VM that
+  started it, and a later `candil status` is a different VM—.
+  """
+  @spec os_pid(pid()) :: pos_integer() | nil
+  def os_pid(pid) when is_pid(pid) do
+    GenServer.call(pid, :os_pid)
+  catch
+    :exit, _reason -> nil
+  end
+
   defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
     cond do
       engine.launcher != nil ->
