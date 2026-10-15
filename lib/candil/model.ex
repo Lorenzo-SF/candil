@@ -310,6 +310,41 @@ defmodule Candil.Model do
   def file_path(_), do: nil
 
   @doc """
+  Returns the full path to the **draft** model file on disk.
+
+  The draft is the speculative-decoding companion declared as `[model.X.draft]`.
+  It is a real dependency and not a nicety: `model_args` carries
+  `--model-draft` with this path, and llama-server exits with
+  `failed to open GGUF file` when the file is not there. So a model with a
+  draft cannot start without it, and anything that installs or removes models
+  has to know about it.
+
+  Returns `nil` when the model declares no draft —the common case. A `:local`
+  draft returns its own path, exactly as `file_path/1` does for a `:local`
+  `:source`: whoever declared it put the file there, and `models remove` takes
+  it away like the main one.
+  """
+  @spec draft_path(t()) :: binary() | nil
+  def draft_path(%__MODULE__{type: :remote}), do: nil
+
+  def draft_path(%__MODULE__{draft: nil}), do: nil
+
+  # Un draft `:local` devuelve su ruta, igual que `file_path/1` hace con un
+  # `:source` local: quien lo declaro puso el fichero ahi, y `models remove`
+  # lo borra igual que el principal. La excepcion del `..` es la misma.
+  def draft_path(%__MODULE__{draft: %Candil.Source{kind: :local, path: path}})
+      when is_binary(path) do
+    if path_traversal?(path), do: nil, else: Path.expand(path)
+  end
+
+  def draft_path(%__MODULE__{draft: %Candil.Source{} = source}) do
+    dest = Source.dest_path(source)
+    if dest && path_traversal?(dest), do: nil, else: dest
+  end
+
+  def draft_path(_), do: nil
+
+  @doc """
   Returns `true` if the model file exists on disk.
 
   Always returns `false` for remote models.

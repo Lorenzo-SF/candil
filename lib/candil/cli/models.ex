@@ -170,17 +170,30 @@ defmodule Candil.CLI.Models do
   defp models_to_pull([alias_name | _rest]), do: lookup(alias_name) |> ok_value()
 
   defp pull_one(model) do
-    case model.source do
-      nil ->
-        Say.print_warning("#{model.alias}: no source configured")
+    pull_source(model, model.source, "")
 
-      source ->
-        Say.print_info("downloading #{model.alias}…")
+    # Y el draft. Antes solo se traia el `source`, y un modelo con draft no se
+    # podia aprovisionar: la dependencia se declaraba, `Hydrate` la leia y
+    # `models info` la mostraba, pero no habia ninguna manera de bajarla. Sin
+    # el fichero, llama-server sale con `failed to open GGUF file` y el modelo
+    # no arranca. Medido el 2026-10-15 con `analyst`.
+    case model.draft do
+      nil -> :ok
+      draft -> pull_source(model, draft, " draft")
+    end
+  end
 
-        case Source.fetch(source) do
-          {:ok, path} -> Say.print_success("#{model.alias} → #{path}")
-          {:error, reason} -> Say.print_error("#{model.alias}: #{describe(reason)}")
-        end
+  defp pull_source(model, nil, _que) do
+    Say.print_warning("#{model.alias}: no source configured")
+    :ok
+  end
+
+  defp pull_source(model, source, que) do
+    Say.print_info("downloading #{model.alias}#{que}…")
+
+    case Source.fetch(source) do
+      {:ok, path} -> Say.print_success("#{model.alias}#{que} → #{path}")
+      {:error, reason} -> Say.print_error("#{model.alias}#{que}: #{describe(reason)}")
     end
   end
 
@@ -206,11 +219,16 @@ defmodule Candil.CLI.Models do
     case lookup(alias_name) do
       {:ok, model} ->
         file = Model.file_path(model)
+        # El draft tambien se borra. Antes se dejaba: quitar un modelo con
+        # draft se llevaba 17 GB y dejaba 1,3 GB en el disco sin decir nada.
+        draft = Model.draft_path(model)
 
         if confirm?("remove #{model.alias}#{file && " (#{file})"}?") do
           Store.deregister_model(model.alias)
           _ = file && File.rm(file)
           _ = file && File.rm(file <> ".complete")
+          _ = draft && File.rm(draft)
+          _ = draft && File.rm(draft <> ".complete")
           Say.print_success("#{model.alias} removed")
         else
           Say.print_info("cancelled")
