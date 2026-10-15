@@ -46,6 +46,11 @@ defmodule Candil.Source do
 
   @complete_suffix ".complete"
 
+  # Cuantas redirecciones se siguen antes de rendirse. HuggingFace y GitHub
+  # usan una; tres es margen de sobra y corta el bucle de una redireccion que
+  # se apunta a si misma, que si no dura hasta que expira el timeout.
+  @max_redirects 3
+
   @enforce_keys [:kind]
   defstruct kind: nil,
             # huggingface
@@ -291,6 +296,12 @@ defmodule Candil.Source do
   defp receive_stream(source, part, resume, opts) do
     timeout = Keyword.get(opts, :receive_timeout, @default_receive_timeout)
 
+    with {:ok, url} <- resolve(url(source), auth_headers(source), timeout) do
+      do_receive_stream(source, url, part, resume, timeout)
+    end
+  end
+
+  defp do_receive_stream(source, url, part, resume, timeout) do
     case File.open(part, mode(resume)) do
       {:ok, file} ->
         hash = :crypto.hash_init(:sha256)
@@ -303,7 +314,7 @@ defmodule Candil.Source do
         result =
           Http.stream(
             :get,
-            url(source),
+            url,
             nil,
             request_headers(source, resume),
             state,
@@ -320,6 +331,98 @@ defmodule Candil.Source do
   end
 
   defp dest_of(part), do: String.replace_suffix(part, ".part", "")
+
+  # ── Dónde está el fichero de verdad ────────────────────────────────────────
+  #
+  # almost todo el mundo mueve el fichero. HuggingFace responde `302` a
+  # `us.aws.cdn.hf.co`, y GitHub Releases a `objects.githubusercontent.com`. Y
+  # `Apero.Http` **no sigue redirecciones** —`Adapter.Finch.to_finch_opts/1`
+  # deja pasar solo `receive_timeout` y `pool_timeout`, ni siquiera el
+  # `redirect:` de Finch llega— asi que lo que se guardaba era el CUERPO del
+  # `302`.
+  #
+  # Medido el 2026-10-15 con el MTP de `analyst`:
+  #
+  #     [✓] analyst draft → …/mtp-Qwen3.8-27B-Q4_0.gguf
+  #     -rw-r--r-- 1 lorenzo lorenzo 1080  mtp-Qwen3.8-27B-Q4_0.gguf
+  #     Found. Redirecting to https://us.aws.cdn.hf.co/xet-bridge-us/…
+  #
+  # Un modelo de 1,3 GB reducido a 1080 bytes, con su `.complete` al lado y un
+  # OK en pantalla. Y GitHub, que devuelve el `302` VACIO, dejaba un fichero de
+  # 0 bytes. Despus `llama-server` decia `failed to open GGUF file` sin senalar
+  # que el fichero era una pagina de redireccion.
+  #
+  # Por que aqui y no en `Apero.Http`: porque `Apero` es dependencia de Arrea.
+  # Un cambio dentro sale de Candil, y dos consumidores distintos puede que
+  # quieran cosas distintas con las redirecciones. A cambio sale una peticion
+  # mas por intento.
+  #
+  # Y por que **no se guarda** la URL resuelta: las del CDN tienen TTL, y un
+  # `.part` de hace dos horas reanudado contra una URL caducada falla con un
+  # `4xx` que no dice nada. Resolviendo en cada intento, el `Range` va contra
+  # la URL valida de ese intento.
+  defp resolve(url, headers, timeout, remaining \\ @max_redirects) do
+    case Http.get(url, [{"range", "bytes=0-0"} | headers], receive_timeout: timeout) do
+      {:ok, %{status: status} = response} when status in 300..399 ->
+        seguir(url, response, headers, timeout, remaining)
+
+      {:ok, _response} ->
+        # No redirige: esta es la buena, y el `Range` de un byte nada
+        # nada —el stream que viene justo despues lo pide entero.
+        {:ok, url}
+
+      {:error, reason} ->
+        {:error,
+         Error.invalid_request(
+           "cannot reach #{url} to see where it redirects: #{inspect(reason)}"
+         )}
+    end
+  end
+
+  defp seguir(_url, _response, _headers, _timeout, 0) do
+    {:error, Error.invalid_request("too many redirects")}
+  end
+
+  defp seguir(url, response, headers, timeout, remaining) do
+    case location(response) do
+      nil ->
+        {:error,
+         Error.invalid_request(
+           "#{url} answered #{response.status} without a location: nothing to download"
+         )}
+
+      next ->
+        case destino(url, next) do
+          {:error, reason} -> {:error, reason}
+          {:ok, absolute} -> resolve(absolute, headers, timeout, remaining - 1)
+        end
+    end
+  end
+
+  # `Apero.Http.Response.headers` esta tipada como `[{binary, binary}]`, asi que
+  # aqui no hay un `case` defensivo que cubrir: si algum dia deja de ser una
+  # lista, que reviente aqui y no que devuelva `nil` sin querer.
+  defp location(%{headers: headers}) do
+    Enum.find_value(headers, fn
+      {"location", value} -> value
+      {"Location", value} -> value
+      _ -> nil
+    end)
+  end
+
+  # `location` puede venir **relativa** (`/model.gguf`), y una URL absoluta
+  # montada a mano sobre la anterior daria un 404 silencioso: concatenar
+  # `https://host` con `model.gguf` es `https://hostmodel.gguf`.
+  defp destino(url, next) do
+    merged = URI.parse(url) |> URI.merge(next)
+
+    if merged.scheme in ["http", "https"] and is_binary(merged.host) do
+      {:ok, URI.to_string(merged)}
+    else
+      {:error,
+       Error.invalid_request("redirect to #{inspect(next)}: only http and https are followed")}
+    end
+  end
 
   defp mode(0), do: [:write, :binary]
 
