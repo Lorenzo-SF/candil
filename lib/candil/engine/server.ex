@@ -104,6 +104,27 @@ defmodule Candil.Engine.Server do
   def handle_call(:base_url, _from, state),
     do: HealthPoller.handle_base_url_call(state, state.base_url)
 
+  # El PID del **proceso del sistema operativo** que esta haciendo el motor.
+  #
+  # El pid del BEAM que devuelve `Engine.start/2` no sirve para esto: quien
+  # necesita el del SO es `nvidia-smi`, que responde por PID del SO. Y el
+  # registro de `LongRunning` es por VM, asi que desde `candil status` —que es
+  # otro proceso— no hay forma de preguntar. Se pregunta **aqui**, que esta en la
+  # misma VM que el puerto.
+  def handle_call(:os_pid, _from, %{model: model, engine: engine} = state) do
+    {:reply, os_pid(id_for(model, engine)), state}
+  end
+
+  defp os_pid(id) do
+    # El `os_pid` lo pone `Arrea.LongRunning` en su snapshot. Preguntar por el
+    # puerto aqui seria repetir en Candil lo que ese modulo ya sabe —y el
+    # snapshot lo dice para que nadie tenga que hacerlo-.
+    case LongRunning.state(id) do
+      {:ok, snapshot} -> Map.get(snapshot, :os_pid)
+      {:error, :not_found} -> nil
+    end
+  end
+
   @impl GenServer
   def handle_info(:poll_health, state), do: HealthPoller.handle_poll_health(state)
 

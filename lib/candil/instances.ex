@@ -46,6 +46,14 @@ defmodule Candil.Instances do
   # KeyError por el `instances.json` de la version de ayer.
   @type instance :: %{
           optional(:host) => binary(),
+          # El proceso que hace la inferencia, que es un nieto del dueno. Es lo
+          # unico que `nvidia-smi` reconoce, y por eso lo que permite atribuir
+          # la VRAM de una fila a esa fila. Opcional porque un registro escrito
+          # por una version anterior no lo tiene.
+          #
+          # Las entradas `=>` van ANTES que las `:` en un mapa de tipos, o el
+          # compilador dice que despues de un keyword list no puede venir nada.
+          optional(:engine_pid) => pos_integer() | nil,
           model: binary(),
           port: pos_integer(),
           engine: binary() | nil,
@@ -301,10 +309,26 @@ defmodule Candil.Instances do
 
   @doc """
   Builds an instance record from a running engine.
+
+  `os_pid` is the **owner** —the process Candil has to signal to stop this— and
+  `engine_pid` is the process doing the inference. They are different: the
+  engine is a grandchild (`holder -> sh -> llama-server`), and only the second
+  one is the pid `nvidia-smi` knows, which is what makes the VRAM of this
+  instance attributable to this row.
+
+  A record written by a version that did not have `engine_pid` reads back
+  without it, and the consumers fall back to the owner.
   """
-  @spec build(binary(), pos_integer(), binary() | nil, pos_integer() | nil, boolean(), binary()) ::
-          instance()
-  def build(model, port, engine, os_pid, healthy, host \\ "127.0.0.1") do
+  @spec build(
+          binary(),
+          pos_integer(),
+          binary() | nil,
+          pos_integer() | nil,
+          boolean(),
+          binary(),
+          pos_integer() | nil
+        ) :: instance()
+  def build(model, port, engine, os_pid, healthy, host \\ "127.0.0.1", engine_pid \\ nil) do
     # `System.pid/0` answers a charlist on some OTP versions and an integer on
     # others, and Jason encodes a charlist as a JSON *string*. A pid written as
     # `"9742"` fails every `is_integer/1` check on the way back in, so the
@@ -321,6 +345,7 @@ defmodule Candil.Instances do
       engine: engine && to_string(engine),
       pid: os_pid,
       owner: %{kind: :pid, pid: os_pid || 0},
+      engine_pid: normalize_pid(engine_pid),
       started_at: DateTime.utc_now() |> DateTime.truncate(:second) |> DateTime.to_iso8601(),
       healthy: healthy
     }
@@ -369,6 +394,10 @@ defmodule Candil.Instances do
       port: raw["port"],
       engine: raw["engine"],
       pid: raw["pid"],
+      # El proceso que hace la inferencia. Sin esto el registro lo guardaba y
+      # al leerlo lo perdia, que es la forma mas cara de tener un bug: el
+      # fichero en disco dice la verdad y el programa no la ve.
+      engine_pid: raw["engine_pid"],
       owner: owner(raw["owner"]),
       started_at: raw["started_at"] || "",
       healthy: raw["healthy"] == true

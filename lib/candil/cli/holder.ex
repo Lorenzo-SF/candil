@@ -110,7 +110,7 @@ defmodule Candil.CLI.Holder do
         # se niega con un motivo si el binario no esta, en vez de devolver `:ok`
         # sin haber hecho nada.
         case Engine.start(engine, model) do
-          {:ok, _pid} -> claim_when_healthy(model, engine, alias_name, port, budget)
+          {:ok, pid} -> claim_when_healthy(model, engine, alias_name, port, budget, pid)
           {:error, reason} -> {:error, {:engine_refused, reason}}
         end
 
@@ -120,7 +120,7 @@ defmodule Candil.CLI.Holder do
     end
   end
 
-  defp claim_when_healthy(model, engine, alias_name, port, budget) do
+  defp claim_when_healthy(model, engine, alias_name, port, budget, beam_pid) do
     # `EnginePool.put` contesta en cuanto el PROCESO arranca, no en cuanto el
     # modelo responde: la espera de salud la hace Arrea despues y en segundo
     # plano. Reclamar aqui era escribir un ownership sobre un motor que
@@ -140,7 +140,11 @@ defmodule Candil.CLI.Holder do
               to_string(model.engine),
               Instances.os_pid(),
               true,
-              engine.host
+              engine.host,
+              # El PID del motor, no el del holder. Es lo unico que
+              # `nvidia-smi` reconoce, y sin el la VRAM de esta instancia no se
+              # puede atribuir a esta fila.
+              Engine.os_pid(beam_pid)
             )
           )
 

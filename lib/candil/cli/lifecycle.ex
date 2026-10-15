@@ -19,9 +19,10 @@ defmodule Candil.CLI.Lifecycle do
   alias Alaja.Components.Table
   alias Alaja.Printer, as: Say
   alias Candil.CLI.{Colorize, Detach, Ports}
-  alias Candil.Preflight
+  alias Candil.Detector.Devices
   alias Candil.{Engine, EnginePool, Instances, Model, Store}
   alias Candil.Instances.Probe, as: Probe
+  alias Candil.Preflight
 
   @doc """
   `candil run <model> [flags]`, with the flags already parsed.
@@ -111,8 +112,8 @@ defmodule Candil.CLI.Lifecycle do
           # `Engine.start/2` tambien registra la instancia en el pool por su
           # cuenta, asi que esta llamada sustituye a la de antes, no se suma.
           case Engine.start(resolve_engine!(model, port, opts), model) do
-            {:ok, _pid} ->
-              record(model, port, opts)
+            {:ok, beam_pid} ->
+              record(model, port, opts, beam_pid)
               started(model, port, opts)
 
             {:error, reason} ->
@@ -158,7 +159,7 @@ defmodule Candil.CLI.Lifecycle do
     end
   end
 
-  defp record(%Model{alias: name, engine: engine}, port, opts) do
+  defp record(%Model{alias: name, engine: engine}, port, opts, beam_pid) do
     if opts[:port], do: Instances.claim_ad_hoc(port)
 
     instance =
@@ -168,7 +169,11 @@ defmodule Candil.CLI.Lifecycle do
         engine && to_string(engine),
         Instances.os_pid(),
         true,
-        host_of(engine)
+        host_of(engine),
+        # El PID del motor. Sin el, la VRAM de esta fila no se puede atribuir:
+        # el PID que hay en la tabla es el del dueno, y ese no carga nada en
+        # la GPU.
+        Engine.os_pid(beam_pid)
       )
 
     :ok = Instances.put({to_string(name), port}, instance)
@@ -409,6 +414,9 @@ defmodule Candil.CLI.Lifecycle do
           # El pid del dueno es del sistema operativo y pertenece a otro
           # proceso: es el unico identificador util de una instancia detached.
           pid: Map.get(instance, :pid),
+          # El PID del motor, que es el que nvidia-smi conoce. `Map.get` y no
+          # punto: un registro escrito por una version anterior no lo tiene.
+          engine_pid: Map.get(instance, :engine_pid),
           engine: Map.get(instance, :engine),
           owner: "detached",
           state: nil,
@@ -468,23 +476,70 @@ defmodule Candil.CLI.Lifecycle do
 
   defp print_table([]), do: Say.print_info("no hay instancias")
 
+  # La tabla se pinta UNA vez, asi que `nvidia-smi` se llama una vez. Consultarlo
+  # por fila seria un `nvidia-smi` por instancia, y el que mas instances tenga
+  # es el que mas tarde.
   defp print_table(instances) do
+    vram = vram_por_pid()
+
     Table.print(
-      headers: ["GPU LAYERS", "PORT", "STATE", "MODEL", "PID", "UPTIME", "ENGINE", "OWNER"],
-      rows: Enum.map(instances, &row/1),
+      headers: [
+        "GPU LAYERS",
+        "VRAM",
+        "PORT",
+        "STATE",
+        "MODEL",
+        "PID",
+        "UPTIME",
+        "ENGINE",
+        "OWNER"
+      ],
+      rows: Enum.map(instances, &row(&1, vram)),
       headers_color: :cyan,
       headers_effects: [:bold],
       table_border: :rounded
     )
   end
 
+  # Cuanto gasta cada proceso en la GPU, indexado por PID. `{:ok, procesos}`
+  # es el caso bueno; cualquier otra cosa es «no se puede saber», y un mapa
+  # vacio hace que la columna salga de guiones en vez de inventar un cero.
+  defp vram_por_pid do
+    case Devices.processes() do
+      {:ok, procesos} -> Map.new(procesos, &{&1.pid, &1.used_mb})
+      {:error, _reason} -> %{}
+    end
+  end
+
+  @doc """
+  La celda de `VRAM`: los MiB que gasta el proceso de esa fila.
+
+  `-` y no `0 MiB` cuando el PID no esta en la lista de `nvidia-smi`. Un `0`
+  dice «lo he preguntado y no usa nada», y hay dos motivos muy distintos por
+  los que un PID no sale: un modelo de CPU, y una GPU que no existe. Con un
+  guion no se distingue, y la columna no pretende distinguirlo: pretende no
+  mentir.
+  """
+  @spec vram(integer() | nil, %{optional(integer()) => non_neg_integer()}) :: binary()
+  def vram(nil, _por_pid), do: "-"
+
+  def vram(pid, por_pid) do
+    case Map.fetch(por_pid, pid) do
+      {:ok, mb} -> "#{mb} MiB"
+      :error -> "-"
+    end
+  end
+
   # `STATE` is what the health poller says, not "there is a row for it". The
   # difference is the whole point of the column: a process whose row exists
   # and whose server stopped answering is `DOWN`, and a table that says `ON`
   # for it sends the user to debug the wrong thing.
-  defp row(row) do
+  defp row(row, vram) do
     [
       gpu_layers(row.model),
+      # El PID del motor, con el del dueno como recurso. Un registro viejo no
+      # tiene `engine_pid` y su motor no es culpa de la columna: sale guion.
+      vram(row.engine_pid, vram),
       to_string(row.port),
       row.state,
       row.model,
