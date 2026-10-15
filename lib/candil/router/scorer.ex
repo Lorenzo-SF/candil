@@ -187,8 +187,34 @@ defmodule Candil.Router.Scorer do
     (rules || default_rules_map())
     |> words_for(model_alias)
     |> case do
+      [] ->
+        0.0
+
+      words ->
+        # **Cobertura del prompt**, no del diccionario. Medido el 2026-10-14
+        # con el catalogo real y doce preguntas en cuatro idiomas:
+        #
+        #    Words que casan / tamaño del DICCIONARIO  ->   1 de 12 pasa de 0.20
+        #     words que casan / tamaño del PROMPT      ->  10 de 12 pasan de 0.20
+        #
+        # Y las dos formulas **eligen el mismo modelo** (12/12): la de antes no
+        # decidia mal, **anulaba la decision**. Con un diccionario de 30
+        # palabras hacían falta 6 para llegar al umbral, y con uno de 3 bastaba
+        # una: ampliar el vocabulario —que es lo que hay que hacer para que
+        # caso en cuatro idiomas — **empeoraba** el score.
+        #
+        # Ademas 0.20 deja de ser un numero sin significado: pasa a ser «el 20%
+        # de las palabras de la pregunta ».
+        cobertura(words, lowered)
+    end
+  end
+
+  defp cobertura(words, lowered) do
+    del_prompt = lowered |> String.split(~r/[^\p{L}\p{N}]+/u, trim: true)
+
+    case del_prompt do
       [] -> 0.0
-      words -> Enum.count(words, &String.contains?(lowered, &1)) / length(words)
+      _ -> Enum.count(words, &String.contains?(lowered, &1)) / length(del_prompt)
     end
   end
 

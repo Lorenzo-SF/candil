@@ -56,8 +56,12 @@ defmodule Candil.RouterTest do
       assert {:ok, decision} = Router.route(@code, candidates: [:coder, :verifier])
       assert decision.model_alias == :coder
       assert decision.strategy == :rule
-      # 3 of 8 rule words: refactor, elixir, bug
-      assert_in_delta decision.score, 0.375, 0.001
+
+      # El score es **cobertura del prompt**: 4 de sus 9 palabras casan con el
+      # diccionario de `coder` —refactoriza, modulo, elixir, bug—. Antes era 3
+      # de las 8 palabras del **diccionario**, que es una medida que cambia
+      # cuando anades sinonimos sin que cambie nada del prompt.
+      assert_in_delta decision.score, 0.444, 0.001
     end
 
     test "a reasoning prompt picks the reasoning model" do
