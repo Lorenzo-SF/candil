@@ -47,7 +47,7 @@ defmodule Candil.Router do
   silence.
   """
 
-  alias Candil.{Error, Model, Store}
+  alias Candil.{Error, Model, Refusal, Store}
   alias Candil.Router.{Cache, Consumer, DecisionEngine}
 
   @type strategy :: :cache | :rule | :embedding | :llm | :default | :pinned | :forced
@@ -163,6 +163,21 @@ defmodule Candil.Router do
            DecisionEngine.decide(messages, candidates, opts) do
       Cache.put(messages, decision, Keyword.put(opts, :consumer, consumer))
       {:ok, decision}
+    else
+      # Aqui entra la politica de «nadie contesta». El error decide **si** es
+      # un refusal —que se puede esperar— o un fallo de configuracion, que no.
+      {:error, reason} ->
+        if Refusal.refusal_error?(reason) do
+          Refusal.apply(
+            messages,
+            consumer,
+            opts,
+            fn -> route(messages, opts) end,
+            reason
+          )
+        else
+          {:error, reason}
+        end
     end
   end
 
