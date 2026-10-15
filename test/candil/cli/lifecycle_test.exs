@@ -70,11 +70,12 @@ defmodule Candil.CLI.LifecycleTest do
     end
 
     test "devuelve nil en vez de crear un atomo para un nombre inventado" do
-      antes = :erlang.system_info(:atom_count)
       refute Lifecycle.safe_alias("alias-que-nadie-se-ha-inventado-jamas")
-      # Y el atomo no se ha creado.
-      assert :erlang.system_info(:atom_count) == antes
 
+      # Y el atomo **no existe**, que es lo que hace que no se haya creado.
+      # No se cuenta `:atom_count`: con otros tests corriendo a la vez ese numero
+      # se mueve solo, y un test que depende del estado global de la VM es un
+      # test que falla sin que nada haya cambiado. Esto no.
       assert_raise ArgumentError, fn ->
         String.to_existing_atom("alias-que-nadie-se-ha-inventado-jamas")
       end
