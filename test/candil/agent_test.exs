@@ -1,7 +1,7 @@
 defmodule Candil.AgentTest do
   use ExUnit.Case, async: false
 
-  alias Candil.{Cancellation, Tool}
+  alias Candil.{Cancellation, Model, Store, Tool}
 
   defmodule StubBackend do
     @behaviour Candil.Backend
@@ -64,6 +64,22 @@ defmodule Candil.AgentTest do
     # Candil.Tool and Candil.Cancellation are already started by the app.
     start_supervised({StubBackend, responses: []})
     Tool.reset()
+
+    # Un alias de VERDAD. `Candil.Agent.run/3` comprueba que el modelo existe en
+    # el catalogo antes de llamar al backend —un pin que no existe tiene que
+    # ser un error ruidoso, aqui y no en el motor— asi que un test que usa
+    # `model: "test"` tiene que registrar ese modelo.
+    :ok =
+      Store.register_model(%Model{
+        alias: :test,
+        type: :local,
+        engine: :llama_cpp,
+        model_dir: "/modelos",
+        filename: "test.gguf",
+        usage: [:chat]
+      })
+
+    on_exit(fn -> Store.deregister_model(:test) end)
     :ok
   end
 
