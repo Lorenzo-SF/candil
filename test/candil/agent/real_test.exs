@@ -163,8 +163,11 @@ defmodule Candil.Agent.RealTest do
       # Un agente que muere por un error de configuración es justo lo que un
       # framework no puede permitirse: quien lo usa no se entera de que le
       # falta algo hasta que algo se rompe en producción.
-      assert {:error, {:error, :no_backend}, _trace} =
-               Meteorologo.run("¿qué tiempo hace?")
+      # Antes era `{:error, {:error, :no_backend}, _trace}`: el `loop/7`
+      # metia `{:error, :no_backend}` como contenido y `finalize/1` lo envolvia
+      # otra vez. La intencion de este test era «que no reviente», no «que
+      # venga con un :error de mas».
+      assert {:error, :no_backend, []} = Meteorologo.run("¿qué tiempo hace?")
     end
   end
 end

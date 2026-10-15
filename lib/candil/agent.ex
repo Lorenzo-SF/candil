@@ -34,11 +34,14 @@ defmodule Candil.Agent do
       MyApp.WeatherAgent.run("What's the weather in Madrid?")
   """
 
-  alias Candil.{Cancellation, Conversation, Telemetry, Tool, Tools}
+  alias Candil.{Cancellation, Conversation, Store, Telemetry, Tool, Tools}
 
   @type step :: %{kind: :thought | :action | :final, content: term()}
   @type trace :: [step()]
-  @type result :: {:ok, String.t(), trace()} | {:error, term()}
+  # `finalize/1` devuelve SIEMPRE tres elementos, tambien en error. El tipo
+  # decia dos para el error, y dialyzer no lo veia porque `finalize/1` es
+  # privado: la mentira era invisible desde fuera y visible al leer.
+  @type result :: {:ok, String.t(), trace()} | {:error, term(), trace()}
 
   @default_max_steps 8
 
@@ -69,9 +72,24 @@ defmodule Candil.Agent do
   # ── Private ─────────────────────────────────────────────────────────────
 
   @spec do_run(map(), String.t() | nil, keyword()) :: result()
+  # El backend se comprueba ANTES que el modelo, y el orden no es cosmetico:
+  # `run/3` sin backend y sin modelo devuelve dos errores, y el que se ve es el
+  # primero. Sin backend no hay nada que ejecutar, asi que ese es el que se
+  # dice; taparlo con «el modelo tampoco existe» esconde el error de codigo
+  # detras de uno de configuracion.
   defp do_run(config, input, opts) do
-    backend = resolve_backend(opts)
-    model = resolve_model(opts, config)
+    with {:ok, backend} <- resolve_backend(opts),
+         {:ok, model} <- resolve_model(opts, config) do
+      run_loop(config, input, opts, backend, model)
+    else
+      # Siempre TRES elementos, tambien en error, que es lo que dice
+      # `@type result` y lo que devuelve `finalize/1`. Un error de dos
+      # elementos aqui y de tres al final es la misma trampa dos veces.
+      {:error, reason} -> {:error, reason, []}
+    end
+  end
+
+  defp run_loop(config, input, opts, backend, model) do
     max_steps = Keyword.get(opts, :max_steps, config[:max_steps] || @default_max_steps)
     cancel_ref = Keyword.get(opts, :cancel_ref)
 
@@ -84,17 +102,47 @@ defmodule Candil.Agent do
     finalize(trace)
   end
 
-  @spec resolve_backend(keyword()) :: module() | nil
+  # Sin backend, `nil`: un modulo. Antes era `nil | module()` y quien llamaba
+  # acababa en `nil.chat/3`, que es un `UndefinedFunctionError` sin nombre de
+  # agente, sin modelo y sin `@spec` que lo anunciara.
+  @spec resolve_backend(keyword()) :: {:ok, module()} | {:error, :no_backend}
   defp resolve_backend(opts) do
     case opts[:backend] do
-      nil -> nil
-      mod -> mod
+      nil -> {:error, :no_backend}
+      mod -> {:ok, mod}
     end
   end
 
-  @spec resolve_model(keyword(), map()) :: String.t() | atom()
+  # Antes devolvia el alias **tal cual**, sin comprobar nada: un modelo
+  # inventado llegaba entero al backend y el error —si lo habia— era del motor,
+  # no de aqui. Un pin que no existe es un error ruidoso, y el punto de
+  # encontrarlo es aqui.
+  # El motivo va anidado, `{:error, {:model_not_up, alias}}`, y no plano. La
+  # tercera posicion de `result()` es la TRAZA, y un alias ahi no es una traza:
+  # el guion decia `{:error, :model_not_up, "inventado"}` y el tipo no lo hacia
+  # falso, pero obliga a que quien lo lea adivine cual de los dos ultimos es la
+  # traza.
+  @spec resolve_model(keyword(), map()) ::
+          {:ok, String.t() | atom()} | {:error, {atom(), String.t() | atom()}}
   defp resolve_model(opts, config) do
-    Keyword.get(opts, :model) || config[:model] || "default"
+    requested = Keyword.get(opts, :model) || config[:model] || "default"
+
+    if model_known?(requested),
+      do: {:ok, requested},
+      else: {:error, {:model_not_up, requested}}
+  end
+
+  # Por la lista y no por `Store.get_model/1`, que exige un atomo y aqui el
+  # modelo llega como string. Comparar sobre `to_string/1` evita
+  # `String.to_existing_atom/1`, que crea un atomo con una cadena que viene de
+  # fuera: un pin inventado no debe dejar atomos en la maquina.
+  defp model_known?(requested) do
+    # "default" NO es un alias del catalogo: es un centinela que dice «elige
+    # tu». Un backend HTTP contra un llama-server lo ignora, y un backend de
+    # pruebas lo necesita. Comprobarlo contra el Store lo convertiria en un
+    # modelo imposible.
+    to_string(requested) == "default" or
+      Enum.any?(Store.list_models(), &(to_string(&1.alias) == to_string(requested)))
   end
 
   @spec loop(
@@ -107,8 +155,11 @@ defmodule Candil.Agent do
           trace()
         ) ::
           trace()
+  # `content: :no_backend` y no `content: {:error, :no_backend}`: `finalize/1`
+  # ya envuelve en `{:error, content}`, y con el otro se devolvia
+  # `{:error, {:error, :no_backend}, trace}` — un error de error.
   defp loop(_conv, _cfg, nil, _model, _steps_left, _ref, trace),
-    do: trace ++ [%{kind: :final, content: {:error, :no_backend}}]
+    do: trace ++ [%{kind: :final, content: :no_backend}]
 
   defp loop(_conv, _cfg, _backend, _model, 0, _ref, trace),
     do: trace ++ [%{kind: :final, content: :max_steps_exhausted}]
