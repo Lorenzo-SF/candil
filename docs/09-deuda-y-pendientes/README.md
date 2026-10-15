@@ -209,8 +209,8 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 | **P-4** | Quién escribe la verdad de la VRAM | se **lee**, no se escribe. Sin dueño |
 | ~~P-5~~ | La fase 4 sin mergear | ✅ **cerrado** — mergeada y medida (§2.1) |
 | **P-6** | La colocación de modelos en varias GPUs | es la parte de la 8b que falta, y **depende de P-4** |
-| ~~P-8~~ | **`reasoning_content` se descartaba** | ✅ **arreglado**, y la descripción estaba mal. Medido el 2026-10-14 con `Qwen3.8-27B` y `--reasoning-format deepseek`: `content` trae la respuesta final («10. En total hay 10 patas.») y al lado vienen **1996 bytes de `reasoning_content`** que se caían al suelo. `finish_reason` es `stop` en los dos casos, así que un cliente no tenía forma de saber que había habido razonamiento. Con `Qwen3-Coder-30B` y el mismo flag **no hay razonamiento**: la respuesta no trae la clave, y eso es una respuesta normal, no un fallo. Ahora llega al `response()` y a `choices[0].message.reasoning_content` del gateway |
-| ~~P-7~~ | ~~El gateway no existe~~ | ✅ **cerrado**: `Candil.Gateway` levanta Bandit, y hay tests de extremo a extremo contra un motor de verdad (`end_to_end_test.exs`, 17 tests) |
+| **P-7** | **El gateway no existe** | `Gateway.start/1` devuelve `:not_implemented` (fase 8). **El enrutado no es alcanzable desde un cliente real**, solo desde el CLI |
+| **P-8** | **`reasoning_content` se descarta** | `parse_openai_response/1` lee `message.content` y nada más. Con `--reasoning-format deepseek` en `coder`, `analyst` y `coder_lite`, una pregunta que exige razonar devuelve **1809 bytes de razonamiento y `content: 0`** |
 
 ---
 

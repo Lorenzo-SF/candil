@@ -48,13 +48,7 @@ defmodule Candil.Gateway.EndToEndTest do
       "choices" => [
         %{
           "index" => 0,
-          "message" => %{
-            "role" => "assistant",
-            "content" => "CONTENIDO DEL MOTOR",
-            # Como un modelo con `--reasoning-format deepseek`: el razonamiento
-            # viene aparte y antes se caia al suelo. Medido el 2026-10-14.
-            "reasoning_content" => "PRIMERO hay que contar las patas"
-          },
+          "message" => %{"role" => "assistant", "content" => "CONTENIDO DEL MOTOR"},
           "finish_reason" => "stop"
         }
       ],
@@ -251,20 +245,6 @@ defmodule Candil.Gateway.EndToEndTest do
       assert status == 200
       assert [%{"message" => %{"content" => contenido}}] = body["choices"]
       assert contenido == "CONTENIDO DEL MOTOR"
-    end
-
-    test "el razonamiento del motor llega al mensaje", %{gw: gw} do
-      # `reasoning_content` es campo estandar en varios proveedores
-      # OpenAI-compatible, asi que va en el **mensaje** y no en la parte de
-      # Candil: es donde un cliente que lo sabe leer lo busca. Y no en la
-      # `content`: el contenido es la respuesta, el razonamiento es como se
-      # llego a ella.
-      {_status, body} = chat(gw <> "/v1/chat/completions", %{model: "auto"})
-
-      [opcion] = body["choices"]
-
-      assert opcion["message"]["reasoning_content"] == "PRIMERO hay que contar las patas"
-      assert opcion["message"]["content"] == "CONTENIDO DEL MOTOR"
     end
 
     test "el sobre trae lo que enrutó Candil, aparte", %{gw: gw} do
