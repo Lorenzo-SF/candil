@@ -9,6 +9,32 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **El score de la capa `:rule` media el tamaño del diccionario, y eso
+  anulaba la decision.** Era `palabras que casan / tamaño del diccionario`, de
+  modo que ampliar el vocabulario —que es lo que hay que hacer para que case en
+  cuatro idiomas— **bajaba** el score. Con un diccionario de 30 palabras
+  hacian falta 6 para llegar al umbral; con uno de 3, bastaba una.
+
+  Medido el 2026-10-14 con el catalogo real y doce preguntas en cuatro idiomas,
+  con el umbral que hay (0.20):
+
+  | cuanto pasa el umbral | por diccionario | **por cobertura del prompt** |
+  |---|---|---|
+  | 0.05 | 12/12 | 12/12 |
+  | 0.15 | 5/12 | **11/12** |
+  | **0.20** | **1/12** | **10/12** |
+  | 0.25 | 0/12 | 10/12 |
+
+  Y lo importante: **las dos formulas eligen el mismo modelo, 12/12**. La de
+  antes no decidia mal, **anulaba la decision** — once de doce se caian al
+  `:default` por debajo del umbral, y el `:default` siempre es el primero de
+  la lista.
+
+  Ahora es cobertura del prompt, asi que 0.20 significa «el 20% de las palabras
+  de la pregunta», que es un numero que se puede explicar, y ampliar sinimos
+  **ayuda** en vez de molestar.
+
+
 - **El razonamiento del modelo se descartaba, y no habia forma de saber que
   habia habido.** `parse_openai_response/1` leia `message.content` y nada mas.
   Medido el 2026-10-14 con `Qwen3.8-27B` y `--reasoning-format deepseek` —como
