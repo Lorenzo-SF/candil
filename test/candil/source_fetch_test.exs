@@ -183,21 +183,94 @@ defmodule Candil.SourceFetchTest do
     end
   end
 
+  describe "una redireccion" do
+    # HuggingFace y GitHub Releases responden 302 y mueven el fichero a un CDN.
+    # Medido el 2026-10-15: `Apero.Http` NO sigue redirecciones, asi que lo que
+    # se guardaba era el cuerpo del 302 —"Found. Redirecting to …", 1080 bytes
+    # en el caso de HF— con su `.complete` al lado y un OK en pantalla. Un
+    # modelo de 1,3 GB reducido a 1080 bytes, y `llama-server` despues diciendo
+    # `failed to open GGUF file` sin senalar la causa.
+    test "se sigue y se descarga el fichero de verdad", ctx do
+      source = %Source{
+        kind: :url,
+        url: "http://127.0.0.1:#{ctx.port}/redirectado",
+        dest: ctx.dir,
+        dest_name: "redirigido.gguf"
+      }
+
+      assert {:ok, path} = Source.fetch(source)
+      assert File.read!(path) == @payload
+    end
+
+    test "aguanta dos redirecciones seguidas", ctx do
+      source = %Source{
+        kind: :url,
+        url: "http://127.0.0.1:#{ctx.port}/doble",
+        dest: ctx.dir,
+        dest_name: "doble.gguf"
+      }
+
+      assert {:ok, path} = Source.fetch(source)
+      assert File.read!(path) == @payload
+    end
+
+    test "una redireccion sin destino es un fallo, no un fichero", ctx do
+      # Sin `location` no hay a donde ir. Guardar los 23 bytes del cuerpo como
+      # si fueran el modelo seria repetir el bug con un mensaje distinto.
+      source = %Source{
+        kind: :url,
+        url: "http://127.0.0.1:#{ctx.port}/casi",
+        dest: ctx.dir,
+        dest_name: "casi.gguf"
+      }
+
+      assert {:error, %Candil.Error{}} = Source.fetch(source)
+      refute File.exists?(Source.dest_path(source))
+      refute File.exists?(Source.dest_path(source) <> ".complete")
+    end
+
+    test "y el fichero redigido no se da por descargado", ctx do
+      source = %Source{
+        kind: :url,
+        url: "http://127.0.0.1:#{ctx.port}/redirectado",
+        dest: ctx.dir,
+        dest_name: "marcado.gguf"
+      }
+
+      assert {:ok, _path} = Source.fetch(source)
+      assert Source.complete?(source)
+    end
+  end
+
   defmodule Handler do
     @moduledoc false
     def init(opts), do: opts
 
     def call(conn, %{payload: payload}) do
-      # Un handler de Plug devuelve el `%Plug.Conn{}` y listo. Envolverlo en
-      # `{:cont, conn, :ok}` es la API de Bandit 0.x, y con 1.12.5 revienta:
-      #
-      #     Expected ...Handler.call/2 to return %Plug.Conn{} but got:
-      #     {:cont, %Plug.Conn{...}, :ok}
-      #
-      # Y no lo hacia falta antes porque este test SIEMPRE habia fallado en el
-      # CI desde que bandit subio a 1.x, mientras en local la version no habia
-      # cambiado y el test pasaba.
-      respond(conn, payload)
+      # `/redirectado` responde 302 a `/model.gguf`. Es lo que hacen TODOS los
+      # que sirven de verdad: HuggingFace manda a `us.aws.cdn.hf.co`, y GitHub
+      # Releases a `objects.githubusercontent.com`. Sin seguir la redireccion, el
+      # fichero que se guardaba era el cuerpo del 302 —1080 bytes de
+      # "Found. Redirecting to …" en el caso de HF— marcado como completo.
+      case conn.path_info do
+        ["redirectado"] ->
+          conn
+          |> Conn.put_resp_header("location", "/model.gguf")
+          |> Conn.send_resp(302, "Found. Redirecting to /model.gguf")
+
+        ["doble"] ->
+          conn
+          |> Conn.put_resp_header("location", "/redirectado")
+          |> Conn.send_resp(302, "Found. Redirecting to /redirectado")
+
+        ["casi"] ->
+          # Una redireccion sin `location`: el 302 es real pero no hay a donde
+          # ir. Es un fallo, y no un fichero de 23 bytes.
+          Conn.send_resp(conn, 302, "Found. Redirecting to nowhere")
+
+        _ ->
+          respond(conn, payload)
+      end
     end
 
     defp respond(conn, payload) do
