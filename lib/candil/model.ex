@@ -173,7 +173,16 @@ defmodule Candil.Model do
             model_args: [],
             tags: [],
             checksum_sha256: nil,
-            enabled: true
+            enabled: true,
+            # Cuanto tarda este destino de verdad, en segundos. Lo usa
+            # `Candil.Refusal.wait_timeout_ms/2`: con esto declarado, el tope de
+            # espera de ESTE destino es el doble de su latencia tipica, en vez
+            # del 60 s global. Sin esto, un 70B en CPU que tarda 120 s por
+            # inferencia se queda sinesperar nunca.
+            #
+            # En segundos y no en milisegundos porque es lo que se escribe a
+            # mano en el toml, y 120 se lee mejor que 120_000.
+            typical_latency_s: nil
 
   # `port/0` is a built-in Erlang type and cannot be redefined.
   @type model_port :: :auto | :inet.port_number()
