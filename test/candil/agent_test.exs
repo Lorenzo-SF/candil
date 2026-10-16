@@ -15,7 +15,13 @@ defmodule Candil.AgentTest do
     def start_link(opts \\ []), do: GenServer.start_link(__MODULE__, opts, name: __MODULE__)
 
     @impl true
-    def chat(_model, _messages, _opts) do
+    def chat(_model, messages, _opts) do
+      # Quien quiera ver QUE mensajes recibe el modelo se apunta aqui; el
+      # observador es opcional y por defecto no hay ninguno.
+      if observer = :persistent_term.get({__MODULE__, :observer}, nil) do
+        send(observer, {:chat_messages, messages})
+      end
+
       case GenServer.call(__MODULE__, :take) do
         nil ->
           {:ok,
@@ -60,6 +66,15 @@ defmodule Candil.AgentTest do
     GenServer.call(StubBackend, {:push, responses})
   end
 
+  defp final_response(text) do
+    {:ok,
+     %{
+       content: "FINAL_ANSWER: #{text}",
+       finish_reason: "stop",
+       usage: %{input_tokens: 0, output_tokens: 0}
+     }}
+  end
+
   setup do
     # Candil.Tool and Candil.Cancellation are already started by the app.
     start_supervised({StubBackend, responses: []})
@@ -80,6 +95,9 @@ defmodule Candil.AgentTest do
       })
 
     on_exit(fn -> Store.deregister_model(:test) end)
+
+    :persistent_term.put({StubBackend, :observer}, self())
+    on_exit(fn -> :persistent_term.erase({StubBackend, :observer}) end)
     :ok
   end
 
@@ -147,6 +165,98 @@ defmodule Candil.AgentTest do
       # Exactly max_steps tool calls.
       action_count = Enum.count(trace, &match?(%{kind: :action}, &1))
       assert action_count <= 3
+    end
+  end
+
+  describe "el behaviour, paso a paso y sin proceso (F5.2)" do
+    test "init_agent/1 sin backend dice por que no arranca" do
+      assert {:stop, :no_backend} = Candil.Agent.init_agent([])
+    end
+
+    test "un paso entero se ejecuta sin arrancar ningun agente" do
+      push_responses([final_response("hecho")])
+
+      {:ok, state} =
+        Candil.Agent.init_agent(config: %{goal: "g"}, backend: StubBackend, model: "test")
+
+      assert {:ok, state, %{kind: :final, content: "hecho"}} =
+               Candil.Agent.step(state, "hola", [])
+
+      assert List.last(state.trace) == %{kind: :final, content: "hecho"}
+    end
+
+    test "el bucle de herramienta son pasos encadenados, no recursion" do
+      Tool.define({"suma", "Suma", %{}, fn %{"a" => a, "b" => b} -> {:ok, a + b} end})
+
+      push_responses([
+        {:ok,
+         %{
+           content:
+             ~s(<|tool_call|>\n{"name": "suma", "arguments": {"a": 1, "b": 2}}\n<|/tool_call|>),
+           finish_reason: "stop",
+           usage: %{input_tokens: 0, output_tokens: 0}
+         }},
+        final_response("3")
+      ])
+
+      {:ok, state} =
+        Candil.Agent.init_agent(config: %{goal: "g"}, backend: StubBackend, model: "test")
+
+      assert {:ok, state, %{kind: :thought}} = Candil.Agent.step(state, "1+2", [])
+      assert {:ok, state, %{kind: :final, content: "3"}} = Candil.Agent.step(state, nil, [])
+
+      assert Enum.any?(state.trace, &match?(%{kind: :action}, &1))
+    end
+  end
+
+  describe "la historia, y las sesiones de Candil.Context (F5.2)" do
+    test "sin :session, la historia es de esta llamada" do
+      push_responses([final_response("uno"), final_response("dos")])
+
+      config = %{goal: "g", max_steps: 4, tool_schemas: []}
+
+      assert {:ok, "uno", _} =
+               Candil.Agent.run(config, "hola", backend: StubBackend, model: "test")
+
+      assert_received {:chat_messages, primera}
+      assert primera == [%{role: "system", content: "g"}, %{role: "user", content: "hola"}]
+
+      assert {:ok, "dos", _} =
+               Candil.Agent.run(config, "otra vez", backend: StubBackend, model: "test")
+
+      assert_received {:chat_messages, segunda}
+      refute Enum.any?(segunda, &(&1[:content] == "hola"))
+    end
+
+    test "con :session, la segunda llamada continua la conversacion" do
+      sid = "f52-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Candil.Context.delete(:agent_f52_test, sid) end)
+
+      push_responses([final_response("uno"), final_response("dos")])
+
+      base = [backend: StubBackend, model: "test", consumer: :agent_f52_test, session: sid]
+      config = %{goal: "g", max_steps: 4, tool_schemas: []}
+
+      assert {:ok, "uno", _} = Candil.Agent.run(config, "hola", base)
+
+      assert_received {:chat_messages, primera}
+      assert primera == [%{role: "system", content: "g"}, %{role: "user", content: "hola"}]
+
+      # La historia del run se quedo en la sesion: es la migracion de la
+      # F5.2 — antes vivia en `Candil.Conversation`, en el proceso que
+      # llamaba, y no la veia nadie mas.
+      assert {:ok, session} = Candil.Context.get(:agent_f52_test, sid)
+      assert session.messages == [%{role: "user", content: "hola"}]
+
+      assert {:ok, "dos", _} = Candil.Agent.run(config, "otra vez", base)
+
+      assert_received {:chat_messages, segunda}
+
+      assert segunda == [
+               %{role: "system", content: "g"},
+               %{role: "user", content: "hola"},
+               %{role: "user", content: "otra vez"}
+             ]
     end
   end
 end

@@ -8,9 +8,9 @@ defmodule Candil.Conversation.TokenEstimatorTest do
   # upgrade.
   # Calling the deprecated facade on purpose is the whole point of this file,
   # so the compiler warning it produces is left standing: it is correct, and a
-  # suppression here that silently did nothing would be worse than the noise.
-  # (It was tried. `@compile {:no_warn_deprecated, M}` does not take effect when
-  # both modules land in the same parallel compilation batch — measured.)
+  # suppression that silently did nothing would be worse than the noise.
+  # (It was tried. `@compile {:no_warn_deprecated, M}` does not take effect in
+  # this Elixir — measured, also with the two modules compiled separately.)
 
   alias Candil.Context.TokenEstimator, as: New
   alias Candil.Conversation.TokenEstimator, as: Old

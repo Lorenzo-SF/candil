@@ -73,4 +73,34 @@ defmodule Candil.Agent.ContractTest do
       assert {:error, :no_backend, []} = WeatherAgent.run("hola")
     end
   end
+
+  describe "el behaviour, declarado y no solo documentado (F5.2)" do
+    test "Candil.Agent implementa el behaviour de los agentes" do
+      fuente = File.read!("lib/candil/agent.ex")
+
+      assert fuente =~ "@behaviour Candil.Agents.Behaviour"
+    end
+
+    test "y los callbacks obligatorios del behaviour existen todos" do
+      {:module, _} = Code.ensure_loaded(Candil.Agent)
+
+      optional = Candil.Agents.Behaviour.behaviour_info(:optional_callbacks)
+
+      for {fun, arity} <- Candil.Agents.Behaviour.behaviour_info(:callbacks) -- optional do
+        assert function_exported?(Candil.Agent, fun, arity),
+               "Candil.Agent no exporta #{fun}/#{arity}, y el behaviour lo exige"
+      end
+    end
+
+    test "run/3 ya no promete la opcion que nunca existio" do
+      {:module, _} = Code.ensure_loaded(Candil.Agent)
+      {:docs_v1, _, _, _, _, _, docs} = Code.fetch_docs(Candil.Agent)
+
+      {{:function, :run, 3}, _, _, %{"en" => doc}, _} =
+        List.keyfind(docs, {:function, :run, 3}, 0)
+
+      refute doc =~ ":conversation"
+      assert doc =~ ":session"
+    end
+  end
 end

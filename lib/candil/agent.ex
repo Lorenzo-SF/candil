@@ -11,10 +11,24 @@ defmodule Candil.Agent do
     * The model emits a final answer (no tool calls).
     * `max_steps` is reached (default 8).
 
-  ## Conversation history
+  ## The behaviour, and the loop
 
-  The agent maintains its own conversation; pass an optional
-  `Candil.Conversation` to start with a system prompt.
+  Since F5.2 this module implements `Candil.Agents.Behaviour`: `init_agent/1`
+  builds the state and `step/3` is one ReAct round — a function, not a
+  message, so a step can be exercised without starting a process. `run/3` is
+  the synchronous driver: init, steps until `:final`, result. The recursion
+  `loop/7` used to have is a `reduce_while` inside it.
+
+  ## The history
+
+  The history lives in the state. Name a `:session` and it lives in
+  `Candil.Context` instead: the run starts from what the session holds and
+  leaves its turn there, so the next run continues the conversation. Without a
+  session, the history belongs to the call and goes with it.
+
+  `Candil.Conversation`, which kept the history in the process that called it,
+  is deprecated and goes in 4.1.0; this module was its last consumer inside
+  the house, and it migrated in F5.2.
 
   ## Stop words
 
@@ -34,7 +48,19 @@ defmodule Candil.Agent do
       MyApp.WeatherAgent.run("What's the weather in Madrid?")
   """
 
-  alias Candil.{Cancellation, Conversation, Store, Telemetry, Tool, Tools}
+  @behaviour Candil.Agents.Behaviour
+
+  alias Candil.{
+    Cancellation,
+    Context,
+    Inference,
+    Store,
+    Telemetry,
+    Tool,
+    Tools
+  }
+
+  alias Candil.Context.Session
 
   @type step :: %{kind: :thought | :action | :final, content: term()}
   @type trace :: [step()]
@@ -43,11 +69,35 @@ defmodule Candil.Agent do
   # privado: la mentira era invisible desde fuera y visible al leer.
   @type result :: {:ok, String.t(), trace()} | {:error, term(), trace()}
 
+  @typedoc """
+  What a `step/3` tells the driver: keep going (`:thought`) or stop (`:final`).
+  """
+  @type outcome :: %{kind: :thought | :final, content: term()}
+
+  @typedoc """
+  The state a step threads through: the ReAct history and what it costs to
+  take one more turn.
+  """
+  @type agent_state :: %{
+          config: map(),
+          backend: module(),
+          model: String.t() | atom(),
+          max_steps: non_neg_integer(),
+          rounds: non_neg_integer(),
+          cancel_ref: reference() | nil,
+          consumer: atom(),
+          session: String.t() | nil,
+          messages: [Inference.message()],
+          trace: trace()
+        }
+
   @default_max_steps 8
+  @default_consumer :candil_agent
 
   @doc """
   Run the agent synchronously. Returns `{:ok, final_answer, trace}` on
-  success or `{:error, term()}` on failure.
+  success or `{:error, reason, trace}` on failure — always three elements,
+  also in error.
 
   ## Options
 
@@ -55,7 +105,12 @@ defmodule Candil.Agent do
     * `:model` — model id (string or atom).
     * `:max_steps` — max loop iterations (default 8).
     * `:cancel_ref` — cancellation ref from `Candil.Cancellation.new_ref/0`.
-    * `:conversation` — pre-seeded conversation.
+    * `:session` — a `Candil.Context` session id. With one, the history is
+      read from that session and left in it, so the next run with the same id
+      continues where this one stopped; without one, the history is this
+      call's.
+    * `:consumer` — the partition the `:session` lives in (default
+      `:candil_agent`).
   """
   @spec run(module() | map(), String.t() | nil, keyword()) :: result()
   def run(agent, input, opts \\ [])
@@ -69,37 +124,201 @@ defmodule Candil.Agent do
     do_run(config, input, opts)
   end
 
-  # ── Private ─────────────────────────────────────────────────────────────
+  @impl true
+  @doc """
+  Builds the initial state: backend, model, budget, and the history — read
+  from the `:session` when one is named, empty when it is not.
 
-  @spec do_run(map(), String.t() | nil, keyword()) :: result()
-  # El backend se comprueba ANTES que el modelo, y el orden no es cosmetico:
-  # `run/3` sin backend y sin modelo devuelve dos errores, y el que se ve es el
-  # primero. Sin backend no hay nada que ejecutar, asi que ese es el que se
-  # dice; taparlo con «el modelo tampoco existe» esconde el error de codigo
-  # detras de uno de configuracion.
-  defp do_run(config, input, opts) do
+  The two ways a run can die before it starts — no backend, a model alias
+  that is not in the catalogue — die here, with their own reason.
+  """
+  @spec init_agent(keyword()) :: {:ok, agent_state()} | {:stop, term()}
+  def init_agent(opts) do
+    config = Keyword.get(opts, :config, %{})
+
     with {:ok, backend} <- resolve_backend(opts),
          {:ok, model} <- resolve_model(opts, config) do
-      run_loop(config, input, opts, backend, model)
+      consumer = Keyword.get(opts, :consumer, @default_consumer)
+      session = Keyword.get(opts, :session)
+
+      {:ok,
+       %{
+         config: config,
+         backend: backend,
+         model: model,
+         max_steps: Keyword.get(opts, :max_steps, config[:max_steps] || @default_max_steps),
+         rounds: 0,
+         cancel_ref: Keyword.get(opts, :cancel_ref),
+         consumer: consumer,
+         session: session,
+         messages: session_messages(consumer, session),
+         trace: []
+       }}
     else
-      # Siempre TRES elementos, tambien en error, que es lo que dice
-      # `@type result` y lo que devuelve `finalize/1`. Un error de dos
-      # elementos aqui y de tres al final es la misma trampa dos veces.
-      {:error, reason} -> {:error, reason, []}
+      {:error, reason} -> {:stop, reason}
     end
   end
 
-  defp run_loop(config, input, opts, backend, model) do
-    max_steps = Keyword.get(opts, :max_steps, config[:max_steps] || @default_max_steps)
-    cancel_ref = Keyword.get(opts, :cancel_ref)
+  @impl true
+  @doc """
+  One ReAct round: record the input, one call to the backend, and the tool
+  calls it asks for — or the end.
 
-    conversation = Conversation.new(model: model, system: config[:goal])
+  Returns the state and what the round was: `:thought` to keep going,
+  `:final` to stop. A round always completes, so the failures that end a run
+  (`:max_steps_exhausted`, `:cancelled`, a backend error) travel in the
+  trace, which is where `finalize/1` turns them into `result()`.
+  """
+  @spec step(agent_state(), term(), keyword()) :: {:ok, agent_state(), outcome()}
+  def step(state, input, _opts \\ []) do
+    state = record_input(state, input)
 
-    conversation =
-      if input, do: Conversation.add_message(conversation, "user", input), else: conversation
+    cond do
+      state.rounds >= state.max_steps ->
+        finish(state, :max_steps_exhausted)
 
-    trace = loop(conversation, config, backend, model, max_steps, cancel_ref, [])
-    finalize(trace)
+      cancelled?(state) ->
+        Telemetry.emit_cancellation(cancel_ref_to_id(state.cancel_ref), :cancelled)
+        finish(state, :cancelled)
+
+      true ->
+        react_round(state)
+    end
+  end
+
+  # ── Private ─────────────────────────────────────────────────────────────
+
+  @spec do_run(map(), String.t() | nil, keyword()) :: result()
+  defp do_run(config, input, opts) do
+    case init_agent(Keyword.put(opts, :config, config)) do
+      {:ok, state} ->
+        state = drive(state, input)
+        persist(state)
+        finalize(state.trace)
+
+      {:stop, reason} ->
+        # Siempre TRES elementos, tambien en error, que es lo que dice
+        # `@type result` y lo que devuelve `finalize/1`. Un error de dos
+        # elementos aqui y de tres al final es la misma trampa dos veces.
+        {:error, reason, []}
+    end
+  end
+
+  # El bucle de ReAct ya no es recursion: es un reductor. Cada vuelta es
+  # `step/3`, y quien decide parar es el paso (`:final`). No hay tope aqui
+  # porque el tope vive en el estado: `rounds` contra `max_steps`.
+  @spec drive(agent_state(), String.t() | nil) :: agent_state()
+  defp drive(state, input) do
+    {final_state, _input} =
+      Enum.reduce_while(Stream.iterate(0, &(&1 + 1)), {state, input}, fn _, {st, inp} ->
+        {:ok, st, outcome} = step(st, inp, [])
+
+        if outcome.kind == :final,
+          do: {:halt, {st, nil}},
+          else: {:cont, {st, nil}}
+      end)
+
+    final_state
+  end
+
+  @spec react_round(agent_state()) :: {:ok, agent_state(), outcome()}
+  defp react_round(state) do
+    messages = prompt(state)
+    prompt_schemas = Tool.list() |> schemas_for(state.config)
+    state = %{state | rounds: state.rounds + 1}
+
+    case state.backend.chat(state.model, messages, tools: prompt_schemas) do
+      {:ok, %{content: content}} ->
+        if stop_word_reached?(content, state.config) do
+          finish(state, extract_final(content, state.config))
+        else
+          continue_or_finish(content, state)
+        end
+
+      {:error, _} = err ->
+        finish(state, {:error, err})
+    end
+  end
+
+  # Extracted from `loop/7` so the ReAct branch stays one level of nesting
+  # deep. A round reads: tool calls? act and keep going. Otherwise, final.
+  @spec continue_or_finish(String.t(), agent_state()) :: {:ok, agent_state(), outcome()}
+  defp continue_or_finish(content, state) do
+    case Tools.parse_tool_calls(content) do
+      {:ok, calls} ->
+        trace = state.trace ++ [%{kind: :thought, content: content}]
+        {observations, messages} = invoke_tools(calls, state.messages)
+
+        actions =
+          Enum.map(observations, fn {name, result} ->
+            %{kind: :action, content: %{name: name, result: result}}
+          end)
+
+        {:ok, %{state | messages: messages, trace: trace ++ actions},
+         %{kind: :thought, content: content}}
+
+      {:error, _} ->
+        # No tool calls and no stop word — treat the content
+        # as the final answer.
+        finish(state, content)
+    end
+  end
+
+  @spec finish(agent_state(), term()) :: {:ok, agent_state(), outcome()}
+  defp finish(state, content) do
+    trace = state.trace ++ [%{kind: :final, content: content}]
+    {:ok, %{state | trace: trace}, %{kind: :final, content: content}}
+  end
+
+  @spec record_input(agent_state(), String.t() | nil) :: agent_state()
+  defp record_input(state, nil), do: state
+
+  defp record_input(state, input) when is_binary(input) do
+    %{state | messages: state.messages ++ [%{role: "user", content: input}]}
+  end
+
+  # El prompt del sistema va fuera de la historia, como lo tenia
+  # `Conversation.messages/1`: la sesion guarda el intercambio, no el
+  # personaje. Un `goal` nil no anade mensaje; uno vacio si, que es lo que
+  # hacia antes — se conserva a proposito.
+  @spec prompt(agent_state()) :: [Inference.message()]
+  defp prompt(%{config: config, messages: messages}) do
+    case config[:goal] do
+      nil -> messages
+      goal -> [%{role: "system", content: goal} | messages]
+    end
+  end
+
+  @spec cancelled?(agent_state()) :: boolean()
+  defp cancelled?(%{cancel_ref: nil}), do: false
+  defp cancelled?(%{cancel_ref: ref}), do: Cancellation.cancelled?(ref)
+
+  # Los mensajes COMPLETOS, no `live_messages/1`: este bucle no resume, y al
+  # devolver la sesion se reescribe entera — quedarse con los vivos tiraria
+  # lo resumido.
+  @spec session_messages(atom(), String.t() | nil) :: [Inference.message()]
+  defp session_messages(_consumer, nil), do: []
+
+  defp session_messages(consumer, session) do
+    case Context.get(consumer, session) do
+      {:ok, %Session{messages: messages}} -> messages
+      {:error, :not_found} -> []
+    end
+  end
+
+  # La historia del run queda en la sesion (F5.2): la siguiente llamada con
+  # el mismo `:session` continua la conversacion. Sin sesion no hay donde
+  # dejarla — y no se deja.
+  @spec persist(agent_state()) :: :ok
+  defp persist(%{session: nil}), do: :ok
+  defp persist(%{messages: []}), do: :ok
+
+  defp persist(%{consumer: consumer, session: session, messages: messages}) do
+    {:ok, _} = Context.create(consumer, session)
+
+    Context.update(consumer, session, fn s ->
+      Session.touch(%{s | messages: messages})
+    end)
   end
 
   # Sin backend, `nil`: un modulo. Antes era `nil | module()` y quien llamaba
@@ -145,92 +364,19 @@ defmodule Candil.Agent do
       Enum.any?(Store.list_models(), &(to_string(&1.alias) == to_string(requested)))
   end
 
-  @spec loop(
-          Conversation.t(),
-          map(),
-          module() | nil,
-          String.t() | atom(),
-          non_neg_integer(),
-          reference() | nil,
-          trace()
-        ) ::
-          trace()
-  # `content: :no_backend` y no `content: {:error, :no_backend}`: `finalize/1`
-  # ya envuelve en `{:error, content}`, y con el otro se devolvia
-  # `{:error, {:error, :no_backend}, trace}` — un error de error.
-  defp loop(_conv, _cfg, nil, _model, _steps_left, _ref, trace),
-    do: trace ++ [%{kind: :final, content: :no_backend}]
-
-  defp loop(_conv, _cfg, _backend, _model, 0, _ref, trace),
-    do: trace ++ [%{kind: :final, content: :max_steps_exhausted}]
-
-  defp loop(conv, cfg, backend, model, steps_left, cancel_ref, trace) do
-    if cancel_ref && Cancellation.cancelled?(cancel_ref) do
-      Telemetry.emit_cancellation(cancel_ref_to_id(cancel_ref), :cancelled)
-      trace ++ [%{kind: :final, content: :cancelled}]
-    else
-      messages = Conversation.messages(conv)
-      prompt_schemas = Tool.list() |> schemas_for(cfg)
-
-      case backend.chat(model, messages, tools: prompt_schemas) do
-        {:ok, %{content: content}} ->
-          if stop_word_reached?(content, cfg) do
-            trace ++ [%{kind: :final, content: extract_final(content, cfg)}]
-          else
-            continue_or_finish(content, conv, cfg, backend, model, steps_left, cancel_ref, trace)
-          end
-
-        {:error, _} = err ->
-          trace ++ [%{kind: :final, content: {:error, err}}]
-      end
-    end
-  end
-
-  # Extracted from `loop/7` so the ReAct branch is one level of nesting instead
-  # of three. The loop itself reads: cancel? stop-word? otherwise continue.
-  @spec continue_or_finish(
-          String.t(),
-          Conversation.t(),
-          map(),
-          module(),
-          String.t() | atom(),
-          integer(),
-          reference() | nil,
-          trace()
-        ) :: trace()
-  defp continue_or_finish(content, conv, cfg, backend, model, steps_left, cancel_ref, trace) do
-    case Tools.parse_tool_calls(content) do
-      {:ok, calls} ->
-        trace = trace ++ [%{kind: :thought, content: content}]
-        {observations, new_conv} = invoke_tools(calls, conv)
-
-        actions =
-          Enum.map(observations, fn {name, result} ->
-            %{kind: :action, content: %{name: name, result: result}}
-          end)
-
-        loop(new_conv, cfg, backend, model, steps_left - 1, cancel_ref, trace ++ actions)
-
-      {:error, _} ->
-        # No tool calls and no stop word — treat the content
-        # as the final answer.
-        trace ++ [%{kind: :final, content: content}]
-    end
-  end
-
-  @spec invoke_tools([%{name: String.t(), args: map()}], Conversation.t()) ::
-          {[{String.t(), {:ok, term()} | {:error, term()}}], Conversation.t()}
-  defp invoke_tools(calls, conv) do
-    Enum.reduce(calls, {[], conv}, fn %{name: name, args: args}, {acc, c} ->
+  @spec invoke_tools([%{name: String.t(), args: map()}], [Inference.message()]) ::
+          {[{String.t(), {:ok, term()} | {:error, term()}}], [Inference.message()]}
+  defp invoke_tools(calls, messages) do
+    Enum.reduce(calls, {[], messages}, fn %{name: name, args: args}, {acc, msgs} ->
       result = Tool.call(name, args)
       # Con `role: "user"`, el modelo recibe su propio resultado como si lo
       # hubiera dicho el usuario: vuelve a pedir la herramienta, y otra vez, y
       # el bucle nunca cierra. Un LLM de verdad espera `role: "tool"`.
-      conv = Conversation.add_message(c, "tool", observation_message(name, result))
-      {[{name, result} | acc], conv}
+      msgs = msgs ++ [%{role: "tool", content: observation_message(name, result)}]
+      {[{name, result} | acc], msgs}
     end)
     |> case do
-      {acc, conv} -> {Enum.reverse(acc), conv}
+      {acc, msgs} -> {Enum.reverse(acc), msgs}
     end
   end
 

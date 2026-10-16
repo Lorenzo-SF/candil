@@ -15,17 +15,12 @@ defmodule Candil.Conversation do
   > `Candil` module, which stores the history in ETS partitioned by consumer.
   > Removed in 4.1.0.
   >
-  > It stays in 4.0 because there are consumers outside this ecosystem, and
-  > `Candil.Agent` is one of them inside it.
-  >
-  > **Why the deprecation is in this paragraph and not in an `@deprecated`
-  > attribute:** the attribute is a compiler warning, and `Candil.Agent` still
-  > calls four of these functions, so marking them would turn
-  > `mix compile --warnings-as-errors` red on the repo's own code. Suppressing
-  > that with `@compile {:no_warn_deprecated, Candil.Conversation}` was tried
-  > and **does not work when both modules are in the same parallel compilation
-  > batch** — measured, not assumed. The attribute goes on when `Agent`
-  > migrates to `Candil.Context`, in 4.1.0.
+  > The `@deprecated` attribute is on since F5.2 (2026-10-16): `Candil.Agent`
+  > was the last consumer inside the house, it migrated to `Candil.Context`
+  > (history in the state, sessions for continuity), and marking these
+  > functions no longer turns `mix compile --warnings-as-errors` red on the
+  > repo's own code. It stays until 4.1.0 for the consumers outside this
+  > ecosystem.
 
   Token estimation lives in `Candil.Context.TokenEstimator` (moved here by
   amendment D8, from `Candil.Conversation.TokenEstimator`).
@@ -88,6 +83,7 @@ defmodule Candil.Conversation do
     * `:max_context_tokens` — approximate token limit for history (default: `4096`)
     * `:max_response_tokens` — max tokens to generate in responses (default: `512`)
   """
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec new(keyword()) :: t()
   def new(opts) do
     %__MODULE__{
@@ -107,6 +103,7 @@ defmodule Candil.Conversation do
   Appends the user message to history, calls the model, appends the
   assistant response, and trims history if needed.
   """
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec chat(t(), binary()) :: {:ok, t(), Inference.response()} | {:error, any()}
   def chat(%__MODULE__{} = conv, user_message) when is_binary(user_message) do
     user_msg = %{role: "user", content: user_message}
@@ -148,6 +145,7 @@ defmodule Candil.Conversation do
   # resultado de una herramienta. Antes no cabia, y el agente lo esquivaba
   # metiendolo como "user" — con lo que el modelo receive su propio resultado
   # como si el usuario lo hubiera dicho.
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec add_message(t(), binary(), binary()) :: t()
   def add_message(%__MODULE__{} = conv, role, content)
       when role in ["user", "assistant", "system", "tool"] do
@@ -157,6 +155,7 @@ defmodule Candil.Conversation do
   @doc """
   Resets the conversation history, keeping the system prompt and config.
   """
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec reset(t()) :: t()
   def reset(%__MODULE__{} = conv), do: %{conv | messages: []}
 
@@ -164,6 +163,7 @@ defmodule Candil.Conversation do
   Returns the full message list including the system prompt as the first
   message (if set).
   """
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec messages(t()) :: [message()]
   def messages(%__MODULE__{system: nil, messages: msgs}), do: msgs
 
@@ -174,6 +174,7 @@ defmodule Candil.Conversation do
   @doc """
   Returns the approximate token count for the current history.
   """
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec token_estimate(t()) :: non_neg_integer()
   def token_estimate(%__MODULE__{} = conv) do
     token_total(conv.messages, conv.system)
@@ -182,6 +183,7 @@ defmodule Candil.Conversation do
   @doc """
   Returns the number of turns (user+assistant pairs) in the conversation.
   """
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec turn_count(t()) :: non_neg_integer()
   def turn_count(%__MODULE__{messages: msgs}) do
     Enum.count(msgs, &(&1[:role] == "user" || &1["role"] == "user"))
@@ -190,23 +192,28 @@ defmodule Candil.Conversation do
   @doc """
   Returns the available context tokens (accounting for max_response_tokens).
   """
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec available_context_tokens(t()) :: non_neg_integer()
   def available_context_tokens(%__MODULE__{} = conv) do
     conv.max_context_tokens - conv.max_response_tokens
   end
 
   @doc false
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec estimate_content_tokens(binary()) :: non_neg_integer()
   def estimate_content_tokens(text), do: TokenEstimator.estimate_content_tokens(text)
 
   @doc false
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   def estimate_content_tokens(_, _), do: 0
 
   @doc false
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec estimate_message_tokens(map()) :: non_neg_integer()
   def estimate_message_tokens(msg), do: message_tokens(msg)
 
   @doc false
+  @deprecated "Usa Candil.Context (Candil.chat_with_context/4). Se elimina en 4.1.0"
   @spec estimate_tokens(binary()) :: non_neg_integer()
   def estimate_tokens(text), do: TokenEstimator.estimate_tokens(text)
 
