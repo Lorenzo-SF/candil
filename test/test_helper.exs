@@ -25,6 +25,29 @@ suite_dir =
 
 File.mkdir_p!(suite_dir)
 System.put_env("CANDIL_DATA_DIR", suite_dir)
+
+# El otro estado global que no tenia suelo: el **fichero de configuracion**.
+#
+# `Router.settings/0` y `Router.Consumer.candidates/1` leen `candil.toml` en
+# cada decision — y sin `CANDIL_CONFIG` eso es leer el de quien ejecuta la
+# suite. El 2026-10-15 eso valia un fallo distinto en cada maquina:
+#
+#   * con el toml del developer, el test del prompt de razonamiento pedia
+#     `:rule` y recibia `:default`, porque el diccionario de `[router.rules]`
+#     de alli es castellano y la pregunta es en ingles.
+#   * sin fichero, el mismo test pedia 0.444 y recibia 0.333, porque el
+#     vocabulario de reserva es ingles y casa tres palabras y no cuatro.
+#
+# Ninguna de las dos es la suite; las dos son la maquina. Y en CI, donde no hay
+# `~/.config/candil`, el resultado es **un tercero**. Un test que depende del
+# home del que lo corre no prueba el codigo: prueba el home.
+#
+# Un path que no existe es «sin configuracion», que es una configuracion valida
+# —la de una libreria sin fichero— y la que hace determinista a la suite. Quien
+# necesite su propio toml pone el suyo con `Candil.TestConfig.override!/1`, que
+# **devuelve el suelo** al salir en vez de borrarlo.
+System.put_env("CANDIL_CONFIG", Path.join(suite_dir, "no-hay-candil.toml"))
+
 ExUnit.after_suite(fn _ -> File.rm_rf(suite_dir) end)
 
 ExUnit.start()
@@ -79,3 +102,4 @@ end
 # @moduledoc para por que no es solo limpieza, sino por que sin ella hay tests
 # que a veces dicen verde sin comprobar nada.
 Code.require_file("support/store_case.ex", __DIR__)
+Code.require_file("support/test_config.ex", __DIR__)
