@@ -141,6 +141,11 @@
 #   repo = "unsloth/Qwen3-Coder-30B-A3B-Instruct-GGUF"
 #   file = "Qwen3-Coder-30B-A3B-Instruct-UD-Q4_K_XL.gguf"
 #   dest = "~/models/gguf"   # `~` no se expande dentro de model_args
+#
+#   # Opcional: el sha256 del fichero. Si no lo pones, para `huggingface`
+#   # se usa el que HF promete en el `x-linked-etag` de la redireccion; se
+#   # rellena a mano para un espejo, o para un `url` que no lo diga.
+#   # sha256 = "<64 hex>"
 
 # ── router ──────────────────────────────────────────────────────────────
 #

@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Ninguna descarga se quedaba sin red solo porque nadie escribiera
+  `sha256`.** El campo existe en `Source`, se verifica al vuelo —en
+  streaming, sembrado con lo que ya hay en un `.part` reanudado—, y **ningún
+  camino lo rellenaba**: en la práctica `checksum_ok?` decía que sí a todo.
+  Con las redirecciones ya arregladas (#85) era la última comprobación que
+  faltaba.
+
+  HuggingFace **sí** promete el sha256 del fichero: en el `x-linked-etag` de
+  la respuesta que redirige al CDN, entrecomillado, y coincide con el
+  `lfs.oid` de su API. Medido el 2026-10-16 con los cuatro ficheros del
+  catálogo real: `x-linked-etag` = `sha256sum` en disco, en los cuatro.
+
+  Y esa respuesta **ya se pedía** para seguir la redirección, así que leer el
+  digest de ahí no añade ninguna petición: cuando `sha256` no está puesto, lo
+  aprendido es la expectativa (un `sha256` escrito a mano gana). Medido de
+  punta a punta contra HF con un LFS de 1,1 MB y el struct en `sha256: nil`:
+  un `.part` corrupto reanudado se **rechaza** — no hay otro sitio de donde
+  salga la expectativa.
+
+  El `etag` del CDN final, en cambio, **no** sirve: es el `xetHash` de Xet, no
+  el sha256 del fichero (`187d19…` contra `b44e34…` para el mismo fichero), y
+  comprobar contra él habría fallado toda descarga buena.
+
 - **El score de la capa `:rule` media el tamaño del diccionario, y eso
   anulaba la decision.** Era `palabras que casan / tamaño del diccionario`, de
   modo que ampliar el vocabulario —que es lo que hay que hacer para que case en
