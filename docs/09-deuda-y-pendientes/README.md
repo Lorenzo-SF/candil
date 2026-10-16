@@ -4,8 +4,23 @@
 > verificar porque no había con qué — y que desde el 2026-10-12 sí se puede,
 > porque hay una máquina con una RTX 5080 delante.**
 >
-> 2026-10-13 · `main` `b43b56e` · **976 tests + 27 doctests, 0 fallos** · los
-> cinco gates en verde · sin rama de trabajo.
+> 2026-10-16 · `main` `4d8d3e5` · **1159 tests + 27 doctests, 0 fallos** · los
+> cinco gates en verde.
+>
+> ⚠️ **Corregido el 2026-10-15/16**: tres cosas de este documento eran viejas y se
+> contradecían con el código (§5: P-1, P-4, P-7, P-8). Están marcadas con lo
+> medido al lado. Dos de ellas —**P-7 y P-8**— no estaban viejas por descuido:
+> las devolvió a su estado anterior el `revert` del PR #82 el 2026-10-15, que
+> deshizo el campo `reasoning` **y, con él, la fila que ya lo daba por cerrado**.
+> Es lo que tiene revertir: el documento vuelve con el código.
+> Y el **976** de la cabecera era de dos días antes: la suite creció con los
+> tests del gateway, del tribunal y de la fase 4.
+>
+> ⚠️ **Y el 2026-10-16 aparecieron dos agujeros que ningún documento listaba**,
+> los dos del mismo tipo —código escrito, probado por dentro y *sin enchufar*—:
+> `candil stats` **reventaba al invocarlo**, y la **auth del gateway no estaba
+> llamada desde el pipeline** (un `auth = api_key` contestaba 200 sin
+> credencial). Los dos arreglados, con tests que los miran desde fuera. Ver §5.
 
 ---
 
@@ -18,11 +33,14 @@
 | **2** | `Arrea.Resource` (Arrea 4.0.0) | ✅ mergeada y publicada en Hex |
 | **3** | **El enrutado: las capas `:embedding` y `:llm`** | ✅ mergeada |
 | **4** | **La política: quién va primero** | ✅ mergeada y **medida contra una GPU de verdad** |
-| **5** | El refusal, en los tres tipos | ⬜ **bloqueada por D-09** |
-| 6-12 | RAG · MCP · Gateway · mesa camilla · agentes · stats · CLI | ⬜ |
+| **5** | El refusal, en los tres tipos | 🟡 **desbloqueada**: D-09 está decidido (`fail` es el defecto). `:fail` y `:wait` están escritos; `:degrade` no es alcanzable hoy (§5, P-1) |
+| **8** | Gateway `candil serve` | ✅ **cerrada el 2026-10-16, medida con `curl`**: los módulos, los diez handlers, los tests de punta a punta **y el comando** `candil serve` (banner, `--host/--port/--auth/--api-key`, `CANDIL_API_KEYS`, se queda en primer plano). De paso: la **auth no estaba enchufada al pipeline** y se arregló (§5). El control de concurrencia ya estaba: el chat pasa por `Policy.run/3` |
+| **11** | `candil stats` | ✅ existe y **corre** hoy: `candil stats` + `--quality`, `Candil.Telemetry.Decisions`/`Quality` y `GET /metrics` en el gateway. Hasta el 2026-10-16 el comando **reventaba** al invocarlo (ver §5) |
+| 6, 7, 9, 10, 12 | RAG · MCP · mesa camilla · agentes · el CLI entero | ⬜ |
 
-**`main` hoy**: **976 tests + 27 doctests, 0 fallos**, credo 0, dialyzer 0, CI en
-verde. La 4 ya no es «verde sin medir»: está medida.
+**`main` hoy**: **1159 tests + 27 doctests, 0 fallos**, credo 0, dialyzer 0, CI en
+verde. La 4 ya no es «verde sin medir»: está medida. La **8** ya no es «el
+gateway no existe»: ver §5, P-7, y ya no es «falta el comando»: existe y sirve.
 
 ---
 
@@ -203,20 +221,88 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 
 | # | Problema | Estado |
 |---|---|---|
-| **P-1** | El defecto del refusal | **abierto** — es decisión del dueño (D-09) y **bloquea la fase 5** |
+| **P-1** | El defecto del refusal | ✅ **decidido** (D-09, 2026-10-11): `fail` es el defecto, y las tres son válidas y configurables. `:fail` (con su `Retry-After`) y `:wait` están escritos y probados; **`degrade` no es alcanzable hoy** — necesitaría saber qué capacidades pide cada llamada, y la única capa que lee `capabilities` es `:classifier`, que está apagada. **No bloquea la fase 5**: el consejero fue explícito en que el gateway no la necesita entera |
 | ~~P-2~~ | La métrica del tribunal | ✅ **cerrado** (A-1). Ya existe, y ha sentenciado: 16.7% |
 | **P-3** | `rest_for_one` sin implementar | **a propósito**: no tiene caso hasta que exista un destino que ceda el turno (D-02) |
-| **P-4** | Quién escribe la verdad de la VRAM | se **lee**, no se escribe. Sin dueño |
+| **P-4** | Quién escribe la verdad de la VRAM | 🟡 **se mide y se enseña**: la columna `VRAM` de `candil status` es el RSS del PID del motor, atribuido por PID (PR #86), y es lo que declara `Engine` en su `@doc`. Lo que sigue sin dueño es **escribirla** —reservar antes de arrancar—, y es la parte de la 8b |
 | ~~P-5~~ | La fase 4 sin mergear | ✅ **cerrado** — mergeada y medida (§2.1) |
 | **P-6** | La colocación de modelos en varias GPUs | es la parte de la 8b que falta, y **depende de P-4** |
-| **P-7** | **El gateway no existe** | `Gateway.start/1` devuelve `:not_implemented` (fase 8). **El enrutado no es alcanzable desde un cliente real**, solo desde el CLI |
-| **P-8** | **`reasoning_content` se descarta** | `parse_openai_response/1` lee `message.content` y nada más. Con `--reasoning-format deepseek` en `coder`, `analyst` y `coder_lite`, una pregunta que exige razonar devuelve **1809 bytes de razonamiento y `content: 0`** |
+| ~~P-7~~ | ~~**El gateway no existe**~~ | ✅ **es falso, y esta fila es un retroceso de hoy**: el `revert` del PR #82 (2026-10-15) devolvió a este documento dos filas que ya estaban cerradas. `Gateway.start/1` arranca Bandit y devuelve el puerto real, los diez handlers están escritos y `test/candil/gateway/end_to_end_test.exs` los prueba con HTTP de verdad a los dos lados (20 tests). Ya no falta el comando: **`candil serve` existe y sirve** (2026-10-16, medido con el escript y `curl`), y el control de concurrencia ya estaba — el chat pasa por `Policy.run/3`. El enrutado **sí** es alcanzable desde un cliente real: `POST /v1/chat/completions` con `"model": "auto"` |
+| ~~P-8~~ | ~~**`reasoning_content` se descarta**~~ | ✅ **cerrado dos veces, y la segunda a propósito**. La descripción era falsa por dos motivos: (1) medido el 2026-10-14 con `Qwen3.8-27B` y `--reasoning-format deepseek`, `content` **sí** trae la respuesta final y el razonamiento viene al lado (`stop` en los dos casos); (2) el campo que se añadió para no perderlo se **revirtió** en el PR #82 porque no lo lee nadie — ni el enrutado, ni la calidad, ni el CLI, que no muestra respuestas. Lo único que queda en pie es el **diagnóstico** cuando un modelo razona y se queda sin presupuesto: sale `content: ""` con `finish_reason: length` y nada lo explica en el cuerpo, que es lo que `Candil.Telemetry.Quality` marca como anomalía por el lado de la telemetría |
+
+### Lo que se midió el 2026-10-15, y que arregló un 500 vacío
+
+Buscando por qué la suite dependía de la máquina salió un fallo de verdad, y
+no era del test: un `[consumer.X] models` que nombra un alias que no existe
+como átomo en la VM levantaba `ArgumentError` dentro de
+`Candil.Router.Consumer.candidates/1`, y `GET /v1/models` contestaba **500 con
+el cuerpo vacío**. Un cliente OpenAI no puede leer eso.
+
+Tres arreglos, cada uno con su test (y los tres rojos antes):
+
+1. `Consumer.candidates/1` devuelve `{:error, {:unknown_model, nombre}}` en vez
+   de reventar. El 400 y el mensaje ya estaban escritos en
+   `Gateway.error_body/1`; no llegaban a pintarse.
+2. `Candil.Gateway.Handlers.reason/2` es el único sitio que pinta un error del
+   motor con su status —vivía dentro de `ChatCompletions`, y `Models` necesita
+   ya el mismo mapa—, y `{:unknown_model, _}` va al 400: es configuración, no
+   un fallo de Candil, y un 500 en un cliente OpenAI significa «reintenta».
+3. `Candil.Gateway.Plug.dispatch/3` es una red: un handler que revienta sale
+   como un **500 CON cuerpo** en la forma de OpenAI, y el stacktrace va al log.
+   Antes Bandit contestaba un 500 sin nada que leer.
+
+### Y `candil stats` reventaba al invocarlo — medido el 2026-10-16
+
+La otra cara de lo mismo: un documento que dice «existe» sobre algo que nadie ha
+**corrido**. El comando estaba declarado en `Candil.CLI`, el módulo
+`Candil.CLI.Stats` existía y la telemetría existía… y al ejecutarlo:
+
+    ** (FunctionClauseError) no function clause matching in Keyword.get/3
+      # 1  %{_args: [], quality: false}
+      (candil 4.0.0) lib/candil/cli/stats.ex:32: Candil.CLI.Stats.run/1
+      (candil 4.0.0) lib/candil/cli.escript.ex:112: Candil.CLI.Escript.dispatch/1
+
+Alaja le pasa al handler el **mapa** de argumentos parseados, y `Stats.run/1` lo
+trataba como una lista de `Keyword`. Los otros seis handlers del CLI ya tenían
+las dos cláusulas —`when is_map(opts)` / `when is_list(opts)`—; este no, y no
+tenía test: `candil stats` no lo corría ninguna otra prueba. Arreglado, con
+`test/candil/cli/stats_test.exs`, que lo corre por el camino de verdad
+(`Candil.CLI.main/1`, como el escript) y por el contrato del handler.
+
+### Y la auth del gateway no estaba enchufada — medido y arreglado el 2026-10-16
+
+El mismo patrón, con peores consecuencias. `Candil.Gateway.Auth` está escrito
+entero —dos modos, comparación en tiempo constante, la clave fuera del TOML—,
+está documentado («requires a key on every request») y tiene sus diez tests
+unitarios en `Candil.GatewayTest`… y **`Auth.verify/3` no lo llamaba nadie desde
+el pipeline HTTP**. Medido: un gateway arrancado con `auth: :api_key` contestaba
+**200 a una petición sin `Authorization`**. La promesa era una promesa que el
+pipeline no cumplía, y la tabla de status ya tenía su fila —`status_for/1`
+mapea `:auth_error` a 401— sin ningún camino que la produjera.
+
+El arreglo está en `Candil.Gateway.Plug.call/2`, **antes** de resolver la ruta:
+sin credencial válida no se llega a un handler, y un 401 dice cómo autenticarse
+(`WWW-Authenticate: Bearer`, que es lo que pide la RFC 7235). Va en el único
+sitio por el que pasan todas las rutas y no en cada handler: diez handlers son
+diez sitios donde olvidarse. Los tests que lo miran son los que faltaban —HTTP
+de verdad, en `test/candil/gateway/end_to_end_test.exs`—: 401 sin cabecera, 401
+con la clave equivocada (sin filtrar cuál era la buena), 200 con la buena, y 401
+en la ruta del chat, que es la que gasta GPU.
+
+Y con esto `candil serve` se pudo cerrar entero y medirlo por fuera: el escript
+construido, `./candil serve --port 18177`, `curl` al `/health` y al
+`/v1/models`, y con `--auth api_key` + `CANDIL_API_KEYS="sk-uno, sk-dos"` el 401
+sin cabecera, el 401 con la clave mala y el 200 con `sk-dos` —con el espacio de
+sobra del entorno recortado, que es como lo escribe cualquiera—.
 
 ---
 
 ## 6 · El resumen, en una frase
 
-> **976 tests en verde** y **cuatro preguntas sin responder** — y ninguna es
-> técnica: el defecto del refusal, quién escribe la verdad de la VRAM, la
-> colocación en varias GPUs, y la política de señales a la vista del 16.7%.
-> Las cuatro necesitan una decisión, no código.
+> **1159 tests en verde** y **tres preguntas sin responder** — y ninguna es
+> técnica: quién *escribe* la verdad de la VRAM (se mide y se enseña, pero no se
+> reserva), la colocación en varias GPUs, y la política de señales a la vista
+> del 16.7%. Las tres necesitan una decisión, no código.
+>
+> El defecto del refusal ya no es una de ellas: D-09 lo decidió el 2026-10-11 y
+> `fail` es el defecto, con `Retry-After` y todo.

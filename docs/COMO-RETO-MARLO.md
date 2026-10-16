@@ -1,8 +1,9 @@
 # Candil — cómo retomarlo
 
-> **Estado a 2026-10-13, medido, no supuesto.** `main` en verde ·
-> **976 tests + 27 doctests, 0 fallos** · credo 0 · dialyzer 0.
-> **Rama de trabajo: ninguna.** Todo está en `main`.
+> **Estado a 2026-10-16, medido, no supuesto.** `main` en `4d8d3e5` en verde ·
+> **1159 tests + 27 doctests, 0 fallos** · credo 0 · dialyzer 0.
+> **Rama de trabajo:** `fix/agent-contract`, con lo mismo que `main` más lo del
+> 2026-10-15/16.
 >
 > **Lo que ya se ha medido contra una GPU de verdad** (RTX 5080, `llama-server`
 > compilado, un modelo de 14B cargado): la cola funciona. El turno dura **6655
@@ -177,19 +178,20 @@ esperaba**.
 
 De [`09-deuda-y-pendientes`](09-deuda-y-pendientes/):
 
-| # | Qué | Por qué |
-|---|---|---|
-| **A-1** | **La métrica del tribunal**: un evento de telemetría en la decisión, con **la capa que la produjo** | es instrumentación pura; decide si un LLM entra como clasificador |
-| **A-2** | quitar la dependencia del binario `zip` | 12 tests que fallan donde no está, y el rojo no habla de Candil |
-| **A-3** | que los tests de cmake no **desaparezcan** si no hay cmake | sin él son 878 en vez de 882: dos suites distintas |
-| **A-4** | limpiar el check inexistente de `.credo.exs` | ruido en cada ejecución |
-| **A-5** | revisar **una a una** las 25 ramas sin mergear | aquí **no** se ha comprobado, y traen la estructura vieja |
+| # | Qué | Por qué | Estado medido el 2026-10-16 |
+|---|---|---|---|
+| **A-1** | **La métrica del tribunal**: un evento de telemetría en la decisión, con **la capa que la produjo** | es instrumentación pura; decide si un LLM entra como clasificador | ✅ **hecho** (2026-10-13): `[:candil, :router, :decision]`, y ya ha sentenciado |
+| **A-2** | quitar la dependencia del binario `zip` | 12 tests que fallan donde no está, y el rojo no habla de Candil | ✅ **hecho**: no hay un solo `System.cmd("zip", …)` en `lib/` ni en `test/` |
+| **A-3** | que los tests de cmake no **desaparezcan** si no hay cmake | sin él son dos suites distintas | ✅ **hecho** (T-2): sin toolchain pasan **diciéndolo** |
+| **A-4** | limpiar el check inexistente de `.credo.exs` | ruido en cada ejecución | ✅ **hecho**: `mix credo` no avisa de ningún check desconocido |
+| **A-5** | revisar **una a una** las ramas sin mergear | aquí **no** se ha comprobado, y traen la estructura vieja | ⬜ **pendiente**: hoy hay **19 ramas remotas** sin mergear en `origin/main`, y la mayoría son de PRs ya mergeados con *squash* — el `--no-merged` las lista aunque su contenido esté dentro. Una a una, como dice |
 
-**A-1 es la urgente.** `DISENO-MOTOR.md` §10 pone una condición antes de meter un
-LLM como clasificador: se mide qué fracción resolvió la política, y si es el 60%
-en vez del 97%, el motor estático está mal hecho y hay que arreglarlo antes.
-**Esa métrica no existe**, así que hoy nadie puede saber si el clasificador está
-justificado.
+**Y el tribunal ya habló.** La métrica de A-1 existe y mide qué fracción resuelve
+la política estática: **16.7%** (2/12) con embedder y clasificador reales, contra
+la barra del 60% de `DISENO-MOTOR.md` §10. El barrido que salió de ahí dejó el
+umbral de `:embedding` en **0.35** —de 9/106 a 32/106 y **11/11 aciertos**—, y
+con eso la decisión que queda **no es el dato, es la política**: qué señales
+tocar y hasta dónde. Es del dueño, no del motor.
 
 > **Trampa que ya se ha pagado:** tomar el turno con `enter/2` **también cuenta**
 > como turno servido y emite su propio evento. Una petición que espera son
@@ -203,18 +205,23 @@ justificado.
 
 **Son decisiones, no trabajo:**
 
-- **El defecto del refusal** — `fail` · `wait` · `degrade`. Configurable, pero
-  **el defecto no está puesto**, y **bloquea la fase 5**. Las tres son
-  defendibles y ninguna es de diseño. Está en
-  [`06-capacidad-y-politica` §4](06-capacidad-y-politica/README.md).
-- **Si entra un LLM como clasificador** — se deduce de A-1, pero la política es
-  suya.
+- **El defecto del refusal** — `fail` · `wait` · `degrade`. ✅ **decidida**
+  (D-09, 2026-10-11): `fail` es el defecto, `:fail` y `:wait` están escritos y
+  `Candil.Refusal` lleva el porqué y los números. `:degrade` **no es alcanzable
+  hoy** y no bloquea la fase 5.
+- **Si entra un LLM como clasificador** — el tribunal ya lo midió (16.7% de
+  resoluciones estáticas contra la barra del 60%), el umbral quedó barrido
+  (0.35) y **lo que queda es la política de señales**: qué se toca y hasta
+  dónde. Eso es del dueño.
+- **Quién *escribe* la verdad de la VRAM** y **la colocación en varias GPUs** —
+  se mide y se enseña, no se reserva (§5 de la deuda, P-4 y P-6).
 
 ---
 
 ## Lo que NO hay que hacer
 
-- **No implementes el refusal** por decidir tú el defecto.
+- **No decidas tú el defecto del refusal**: ya está decidido (D-09) y es
+  `fail`, con su `Retry-After`. Lo que falte de la fase 5 no es eso.
 - **No implementes `rest_for_one`**: está aplazado **a propósito**, no hasta que
   exista un destino que pueda ceder el turno antes de terminar.
 - **No pongas un clasificador ni un embedder por defecto.** El proyecto no lanza

@@ -5,9 +5,9 @@
 > Si algo está aquí y no en otro sitio, está aquí porque no tiene otro sitio. Si
 > algo está en otro sitio y también aquí, es un error: una verdad, un sitio.
 >
-> **Rama**: `main` · sin ramas de trabajo abiertas
-> **Medido el 2026-10-13**: **976 tests + 27 doctests, 0 fallos** · credo 0 ·
-> dialyzer 0 · CI en verde. Fases cerradas: 0, 1, 2, 3 y 4.
+> **Rama**: `fix/agent-contract` (= PR #87, ya mergeado en `4d8d3e5`)
+> **Medido el 2026-10-16**: **1159 tests + 27 doctests, 0 fallos** · credo 0 ·
+> dialyzer 0 · CI en verde. Fases cerradas: 0, 1, 2, 3, 4, 8 y 11.
 >
 > **Si vienes de otro sitio y solo vas a leer una cosa**:
 > [`COMO-RETO-MARLO.md`](COMO-RETO-MARLO.md) — y si eres un agente sin nadie
@@ -142,14 +142,14 @@ las tres veces.
 | **Los audits viejos** | Los que siguen en pie están recogidos en los bloques. Los que no, no |
 | **Una cifra sin medir** | Si aquí hay un número, sale de ejecutarlo |
 
-## Estado, medido el 2026-10-12
+## Estado, medido el 2026-10-16
 
 | | |
 |---|---|
-| `main` | `b43b56e` · **976 tests + 27 doctests, 0 fallos** · credo 0 · dialyzer 0 · CI en verde |
-| Rama de trabajo | **ninguna.** La 4 está mergeada y medida |
+| `main` | `4d8d3e5` · **1159 tests + 27 doctests, 0 fallos** · credo 0 · dialyzer 0 · CI en verde |
+| Rama de trabajo | `fix/agent-contract`, con **lo mismo que `4d8d3e5`** más lo del 2026-10-15/16 |
 | Gates | format · compile `--warnings-as-errors` · credo · test (`--seed 0`) · dialyzer |
-| Fases cerradas | 0 (medir) · 1 (behaviours) · 2 (`Arrea.Resource`) · 3 (el enrutado) · **4 (la política de turnos)** |
+| Fases cerradas | 0 (medir) · 1 (behaviours) · 2 (`Arrea.Resource`) · 3 (el enrutado) · **4 (la política de turnos)** · **8 (el gateway, con `candil serve`)** · **11 (`candil stats`)** |
 | La 4, contra GPU | **medida el 2026-10-13**: el turno dura 6655 ms sobre una inferencia de 6793 ms |
 | Siguiente | **5 · el refusal**, bloqueada por la decisión abierta nº1 |
 
