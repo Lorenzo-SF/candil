@@ -389,11 +389,11 @@ diferencia con este documento.
 | Fichero | Qué | Estado |
 |---|---|---|
 | `lib/candil/agents/behaviour.ex` | el behaviour de §5.2 — en Candil por D-13; el sentido de «agente» lo fija D-14, y el nombre y el contrato los confirmó la F5.1 | **existe** (F5.1, 2026-10-16) |
-| `lib/candil/agent.ex` | pasa a **implementar** el behaviour; el `@type result/0` y `resolve_backend/1` ya los arregló la F5.0 (`#87`) | existe, hay que tocarlo |
+| `lib/candil/agent.ex` | **implementa** el behaviour (F5.2): `init_agent/1` construye el estado, `step/3` es una vuelta ReAct, el bucle es un reductor y la historia va por `Candil.Context` | **existe** (F5.2, 2026-10-16) |
 | `lib/candil/agents/simple_reflex.ex` | **[PROPUESTO]** el agente del tipo 1, como `GenServer` | no existe |
 | `lib/candil/agents/supervisor.ex` | el `DynamicSupervisor` de agentes, `:one_for_one` (D-13: el de Arrea ya no hace falta) | **existe** (F5.1, 2026-10-16) |
 | `lib/candil/agents/step_router.ex` | **[PROPUESTO]** la decisión de routing **por paso** (§2.7) | no existe |
-| `lib/candil/agent_test.exs` | los tres tests que hay, **más** los de la F5.0 | existe |
+| `test/candil/agent_test.exs` | los que había, **más** los de la F5.0 y la F5.2 (pasos sin proceso, continuidad de sesión) | **existe** |
 | `test/candil/agent/simple_reflex_test.exs` | **[PROPUESTO]** | no existe |
 | `test/candil/agent/contract_test.exs` | el test de contrato del §4 — escrito **antes** del código, lo trajo la F5.0 (`#87`) | **existe** |
 | `test/candil/agent/behaviour_test.exs` | el contrato de §5.2, y que un tipo 1 se escribe con dos callbacks | **existe** (F5.1, 2026-10-16) |
@@ -661,7 +661,7 @@ tienda y su esquema, y el esquema es una decisión de producto.
 | Tipo | Arrea que hace falta | Candil que hace falta | ¿Depende de 8b? |
 |---|---|---|---|
 | 1 · Reflejo Simple | — (D-13: el behaviour y el RPC nacen en Candil) | el behaviour, `SimpleReflex`, supervisor y `call/3` | **no** |
-| 2 · Basado en Modelos | `snapshot/1`, `restore/1` | migrar `Conversation` → `Context` | no |
+| 2 · Basado en Modelos | `snapshot/1`, `restore/1` | migrar `Conversation` → `Context` — ✅ F5.2 (2026-10-16) | no |
 | 3 · Basados en Objetivos | `Leader` (ya está) | almacén de objetivos, descomposición | **sí** (el sub-agente puede pedir otro modelo) |
 | 4 · Basados en Utilidad | `Parallel` (ya está), admisión VRAM | candidatos por paso, `Scorer` de caminos | **sí** |
 | 5 · De Aprendizaje | — | almacén durable + **decisión de diseño** | bloqueado, y no por 8b |
@@ -1041,7 +1041,7 @@ F5.0 ──▶ F5.1 ──▶ F5.2 ──▶ F5.3 ──▶ F5.4 ──┬──
 |---|---|---|---|
 | **F5.0** | Arreglar el contrato de `Candil.Agent` — ✅ `#87` | — | **No espera a nadie.** Los 4 tests del §4, el `@type result/0`, `resolve_backend/1` y `resolve_model/2` contra el catálogo. Sin tocar Arrea. Es lo más barato y desbloquea todo lo demás |
 | **F5.1** | El behaviour, en Candil — ✅ **cerrada el 2026-10-16** | F5.0 | El behaviour (§5.2) y su supervisor, **en este repo** — D-13 (2026-10-16) quitó de en medio la PR cruzada |
-| **F5.2** | `Candil.Agent` implementa el behaviour | F5.1 | `loop/7` → `step/3`. **Migrar `Conversation` → `Context`**, que es lo que desbloquea el `@deprecated` de 4.1.0 (abajo) |
+| **F5.2** | `Candil.Agent` implementa el behaviour — ✅ **cerrada el 2026-10-16** | F5.1 | `loop/7` → `step/3` (el bucle, ahora un reductor) y **la migración `Conversation` → `Context`**: hechas, y con ellas el `@deprecated` de 4.1.0 quedó puesto (abajo) |
 | **F5.3** | Tipo 1: Reflejo Simple | F5.2 | El primer `GenServer` de verdad, con `evaluate/2`, un hijo en `Candil.Supervisor` y **el test del cuelgue** (§8.3). **No depende de 8b**: con el modelo pineado no hay nada que pesar |
 | **F5.4** | Tipo 2: Reflejo Basado en Modelos | F5.3 | `snapshot/1` y `restore/1`, y el **reinicio de verdad**, que Arrea no da porque sus workers son `:temporary` |
 | **F5.5** | RPC entre agentes | F5.3 | `call/3` con respuesta, **en Candil** (D-13), contra el `send_message/2` de Arrea, que es un `cast` (`worker.ex:112`) |
@@ -1106,9 +1106,9 @@ aparezca el segundo consumidor, la extracción es mover un módulo — no una re
 Por eso F5.3, F5.4 y F5.5 van **antes** de 8b, y por eso el tipo 1 es el primero:
 es el único que no puede pedir un modelo que no existe.
 
-### El bloqueo de 4.1.0, que hay que conocer antes de F5.2
+### El bloqueo de 4.1.0, que la F5.2 dejó resuelto
 
-`lib/candil/conversation.ex:21-28` dice, textual:
+`lib/candil/conversation.ex` decía, antes de la F5.2, textual:
 
 > *«`@deprecated` … `Candil.Agent` sigue llamando a cuatro de estas funciones, así
 > que marcarlas volvería `mix compile --warnings-as-errors` rojo sobre el código
@@ -1117,15 +1117,20 @@ es el único que no puede pedir un modelo que no existe.
 > paralela** — medido, no supuesto. El atributo va cuando `Agent` migra a
 > `Candil.Context`, en 4.1.0.»*
 
-Medido sobre el fichero: `agent.ex` llama a **tres** funciones distintas —
-`Conversation.new/1` (`agent.ex:78`), `Conversation.add_message/3` (`:81`, `:172`)
-y `Conversation.messages/1` (`:118`). El comentario dice cuatro; la diferencia no
-importa y **no se ha investigado**, así que queda dicho y no se corrige aquí.
+Medido entonces sobre el fichero: `agent.ex` llamaba a **tres** funciones distintas
+(`Conversation.new/1`, `add_message/3` y `messages/1`); el comentario decía cuatro.
+La **F5.2 (2026-10-16)** migró el bucle a `Candil.Context` —la historia vive en el
+estado, y en una sesión cuando el llamante la nombra— y `agent.ex` ya no llama a
+ninguna:
 
-> Esto convierte la migración a `Candil.Context` en parte de F5.2 y no en una
-> mejora: **es lo que desbloquea el `@deprecated` de 4.1.0**, y ese atributo, a su
-> vez, es lo que permitirá que `mix compile --warnings-as-errors` vuelva a ser una
-> puerta de verdad sobre `Conversation`.
+* el **`@deprecated` está puesto** en las funciones de `Conversation`, así que
+  `mix compile --warnings-as-errors` vuelve a ser una puerta de verdad sobre el
+  módulo;
+* el párrafo del moduledoc que explicaba por qué el atributo no estaba se
+  sustituyó por el estado real;
+* los avisos que quedan son los de `test/candil/conversation_test.exs`, que llama
+  a lo deprecado **a propósito** — se dejan de pie, como los del shim
+  `Candil.Conversation.TokenEstimator`.
 
 ---
 

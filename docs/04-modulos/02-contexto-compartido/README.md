@@ -283,7 +283,7 @@ estas fases.
 |---|---|
 | `lib/candil/conversation.ex` | Está `@deprecated` desde 4.0 y se va en 4.1.0 (`lib/candil/conversation.ex:9-28`). Tocar un módulo que se va es trabajo perdido |
 | `lib/candil/conversation/token_estimator.ex` | Solo delega en `Candil.Context.TokenEstimator`. Ya está en su sitio |
-| `lib/candil/agent.ex` | Sigue usando `Candil.Conversation` (`lib/candil/agent.ex:78`, `:81`, `:118`, `:172`). La migración a `Candil.Context` es la fase 8a/8c, no esta |
+| `lib/candil/agent.ex` | Usaba `Candil.Conversation` (`lib/candil/agent.ex:78`, `:81`, `:118`, `:172`); **ya no**: la F5.2 (2026-10-16) migró el bucle a `Candil.Context` y el `@deprecated` quedó puesto. El motivo de esta fila caducó |
 | `lib/candil/context/token_estimator.ex` | ⚠️ Ver §8.3: hay una inconsistencia real aquí, pero arreglarla **cambia aritmética**, y eso es otra fase |
 | `lib/candil/router/consumer.ex` | El pin por consumer ya existe (`:candil_router_pins`, `lib/candil/router/consumer.ex:19`, `:36`, `:57`). `SharedSession.active_pinned_model` **lo duplicaría**, y la regla del proyecto es *una verdad, un sitio* |
 
@@ -1405,7 +1405,7 @@ capacidad se llama `:ephemeral` y **la pone hasta el de ETS**.
 
 | | |
 |---|---|
-| **La migración de `Candil.Agent`** de `Candil.Conversation` a `Candil.Context` | Se va en 4.1.0 (`lib/candil/conversation.ex:9-28`). `Candil.Agent` es el último que la usa (`lib/candil/agent.ex:78`, `:81`, `:118`, `:172`), y el `@deprecated` está **deliberadamente sin poner** porque `mix compile --warnings-as-errors` se pondría rojo |
+| ~~**La migración de `Candil.Agent`** de `Candil.Conversation` a `Candil.Context`~~ | ✅ **Hecha en la F5.2 (2026-10-16)**: el bucle vive sobre `Candil.Context` y el `@deprecated` quedó puesto. `Conversation` se va en 4.1.0 |
 | **Unificar los cuatro estimadores** | §8.3. Fase propia, con su criterio |
 | **KV-Cache local entre modelos** | §5.5.2. **Probablemente no sea hacible**, y la respuesta es «no», no «todavía no» |
 | **La línea de cajas** | §5.7, F2.7. Es la 8b, y depende de una decisión que **todavía no está tomada** |

@@ -1,6 +1,13 @@
 defmodule Candil.ConversationTest do
   use ExUnit.Case, async: true
 
+  # Este fichero llama a proposito a un modulo deprecado — probarlo ES el
+  # punto — asi que los avisos que produce se dejan de pie desde la F5.2,
+  # cuando `Candil.Agent` migro a `Candil.Context` y el `@deprecated` se pudo
+  # poner. Son correctos. Suprimirlos no se puede: `@compile
+  # {:no_warn_deprecated, M}` no funciona en este Elixir (medido: tampoco con
+  # los dos modulos ya compilados por separado).
+
   alias Candil.Conversation
 
   describe "D8 · what was decided about this module" do
@@ -9,6 +16,15 @@ defmodule Candil.ConversationTest do
 
       assert doc =~ "chat_with_context/4"
       assert doc =~ "4.1.0"
+    end
+
+    test "el @deprecated ya esta puesto: el agente dejo de llamarla (F5.2)" do
+      # Se pudo poner cuando `Candil.Agent` migro a `Candil.Context`; hasta
+      # entonces habria puesto rojo `mix compile --warnings-as-errors` sobre
+      # el codigo del propio repo.
+      fuente = File.read!("lib/candil/conversation.ex")
+
+      assert fuente =~ "@deprecated"
     end
 
     test "el reemplazo existe, y es el que el modulo nombra" do

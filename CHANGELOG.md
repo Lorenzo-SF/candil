@@ -26,6 +26,37 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   cae se le levanta (`test/candil/agent/behaviour_test.exs`,
   `supervisor_test.exs`).
 
+### Changed
+
+- **`Candil.Agent` es ya el agente que el behaviour describe, y su historia
+  vive en `Candil.Context` (F5.2).** El módulo declara
+  `@behaviour Candil.Agents.Behaviour`: `init_agent/1` construye el estado
+  (backend, modelo, presupuesto) y `step/3` es **una vuelta ReAct entera**
+  —pensamiento, herramienta y observación— que se puede llamar sin ningún
+  proceso de por medio. El `loop/7` recursivo pasó a ser un reductor
+  (`reduce_while`), y `run/3` quedó como el driver síncrono: init, pasos
+  hasta el `:final`, resultado. La paridad con el contrato de la F5.0 es
+  total: sin backend `{:error, :no_backend, []}`, alias inventado
+  `{:error, {:model_not_up, alias}, []}`, y sin respuesta final a los
+  `max_steps`, `{:error, :max_steps_exhausted, trace}`.
+
+  `run/3` gana `:session` y `:consumer`: con una sesión, la historia se lee
+  de `Candil.Context` al empezar y se deja allí al terminar, así que la
+  llamada siguiente con el mismo id **continúa la conversación**; sin
+  sesión, la historia es de la llamada y se va con ella. Y la opción
+  `:conversation` que el `@doc` anunciaba —y que el código no miraba
+  nunca— se retira de la documentación.
+
+### Deprecated
+
+- **`Candil.Conversation` ya lleva el `@deprecated` puesto.** Es lo que la
+  F5.2 desbloqueó: `Candil.Agent` era su último consumidor dentro de la
+  casa y ya no la llama, así que marcar sus funciones no pone rojo
+  `mix compile --warnings-as-errors` sobre el código del propio repo. El
+  módulo se va en 4.1.0; hasta entonces, quien lo use verá el aviso. Los
+  tests que lo llaman **a propósito** dejan sus avisos de pie (el truco
+  `@compile {:no_warn_deprecated, M}` no suprime en este Elixir — medido).
+
 ### Fixed
 
 - **Ninguna descarga se quedaba sin red solo porque nadie escribiera
