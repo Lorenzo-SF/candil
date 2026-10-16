@@ -30,6 +30,14 @@ defmodule Candil.Source do
   is already there, verifies the checksum incrementally, and renames into place
   only on success. A model file is commonly 17 GB; reading one into memory to
   hash it is not an option.
+
+  ## Where the digest comes from
+
+  From `sha256` when it is set —a mirror, or a `url` that does not say—. When
+  it is not, from the response the redirect already needs: HuggingFace
+  promises the file's `x-linked-etag` there, which for an LFS file (every
+  `.gguf` in practice) is its sha256. Without either, `sha256: nil` made
+  `checksum_ok?` say yes to everything, and nobody wrote the field down.
   """
 
   alias Apero.Http
@@ -281,7 +289,7 @@ defmodule Candil.Source do
     track_progress(dest, resume)
 
     case receive_stream(source, part, resume, opts) do
-      {:ok, hash} -> commit(source, dest, part, hash, opts)
+      {:ok, hash, learned} -> commit(source, dest, part, hash, learned, opts)
       {:error, reason} -> abort(part, dest, reason)
     end
   end
@@ -296,8 +304,9 @@ defmodule Candil.Source do
   defp receive_stream(source, part, resume, opts) do
     timeout = Keyword.get(opts, :receive_timeout, @default_receive_timeout)
 
-    with {:ok, url} <- resolve(url(source), auth_headers(source), timeout) do
-      do_receive_stream(source, url, part, resume, timeout)
+    with {:ok, url, learned} <- resolve(url(source), auth_headers(source), timeout),
+         {:ok, digest} <- do_receive_stream(source, url, part, resume, timeout) do
+      {:ok, digest, learned}
     end
   end
 
@@ -361,15 +370,15 @@ defmodule Candil.Source do
   # `.part` de hace dos horas reanudado contra una URL caducada falla con un
   # `4xx` que no dice nada. Resolviendo en cada intento, el `Range` va contra
   # la URL valida de ese intento.
-  defp resolve(url, headers, timeout, remaining \\ @max_redirects) do
+  defp resolve(url, headers, timeout, remaining \\ @max_redirects, learned \\ nil) do
     case Http.get(url, [{"range", "bytes=0-0"} | headers], receive_timeout: timeout) do
       {:ok, %{status: status} = response} when status in 300..399 ->
-        seguir(url, response, headers, timeout, remaining)
+        seguir(url, response, headers, timeout, remaining, learned || linked_sha256(response))
 
-      {:ok, _response} ->
+      {:ok, response} ->
         # No redirige: esta es la buena, y el `Range` de un byte nada
         # nada —el stream que viene justo despues lo pide entero.
-        {:ok, url}
+        {:ok, url, learned || linked_sha256(response)}
 
       {:error, reason} ->
         {:error,
@@ -379,11 +388,11 @@ defmodule Candil.Source do
     end
   end
 
-  defp seguir(_url, _response, _headers, _timeout, 0) do
+  defp seguir(_url, _response, _headers, _timeout, 0, _learned) do
     {:error, Error.invalid_request("too many redirects")}
   end
 
-  defp seguir(url, response, headers, timeout, remaining) do
+  defp seguir(url, response, headers, timeout, remaining, learned) do
     case location(response) do
       nil ->
         {:error,
@@ -394,7 +403,7 @@ defmodule Candil.Source do
       next ->
         case destino(url, next) do
           {:error, reason} -> {:error, reason}
-          {:ok, absolute} -> resolve(absolute, headers, timeout, remaining - 1)
+          {:ok, absolute} -> resolve(absolute, headers, timeout, remaining - 1, learned)
         end
     end
   end
@@ -422,6 +431,31 @@ defmodule Candil.Source do
       {:error,
        Error.invalid_request("redirect to #{inspect(next)}: only http and https are followed")}
     end
+  end
+
+  # HuggingFace promete el sha256 del fichero en el `x-linked-etag` de la
+  # respuesta que redirige al CDN —el mismo valor que `lfs.oid` en su API, y
+  # medido el 2026-10-16 contra los tres repos del catalogo real, que cubren
+  # los dos backends de HF: el xet de `unsloth` y el LFS clasico de `bartowski`
+  # y de `Qwen`—. Viene entrecomillado: `"b44e34…"`. Y esa respuesta **ya se
+  # pedia** para seguir la redireccion, asi que leerlo no es una peticion mas.
+  #
+  # Ojo con el `etag` del CDN final: **no** es el sha256 del fichero, es el
+  # `xetHash` de Xet. Medido con el mismo fichero, `etag: "187d19…"` contra
+  # `x-linked-etag: "b44e34…"`. Comprobar contra ese `etag` habria fallado toda
+  # descarga buena.
+  defp linked_sha256(%{headers: headers}) do
+    Enum.find_value(headers, fn {name, value} ->
+      if String.downcase(name) == "x-linked-etag", do: digest_of(value)
+    end)
+  end
+
+  # Solo 64 hex, entre comillas o sin ellas. Convertir cualquier cabecera rara
+  # en expectativa cambiaria una descarga sin red por una que falla.
+  defp digest_of(value) do
+    digest = String.trim(value, "\"")
+
+    if digest =~ ~r/\A[0-9a-f]{64}\z/i, do: String.downcase(digest), else: nil
   end
 
   defp mode(0), do: [:write, :binary]
@@ -508,7 +542,11 @@ defmodule Candil.Source do
 
   defp finish({:error, reason}, _fallback), do: {:error, Error.wrap(reason)}
 
-  defp commit(source, dest, part, digest, opts) do
+  # `learned` is the digest the server promised on the redirect, and it only
+  # fills in when the source does not bring one: a hand-written `sha256` wins.
+  defp commit(source, dest, part, digest, learned, opts) do
+    source = %{source | sha256: source.sha256 || learned}
+
     if checksum_ok?(source, digest, opts) do
       :ok = File.rename(part, dest)
       :ok = mark_complete(dest)

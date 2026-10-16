@@ -4,7 +4,7 @@
 > lo que se decidió *a mitad de una fase*, cuando el plan resultó estar
 > equivocado, y lo que se cambió *entre* fases.
 >
-> Decidido hasta 2026-10-16 · `main` `1cc5cf0`
+> Decidido hasta 2026-10-16 · `main` `1aa1434`
 
 ---
 
@@ -356,3 +356,53 @@ cerrada. La regla rige lo que entra **desde ahora**; lo que queda de este lado e
 **La frase que resume todo**:
 > A Arrea sube lo que Arrea usa para sí, o lo que piden dos. Lo que solo
 > necesita uno, vive con quien lo necesita.
+
+---
+
+## D-14 · «Agente» significa una sola cosa: el proceso; la mesa tiene voces
+
+**Cuándo**: 2026-10-16, por el dueño.
+**Qué**: «agente» se queda con el sentido que ya tiene `Candil.Agent` — un
+proceso que decide paso a paso, con bucle, herramientas y estado (la fase
+**10**). La mesa camilla (la fase **9**) no reutiliza la palabra: sus
+participantes se llaman **voces**. `[agent.X]` queda reservado para agentes de
+verdad; el día que la mesa necesite catálogo será suyo (`[mesa.…]` o una lista
+dentro de ella), no una segunda acepción de «agente».
+
+La palabra tenía dos candidatos, y por eso estaba en el relevo:
+
+| Candidato | Qué es | Dónde está escrito |
+|---|---|---|
+| **El proceso** | `use Candil.Agent, name:, goal:, tools:, max_steps:` — bucle, traza, cancelación | `lib/candil/agent.ex`, el diseño entero de [`05-agentes`](../04-modulos/05-agentes/README.md) y la fase **10** |
+| **El participante de las rondas** | un `(modelo, rol)` de la mesa, configurado desde el TOML | la decisión 2 de la ronda 7 del consejero: qué modelos participan, sus roles, si se les permite |
+
+Es la misma trampa que `usage`, que mezclaba endpoints y capacidades: una
+palabra, dos conceptos, y el que llega segundo se lee como si fuera el primero.
+Se cierra dándosela al de casa, y la razón es de reloj:
+
+| Hecho | Medición |
+|---|---|
+| Consumidores de `use Candil.Agent` en `lib/` | **cero**: los dos únicos usos del repo están en tests |
+| Menciones de `Candil.Agent` que costaría renombrar hoy | 56 (6 en `lib`, 15 en tests, 35 en docs) |
+| Secciones del catálogo | una palabra por concepto: `[engine.X]`, `[model.X]`, `[provider.X]`, `[consumer.X]` |
+| Diseño de la mesa | **no existe**: solo las rondas del consejero |
+
+El de casa tiene diseño completo, tests y una fase que se abre justo ahora
+(F5.1, tras D-13); a la mesa le falta el diseño entero, así que su vocabulario
+se escribe sin coste. Al revés —renombrar lo de hoy para que la mesa herede la
+palabra— se pagaría dos veces.
+
+**No prohíbe sumar**: si el día de mañana un participante de la mesa es un
+proceso que decide paso a paso, **es** un agente de la taxonomía (un tipo 1 o 2
+con el modelo pineado) y usa el vocabulario de siempre. La regla es de sentido,
+no de censo: una palabra, una cosa; si la cosa se vuelve un agente, la palabra
+ya la tenía.
+
+**Se dejó de hacer**: renombrar `Candil.Agent` (a `Candil.ReAct` u otro);
+abrir `[agent.X]` con el sentido de «participante de las rondas»; y dejar el
+nombre del behaviour `Candil.Agents.Behaviour` —que la F5.1 va a fijar— colgando
+de un diseño que aún no existe.
+
+**La frase que resume todo**:
+> «Agente» es el proceso que decide paso a paso; los que participan en la mesa
+> son voces.

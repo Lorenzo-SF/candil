@@ -295,6 +295,56 @@ construido, `./candil serve --port 18177`, `curl` al `/health` y al
 sin cabecera, el 401 con la clave mala y el 200 con `sk-dos` —con el espacio de
 sobra del entorno recortado, que es como lo escribe cualquiera—.
 
+### Y el 11/12 del enrutado se repitió, con los destinos comprobados — medido el 2026-10-16
+
+El **11/12** con doce preguntas en cuatro idiomas se había medido (2026-10-15)
+con un catálogo en el que `coder` —el `model_default`— apuntaba a una
+cuantización que no existía en disco. El número decía a dónde va cada pregunta,
+pero no que el destino pudiera contestar. Repetido con el catálogo de hoy, y
+esta vez comprobando los destinos, que era lo que faltaba:
+
+| | |
+|---|---|
+| El enrutado | **11/12**, otra vez, y por la misma razón de siempre: «analiza el bug y escribe el informe» va a `:coder` cuando se esperaba `:verifier` — la compuesta que el comentario de `rule_threshold` ya describe como discutible y no como umbral mal puesto |
+| Los destinos del veredicto | `coder` (9), `verifier` (2), `coder_lite` (1) — los tres **existen en disco** (12,8 · 12,1 · 14,5 GB) y se **arrancaron de verdad**: los tres llegan a `/health` y contestan en 1,5–3,5 s (el `verifier`, con presupuesto corto, razona y devuelve `content: ""` — P-8 otra vez; con presupuesto suficiente contesta) |
+
+El comprobador queda en `scripts/enrutado-12-preguntas.exs`: cuenta las dos
+cosas sin arrancar ningún modelo — el veredicto por pregunta y el `File.stat`
+del fichero elegido.
+
+Y arrancarlos destapó el fallo que el número tapaba en la otra dirección: el
+catálogo local tenía `api_key_env = "sk-local-dev-key"` —el **valor** donde va
+el **nombre** de la variable—. `System.get_env/1` devolvía `nil`, Candil no
+mandaba `Authorization`, y como el shell tiene `LLAMA_API_KEY=sk-local-dev-key`
+exportada, el llama-server que el propio Candil arrancó contestaba **401 a su
+propio cliente**. El `doctor` ya lo marcaba como el único `error` de la config
+(`api_key_env=sk-local-dev-key pero sk-local-dev-key NO esta puesta`); arreglado
+a `api_key_env = "LLAMA_API_KEY"`, los tres destinos contestan.
+
+### Y la única red que faltaba: el digest que nadie rellenaba — arreglado el 2026-10-16
+
+`Candil.Source` tenía `sha256` y lo verificaba al vuelo —incluso sembrando el
+hash de un `.part` reanudado—, pero **ningún camino lo escribía**: en la
+práctica `checksum_ok?` decía que sí a todo. Con las redirecciones de #85
+arregladas era la única comprobación que quedaba suelta.
+
+HuggingFace promete el sha256 en el `x-linked-etag` de la respuesta que
+redirige al CDN, y esa respuesta **ya se pedía** para seguir la redirección:
+leerlo no añade ninguna petición. Ahora, cuando `sha256` no está puesto, lo
+aprendido es la expectativa.
+
+Medido el 2026-10-16:
+
+| | |
+|---|---|
+| El valor que promete HF | es el sha256 del contenido: los cuatro ficheros del catálogo real tienen `x-linked-etag` = `sha256sum` en disco |
+| De punta a punta, contra HF real | un LFS de 1,1 MB baja y se marca completo; un `.part` corrupto reanudado se **rechaza** con el struct en `sha256: nil` — la expectativa solo pudo salir del `x-linked-etag` |
+| El `etag` del CDN, en cambio | **no** es el sha256: es el `xetHash` de Xet (`187d19…` contra `b44e34…` para el mismo fichero). Comprobar contra él habría fallado toda descarga buena |
+
+Un `sha256` escrito a mano (un espejo, un `url` que no lo diga) gana al
+aprendido; los tests van en `test/candil/source_fetch_test.exs`, con su
+servidor local real y las rutas `etiquetado` / `etiquetado-malo`.
+
 ---
 
 ## 6 · El resumen, en una frase

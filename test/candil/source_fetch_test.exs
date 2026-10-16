@@ -62,10 +62,10 @@ defmodule Candil.SourceFetchTest do
   # `dest` on a Source is the DIRECTORY, not the full path. The file name
   # comes from the URL. Getting those two confused is the first thing that
   # goes wrong when writing a download by hand.
-  defp url_source(port, opts \\ []) do
+  defp url_source(port, opts) do
     %Source{
       kind: :url,
-      url: "http://127.0.0.1:#{port}/model.gguf",
+      url: "http://127.0.0.1:#{port}/#{opts[:path] || "model.gguf"}",
       dest: opts[:dir] || System.tmp_dir!(),
       sha256: opts[:sha256]
     }
@@ -242,6 +242,37 @@ defmodule Candil.SourceFetchTest do
     end
   end
 
+  # El campo `sha256` existe en `Source`, se verifica al vuelo, y no lo
+  # rellenaba nadie: en la practica `checksum_ok?` decia que si a todo.
+  # HuggingFace lo promete en el `x-linked-etag` de la respuesta que redirige
+  # al CDN (medido el 2026-10-16), y esa respuesta ya se pedia para seguir la
+  # redireccion.
+  describe "el digest que promete la redireccion (x-linked-etag)" do
+    test "se usa como expectativa cuando la fuente no trae sha256", ctx do
+      source = url_source(ctx.port, dir: ctx.dir, path: "etiquetado-malo")
+
+      assert {:error, error} = Source.fetch(source)
+      assert Exception.message(error) =~ "checksum mismatch"
+      refute Source.present?(source)
+      refute Source.complete?(source)
+    end
+
+    test "y uno que cuadra se acepta y se marca completa", ctx do
+      source = url_source(ctx.port, dir: ctx.dir, path: "etiquetado")
+
+      assert {:ok, path} = Source.fetch(source)
+      assert File.read!(path) == @payload
+      assert Source.complete?(source)
+    end
+
+    test "un sha256 escrito a mano gana al de la cabecera", ctx do
+      source = url_source(ctx.port, dir: ctx.dir, path: "etiquetado-malo", sha256: @digest)
+
+      assert {:ok, _path} = Source.fetch(source)
+      assert Source.complete?(source)
+    end
+  end
+
   defmodule Handler do
     @moduledoc false
     def init(opts), do: opts
@@ -263,6 +294,21 @@ defmodule Candil.SourceFetchTest do
           |> Conn.put_resp_header("location", "/redirectado")
           |> Conn.send_resp(302, "Found. Redirecting to /redirectado")
 
+        ["etiquetado"] ->
+          # Lo que hace HuggingFace de verdad: `302` al CDN con el sha256 del
+          # fichero prometido en `x-linked-etag`, entrecomillado. Medido el
+          # 2026-10-16 contra los tres repos del catalogo real.
+          conn
+          |> Conn.put_resp_header("location", "/model.gguf")
+          |> Conn.put_resp_header("x-linked-etag", "\"#{sha256(payload)}\"")
+          |> Conn.send_resp(302, "Found. Redirecting to /model.gguf")
+
+        ["etiquetado-malo"] ->
+          conn
+          |> Conn.put_resp_header("location", "/model.gguf")
+          |> Conn.put_resp_header("x-linked-etag", "\"#{String.duplicate("0", 64)}\"")
+          |> Conn.send_resp(302, "Found. Redirecting to /model.gguf")
+
         ["casi"] ->
           # Una redireccion sin `location`: el 302 es real pero no hay a donde
           # ir. Es un fallo, y no un fichero de 23 bytes.
@@ -271,6 +317,10 @@ defmodule Candil.SourceFetchTest do
         _ ->
           respond(conn, payload)
       end
+    end
+
+    defp sha256(payload) do
+      Base.encode16(:crypto.hash(:sha256, payload), case: :lower)
     end
 
     defp respond(conn, payload) do
