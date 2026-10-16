@@ -16,6 +16,9 @@
 > la petición es `"auto"`. Y dos decisiones del mismo día: **D-13** fija la frontera
 > con Arrea — el behaviour de agentes nace en Candil, no en Arrea — y **D-14** fija
 > el vocabulario: «agente» es el proceso (fase 10); la mesa (fase 9) tiene voces.
+> Y de esa frontera ya hay código: el behaviour de agentes
+> (`Candil.Agents.Behaviour`) y su supervisor existen desde la F5.1
+> (2026-10-16), todavía sin proceso que los use.
 
 ---
 
