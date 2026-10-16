@@ -76,7 +76,7 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 | **6** | RAG | 1 | La mesa camilla | ⬜ |
 | **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ |
 | **8** | **Gateway** `candil serve` | 3, 5 | Que otro proceso use Candil sin escribir Elixir | ✅ **cerrada el 2026-10-16**: el comando existe y sirve, medido con `curl` |
-| **9** | Mesa camilla | 4, 6 | Agentes con memoria compartida | ⬜ |
+| **9** | Mesa camilla | 4, 6 | Voces con memoria compartida | ⬜ |
 | **10** | **Agentes** — el behaviour y el bucle, en Candil (D-13) | 4 | Agentes | ⬜ |
 | **11** | `candil stats` | 4 | Saber si está funcionando | ✅ |
 | **12** | El CLI entero | 8 | — | ⬜ |
@@ -99,6 +99,10 @@ siguiente: es una extensión.**
 Arrea solo sube lo que Arrea usa para sí o lo que piden dos consumidores. Lo que
 en la tabla era «`Arrea.Agent` (en Arrea)» ya no es una fase con dos repositorios:
 se cierra aquí.
+
+**Y D-14 (2026-10-16) fijó el vocabulario de la 9**: «agente» es el proceso de
+la **10** (el behaviour y el bucle); a los participantes de la mesa se les llama
+**voces**, y el catálogo no abrirá `[agent.X]` con otro sentido.
 
 ### Qué cambió y por qué, en una línea
 
@@ -172,6 +176,7 @@ decisión, sus números y su porqué están en `Candil.Refusal`.
 | **La política de reparto** | Está escrita en `06-capacidad-y-politica`, y su *defecto* está decidido: el aburrido |
 | **El refusal** | **Ya no**: D-09 lo decidió el 2026-10-11 (`fail` por defecto, configurable) y `Candil.Refusal` lo tiene escrito |
 | **La frontera con Arrea** | **Ya no**: D-13 (2026-10-16) la escribe — a Arrea sube lo que Arrea usa o lo que piden dos; el behaviour de agentes nace en Candil |
+| **La palabra «agente»** | **Ya no**: D-14 (2026-10-16) — es el proceso de la fase 10; la mesa (9) tiene voces |
 
 > Y una cosa que este documento no puede resolver y conviene decir: el plan
 > anterior estimaba 57-67 días de contenido. Eso era para once fases de

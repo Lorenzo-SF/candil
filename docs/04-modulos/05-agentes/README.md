@@ -60,6 +60,11 @@
 > - Y la F5.0 **ya está cerrada** (`#87`, 2026-10-15): el `@type result/0`, el
 >   `nil.chat/3` y el pin que no existía tienen arreglo y test.
 
+> **D-14 (2026-10-16) — el vocabulario**: «agente» significa una sola cosa, y es
+> **este proceso**. La mesa (fase 9) llamará **voces** a sus participantes, y el
+> catálogo no abrirá `[agent.X]` con otra acepción. Ver D-14 en
+> [`08-decisiones`](../../08-decisiones/README.md).
+
 ---
 
 ## 1 · Qué es
@@ -380,7 +385,7 @@ diferencia con este documento.
 
 | Fichero | Qué | Estado |
 |---|---|---|
-| `lib/candil/agents/behaviour.ex` | **[PROPUESTO]** el behaviour de §5.2 — en Candil por D-13 (nombre provisional, lo fija la F5.1) | no existe |
+| `lib/candil/agents/behaviour.ex` | **[PROPUESTO]** el behaviour de §5.2 — en Candil por D-13; el sentido de «agente» lo fija D-14 (nombre provisional, lo confirma la F5.1) | no existe |
 | `lib/candil/agent.ex` | pasa a **implementar** el behaviour; el `@type result/0` y `resolve_backend/1` ya los arregló la F5.0 (`#87`) | existe, hay que tocarlo |
 | `lib/candil/agents/simple_reflex.ex` | **[PROPUESTO]** el agente del tipo 1, como `GenServer` | no existe |
 | `lib/candil/agents/supervisor.ex` | **[PROPUESTO]** el `DynamicSupervisor` de agentes (D-13: el de Arrea ya no hace falta) | no existe |
@@ -567,7 +572,7 @@ Clasificadores, routers de prioridad. Un paso, una decisión, se acabó.
 
 | | |
 |---|---|
-| el behaviour | `Candil.Agents.Behaviour` (D-13; nombre provisional) |
+| el behaviour | `Candil.Agents.Behaviour` (D-13; sentido en D-14; provisional hasta la F5.1) |
 | el proceso | `Candil.Agents.SimpleReflex` |
 | el supervisor | hijo en `Candil.Supervisor` (`application.ex:44`) |
 | el RPC | `call/3` con respuesta, en Candil (D-13) — contra el `send_message/2` de Arrea, que es un `cast` |
@@ -659,8 +664,10 @@ tienda y su esquema, y el esquema es una decisión de producto.
 ### 5.2 · El behaviour `Candil.Agents.Behaviour`
 
 **[PROPUESTO] — no existe todavía. Por D-13 (2026-10-16) nace en Candil, no en
-Arrea; el nombre exacto del módulo lo fija la F5.1. Esto es el contrato que se
-propone, no una API que se pueda llamar hoy.**
+Arrea; el nombre exacto del módulo lo fija la F5.1. El sentido de la palabra no
+está en duda desde D-14 (2026-10-16) —«agente» es este proceso, y nadie más—:
+la F5.1 confirma el nombre, no el sentido. Esto es el contrato que se propone,
+no una API que se pueda llamar hoy.**
 
 ```elixir
 # lib/candil/agents/behaviour.ex   ← PROPUESTO, en este repo (D-13)
