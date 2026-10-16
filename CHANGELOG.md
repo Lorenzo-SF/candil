@@ -7,6 +7,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **El contrato de agente nace en Candil: `Candil.Agents.Behaviour`, con su
+  supervisor (F5.1).** Cinco callbacks —`init_agent/1` y `step/3`
+  obligatorios; `describe/0`, `snapshot/1` y `restore/1` opcionales— y `step/3`
+  es **una función pura**: misma entrada, mismo resultado. Eso es lo que
+  permite probar un agente sin arrancar un proceso, y lo que hará que el
+  primer agente de verdad (F5.3) sea un `GenServer` que llama a esa misma
+  función, paso a paso.
+
+  El supervisor es un `DynamicSupervisor` `:one_for_one` — los agentes no
+  comparten estado, así que el que se cae no se lleva a nadie por delante — y
+  existe en solitario desde ya: el árbol de la aplicación no lo adopta hasta
+  que haya algo que supervisar (F5.3). Nace en Candil y no en Arrea por
+  **D-13**, y el sentido de «agente» lo fija **D-14**. Probado: son cinco
+  callbacks con tres opcionales, un tipo 1 se escribe con dos, y al hijo que se
+  cae se le levanta (`test/candil/agent/behaviour_test.exs`,
+  `supervisor_test.exs`).
+
 ### Fixed
 
 - **Ninguna descarga se quedaba sin red solo porque nadie escribiera

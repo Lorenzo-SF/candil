@@ -59,6 +59,9 @@
 >   (fase 2 ✅) y sigue sin consumidor.
 > - Y la F5.0 **ya está cerrada** (`#87`, 2026-10-15): el `@type result/0`, el
 >   `nil.chat/3` y el pin que no existía tienen arreglo y test.
+> - Y la F5.1 también: **cerrada el 2026-10-16** — el behaviour
+>   (`lib/candil/agents/behaviour.ex`) y su supervisor existen; el primer
+>   proceso que los usa es la F5.3.
 
 > **D-14 (2026-10-16) — el vocabulario**: «agente» significa una sola cosa, y es
 > **este proceso**. La mesa (fase 9) llamará **voces** a sus participantes, y el
@@ -385,14 +388,16 @@ diferencia con este documento.
 
 | Fichero | Qué | Estado |
 |---|---|---|
-| `lib/candil/agents/behaviour.ex` | **[PROPUESTO]** el behaviour de §5.2 — en Candil por D-13; el sentido de «agente» lo fija D-14 (nombre provisional, lo confirma la F5.1) | no existe |
+| `lib/candil/agents/behaviour.ex` | el behaviour de §5.2 — en Candil por D-13; el sentido de «agente» lo fija D-14, y el nombre y el contrato los confirmó la F5.1 | **existe** (F5.1, 2026-10-16) |
 | `lib/candil/agent.ex` | pasa a **implementar** el behaviour; el `@type result/0` y `resolve_backend/1` ya los arregló la F5.0 (`#87`) | existe, hay que tocarlo |
 | `lib/candil/agents/simple_reflex.ex` | **[PROPUESTO]** el agente del tipo 1, como `GenServer` | no existe |
-| `lib/candil/agents/supervisor.ex` | **[PROPUESTO]** el `DynamicSupervisor` de agentes (D-13: el de Arrea ya no hace falta) | no existe |
+| `lib/candil/agents/supervisor.ex` | el `DynamicSupervisor` de agentes, `:one_for_one` (D-13: el de Arrea ya no hace falta) | **existe** (F5.1, 2026-10-16) |
 | `lib/candil/agents/step_router.ex` | **[PROPUESTO]** la decisión de routing **por paso** (§2.7) | no existe |
 | `lib/candil/agent_test.exs` | los tres tests que hay, **más** los de la F5.0 | existe |
 | `test/candil/agent/simple_reflex_test.exs` | **[PROPUESTO]** | no existe |
-| `test/candil/agent/contract_test.exs` | **[PROPUESTO]** el test de contrato del §4 | no existe |
+| `test/candil/agent/contract_test.exs` | el test de contrato del §4 — escrito **antes** del código, lo trajo la F5.0 (`#87`) | **existe** |
+| `test/candil/agent/behaviour_test.exs` | el contrato de §5.2, y que un tipo 1 se escribe con dos callbacks | **existe** (F5.1, 2026-10-16) |
+| `test/candil/agent/supervisor_test.exs` | el supervisor: vacío, hijos, bajas, y al que se cae se le levanta | **existe** (F5.1, 2026-10-16) |
 
 ### 3.3 · Lo que NO toca esta fase
 
@@ -572,7 +577,7 @@ Clasificadores, routers de prioridad. Un paso, una decisión, se acabó.
 
 | | |
 |---|---|
-| el behaviour | `Candil.Agents.Behaviour` (D-13; sentido en D-14; provisional hasta la F5.1) |
+| el behaviour | `Candil.Agents.Behaviour` (D-13; sentido en D-14; confirmado y existente desde la F5.1) |
 | el proceso | `Candil.Agents.SimpleReflex` |
 | el supervisor | hijo en `Candil.Supervisor` (`application.ex:44`) |
 | el RPC | `call/3` con respuesta, en Candil (D-13) — contra el `send_message/2` de Arrea, que es un `cast` |
@@ -663,14 +668,13 @@ tienda y su esquema, y el esquema es una decisión de producto.
 
 ### 5.2 · El behaviour `Candil.Agents.Behaviour`
 
-**[PROPUESTO] — no existe todavía. Por D-13 (2026-10-16) nace en Candil, no en
-Arrea; el nombre exacto del módulo lo fija la F5.1. El sentido de la palabra no
-está en duda desde D-14 (2026-10-16) —«agente» es este proceso, y nadie más—:
-la F5.1 confirma el nombre, no el sentido. Esto es el contrato que se propone,
-no una API que se pueda llamar hoy.**
+**EXISTE desde la F5.1 (2026-10-16): `lib/candil/agents/behaviour.ex`. Por D-13
+nace en Candil, no en Arrea; la F5.1 confirmó el nombre del módulo, no el
+sentido —que lo fijó D-14—, y el contrato de abajo es el que se implementó, tal
+cual. Lo que todavía no existe es ningún proceso que lo use: eso es la F5.3.**
 
 ```elixir
-# lib/candil/agents/behaviour.ex   ← PROPUESTO, en este repo (D-13)
+# lib/candil/agents/behaviour.ex   ← en este repo (D-13); existe desde la F5.1
 defmodule Candil.Agents.Behaviour do
   @moduledoc """
   Behaviour for a long-lived process whose next unit of work is not known yet.
@@ -1036,7 +1040,7 @@ F5.0 ──▶ F5.1 ──▶ F5.2 ──▶ F5.3 ──▶ F5.4 ──┬──
 | # | Fase | Prerrequisito | Por qué en este sitio |
 |---|---|---|---|
 | **F5.0** | Arreglar el contrato de `Candil.Agent` — ✅ `#87` | — | **No espera a nadie.** Los 4 tests del §4, el `@type result/0`, `resolve_backend/1` y `resolve_model/2` contra el catálogo. Sin tocar Arrea. Es lo más barato y desbloquea todo lo demás |
-| **F5.1** | El behaviour, en Candil | F5.0 | El behaviour (§5.2) y su supervisor, **en este repo** — D-13 (2026-10-16) quitó de en medio la PR cruzada |
+| **F5.1** | El behaviour, en Candil — ✅ **cerrada el 2026-10-16** | F5.0 | El behaviour (§5.2) y su supervisor, **en este repo** — D-13 (2026-10-16) quitó de en medio la PR cruzada |
 | **F5.2** | `Candil.Agent` implementa el behaviour | F5.1 | `loop/7` → `step/3`. **Migrar `Conversation` → `Context`**, que es lo que desbloquea el `@deprecated` de 4.1.0 (abajo) |
 | **F5.3** | Tipo 1: Reflejo Simple | F5.2 | El primer `GenServer` de verdad, con `evaluate/2`, un hijo en `Candil.Supervisor` y **el test del cuelgue** (§8.3). **No depende de 8b**: con el modelo pineado no hay nada que pesar |
 | **F5.4** | Tipo 2: Reflejo Basado en Modelos | F5.3 | `snapshot/1` y `restore/1`, y el **reinicio de verdad**, que Arrea no da porque sus workers son `:temporary` |
