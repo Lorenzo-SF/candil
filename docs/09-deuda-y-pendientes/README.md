@@ -36,7 +36,7 @@
 | **5** | El refusal, en los tres tipos | 🟡 **desbloqueada**: D-09 está decidido (`fail` es el defecto). `:fail` y `:wait` están escritos; `:degrade` no es alcanzable hoy (§5, P-1) |
 | **8** | Gateway `candil serve` | ✅ **cerrada el 2026-10-16, medida con `curl`**: los módulos, los diez handlers, los tests de punta a punta **y el comando** `candil serve` (banner, `--host/--port/--auth/--api-key`, `CANDIL_API_KEYS`, se queda en primer plano). De paso: la **auth no estaba enchufada al pipeline** y se arregló (§5). El control de concurrencia ya estaba: el chat pasa por `Policy.run/3` |
 | **11** | `candil stats` | ✅ existe y **corre** hoy: `candil stats` + `--quality`, `Candil.Telemetry.Decisions`/`Quality` y `GET /metrics` en el gateway. Hasta el 2026-10-16 el comando **reventaba** al invocarlo (ver §5) |
-| 6, 7, 9, 10, 12 | RAG · MCP · mesa camilla · agentes · el CLI entero | ⬜ |
+| 6, 7, 9, 10, 12 | RAG · MCP · mesa camilla · agentes (D-13: en Candil) · el CLI entero | ⬜ |
 
 **`main` hoy**: **1159 tests + 27 doctests, 0 fallos**, credo 0, dialyzer 0, CI en
 verde. La 4 ya no es «verde sin medir»: está medida. La **8** ya no es «el

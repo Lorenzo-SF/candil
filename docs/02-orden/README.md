@@ -19,8 +19,9 @@ No se ordena por dificultad. Se ordena por **lo que tiene que existir antes que
 lo demás**.
 
 Un componente cuyo prerrequisito no existe no es «una fase difícil»: es una fase
-que **no se puede empezar**. Esto pasó con `Arrea.Agent`: no es difícil, es
-imposible, porque el behaviour está en el repo hermano.
+que **no se puede empezar**. Esto pasó con `Arrea.Agent`: no era difícil, era
+**imposible** —el behaviour estaba en el repo hermano— y por eso **D-13 lo trajo a
+Candil** (2026-10-16): ya no hay repo hermano de por medio.
 
 Y pasó otra vez, y esa con más consecuencias: **el scheduler se puso antes que
 la política**, cuando la política es la que decide qué hace el scheduler. Y la
@@ -76,7 +77,7 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 | **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ |
 | **8** | **Gateway** `candil serve` | 3, 5 | Que otro proceso use Candil sin escribir Elixir | ✅ **cerrada el 2026-10-16**: el comando existe y sirve, medido con `curl` |
 | **9** | Mesa camilla | 4, 6 | Agentes con memoria compartida | ⬜ |
-| **10** | `Arrea.Agent` (en Arrea) | 4 | Agentes | ⬜ |
+| **10** | **Agentes** — el behaviour y el bucle, en Candil (D-13) | 4 | Agentes | ⬜ |
 | **11** | `candil stats` | 4 | Saber si está funcionando | ✅ |
 | **12** | El CLI entero | 8 | — | ⬜ |
 
@@ -93,6 +94,11 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 medido y lo que falta, en [`07-local-aparcado`](../07-local-aparcado/). Volvería
 cuando el enrutado y la política estén, porque **para entonces ya no es lo
 siguiente: es una extensión.**
+
+**La 10 cambió de sitio con D-13 (2026-10-16)**: el behaviour nace en Candil — a
+Arrea solo sube lo que Arrea usa para sí o lo que piden dos consumidores. Lo que
+en la tabla era «`Arrea.Agent` (en Arrea)» ya no es una fase con dos repositorios:
+se cierra aquí.
 
 ### Qué cambió y por qué, en una línea
 
@@ -165,6 +171,7 @@ decisión, sus números y su porqué están en `Candil.Refusal`.
 | **Cuánto cuesta cada fase** | En sesiones, no en días. El calendario depende del paralelismo, que es tuyo |
 | **La política de reparto** | Está escrita en `06-capacidad-y-politica`, y su *defecto* está decidido: el aburrido |
 | **El refusal** | **Ya no**: D-09 lo decidió el 2026-10-11 (`fail` por defecto, configurable) y `Candil.Refusal` lo tiene escrito |
+| **La frontera con Arrea** | **Ya no**: D-13 (2026-10-16) la escribe — a Arrea sube lo que Arrea usa o lo que piden dos; el behaviour de agentes nace en Candil |
 
 > Y una cosa que este documento no puede resolver y conviene decir: el plan
 > anterior estimaba 57-67 días de contenido. Eso era para once fases de

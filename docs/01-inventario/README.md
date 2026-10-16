@@ -13,7 +13,8 @@
 > cambiado, medido el 2026-10-16: **`candil serve` existe y sirve** (el gateway,
 > cerrado), **`candil stats` existe y corre**, y **el router sí tiene
 > consumidor** — `ChatCompletions` llama a `Router.route/2` cuando el `model` de
-> la petición es `"auto"`.
+> la petición es `"auto"`. Y una decisión del mismo día: **D-13** fija la frontera
+> con Arrea — el behaviour de agentes nace en Candil, no en Arrea.
 
 ---
 

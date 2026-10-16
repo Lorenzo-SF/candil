@@ -4,8 +4,7 @@
 > lo que se decidió *a mitad de una fase*, cuando el plan resultó estar
 > equivocado, y lo que se cambió *entre* fases.
 >
-> Decidido hasta 2026-10-12 · `main` `5a28e71` · rama de trabajo
-> `fase-4-politica-turno`
+> Decidido hasta 2026-10-16 · `main` `1cc5cf0`
 
 ---
 
@@ -313,3 +312,47 @@ propósito, no de paso.
 Es también lo que hace que el 16.7% del tribunal **no sea una alarma**: mide
 la capacidad de decisión del motor estático, no si los modelos saben contar
 patas. Son dos preguntas, y la que le importa a Candil es la primera.
+
+---
+
+## D-13 · La frontera con Arrea: lo que Arrea usa, o lo que piden dos
+
+**Cuándo**: 2026-10-16, por el dueño.
+**Qué**: algo sube a Arrea si Arrea lo necesita **para sí**, o si lo pide un
+**segundo consumidor**. Si solo lo necesita Candil, se queda en Candil.
+
+La decisión resuelve una contradicción que estaba abierta entre tres documentos:
+`00-arrea` §5 lista «abstracción de agente» como carencia, `05-agentes` §5.2
+proponía `Arrea.Agent` y `02-orden` fase 10 ya lo daba por hecho («`Arrea.Agent`
+(en Arrea)»). Se resolvió midiendo, y las cuatro medidas van juntas:
+
+| Hecho | Medición |
+|---|---|
+| `Arrea.Agent` ha existido | **no**: cero `agent.ex` en el repo hermano, en toda su historia |
+| `Arrea.Resource` existe | **sí**: 23 KB, tests y property test, en `main` desde el 2026-10-10 (fase 2 ✅; D-03, D-05), publicado |
+| Consumidores de `Arrea.Resource` hoy | **ninguno**: en Candil solo se le cita en tres `@moduledoc`; en Arrea solo está registrado en el supervisor |
+| Consumidores de Arrea | cuatro: trebejo, candil, botica, delfos (`ARCHITECTURE.md`) |
+
+El behaviour nace en **Candil**. Un contrato con un solo consumidor y **cero
+implementaciones dentro de Arrea** se congela antes de que nadie lo haya probado
+— el de §5.2 nació de *leer* `Candil.Agent.loop/7`, y ese bucle no cerró hasta
+#87. La fila de `Resource` es el precio ya pagado de adelantarse: 23 KB que hoy
+no usa nadie. **El chasis no adivina lo que va a ser de todos; lo posee cuando
+ya lo es.**
+
+**Por qué rectificar no va a costar caro**: Candil consume Arrea de su `main`
+con `override: true` (D-05). El día que haya segundo consumidor, extraer el
+behaviour es *mover un módulo*, no una release de Hex.
+
+**Se dejó de hacer**: la F5.1 como PR en `Lorenzo-SF/arrea` con su CI, la F5.2
+esperando un merge que este repo no controla, y `Arrea.Agent` /
+`Arrea.Agent.Supervisor` como ficheros **[PROPUESTO]** del repo hermano.
+
+**No se aplica hacia atrás**: `Arrea.Resource` está mergeado y publicado, su
+forma no tiene vocabulario de Candil (el titular es opaco) y la fase 2 está
+cerrada. La regla rige lo que entra **desde ahora**; lo que queda de este lado es
+**usar** la cuenta —la admisión—, no reescribirla.
+
+**La frase que resume todo**:
+> A Arrea sube lo que Arrea usa para sí, o lo que piden dos. Lo que solo
+> necesita uno, vive con quien lo necesita.
