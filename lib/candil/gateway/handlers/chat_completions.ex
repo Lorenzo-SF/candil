@@ -42,11 +42,7 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
         |> Plug.Conn.send_resp(200, Jason.encode!(payload))
 
       {:error, reason} ->
-        {:error, body} = Gateway.error_body(reason)
-
-        conn
-        |> Plug.Conn.put_resp_content_type("application/json")
-        |> Plug.Conn.send_resp(status_for(reason), Jason.encode!(body))
+        Handlers.reason(conn, reason)
     end
   end
 
@@ -254,12 +250,4 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
 
   defp put_opt(opts, _key, nil), do: opts
   defp put_opt(opts, key, value), do: Keyword.put(opts, key, value)
-
-  defp status_for(:rate_limited), do: 429
-  defp status_for(%Error{reason: :context_overflow}), do: 400
-  defp status_for(%Error{reason: :invalid_request}), do: 400
-  defp status_for(%Error{reason: :model_not_found}), do: 404
-  defp status_for(%Error{reason: :provider_not_found}), do: 404
-  defp status_for(%Error{reason: :auth_error}), do: 401
-  defp status_for(_reason), do: 500
 end

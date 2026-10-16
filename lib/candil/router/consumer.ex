@@ -65,19 +65,41 @@ defmodule Candil.Router.Consumer do
 
   @doc """
   The model aliases this consumer may use, most preferred first.
+
+  ## Un nombre que no existe es un error, no un crash
+
+  `[consumer.X] models` y `model_default` son **cadenas** en el fichero, y los
+  alias son atomos. La conversion tiene que ser `String.to_existing_atom/1` —un
+  `to_atom/1` aqui crea un atomo por cada nombre que escriba un fichero, y eso
+  es la regla 7—, y a pelo esa funcion **revienta** con `ArgumentError` cuando
+  el nombre no esta.
+
+  Medido el 2026-10-15, con un `models = ["coder", "coder_lite"]` cuyo atomo no
+  existia todavia:
+
+      ** (ArgumentError) 1st argument: not an already existing atom
+      :erlang.binary_to_existing_atom("coder_lite")
+      (candil 4.0.0) lib/candil/router/consumer.ex:76: Consumer.candidates/1
+      (candil 4.0.0) lib/candil/gateway/handlers/models.ex:25: Models.call/2
+
+  y el cliente recibia un **500 con el cuerpo vacio**, que es lo que peor se
+  depura de un gateway. `{:unknown_model, nombre}` en cambio ya sabia pintarse:
+  `Gateway.error_body/1` lo convierte en un 400 que nombra el modelo que falta.
+
+  Y no se degrada a los demas candidatos: contestar con un modelo que el
+  fichero no ha pedido es la misma falta que el `hd(models)` que este modulo no
+  hace — una respuesta a una pregunta que nadie ha hecho.
   """
-  @spec candidates(atom()) :: [atom()]
+  @spec candidates(atom()) :: {:ok, [atom()]} | {:error, {:unknown_model, binary()}}
   def candidates(consumer) do
     case pinned(consumer) do
       {:ok, model_alias} ->
-        [model_alias]
+        {:ok, [model_alias]}
 
       :error ->
-        configured = configured_models(consumer)
-
-        case configured do
-          [] -> default_candidate(consumer)
-          list -> list
+        case configured_models(consumer) do
+          {:ok, []} -> default_candidate(consumer)
+          other -> other
         end
     end
   end
@@ -105,22 +127,46 @@ defmodule Candil.Router.Consumer do
     |> settings()
     |> Map.get(:models, [])
     |> List.wrap()
-    |> Enum.map(&model_alias!/1)
+    |> resolve_aliases()
   end
 
   defp default_candidate(consumer) do
     case settings(consumer)[:model_default] do
-      nil -> []
-      alias -> [model_alias!(alias)]
+      nil -> {:ok, []}
+      name -> resolve_aliases([name])
     end
+  end
+
+  # Los nombres del fichero, resueltos a atomos que **existen**. El primero que
+  # no exista corta la resolucion: el fichero nombra un modelo que no hay, y
+  # seguir con los otros seria contestar con un modelo que nadie ha pedido.
+  defp resolve_aliases(names) do
+    Enum.reduce_while(names, {:ok, []}, fn name, {:ok, acc} ->
+      case model_alias(name) do
+        {:ok, alias} -> {:cont, {:ok, acc ++ [alias]}}
+        {:error, missing} -> {:halt, {:error, {:unknown_model, missing}}}
+      end
+    end)
   end
 
   # El TOML da `"coder"` y el resto del router compara con `:coder`. Sin esta
   # conversion el candidato es un string, no casa con nada, y el unico sintoma
   # es que el router no encuentra modelos que si estan cargados.
-  defp model_alias!(alias) when is_atom(alias), do: alias
-  defp model_alias!(alias) when is_binary(alias), do: String.to_existing_atom(alias)
-  defp model_alias!(alias), do: alias
+  #
+  # `to_existing_atom/1` **con rescue**, que es el mismo patron que
+  # `ChatCompletions.existing_alias/1` y por la misma razon: el nombre viene de
+  # un fichero, un `to_atom/1` crearia un atomo por nombre escrito, y un nombre
+  # que no esta es una errata que se dice —no una excepcion que se lleva por
+  # delante la peticion entera.
+  defp model_alias(name) when is_atom(name), do: {:ok, name}
+
+  defp model_alias(name) when is_binary(name) do
+    {:ok, String.to_existing_atom(name)}
+  rescue
+    ArgumentError -> {:error, name}
+  end
+
+  defp model_alias(other), do: {:error, inspect(other)}
 
   # The config file is not parsed until phase 1 wires it up, so this reads
   # from the application environment that config.exs still uses. It keeps the

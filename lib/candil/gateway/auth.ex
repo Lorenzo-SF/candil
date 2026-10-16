@@ -16,6 +16,18 @@ defmodule Candil.Gateway.Auth do
   Keys come from the environment, not from the config file. A key in a TOML
   ends up in a shell history, a process listing and every backup of the
   directory.
+
+  ## Who calls this
+
+  `verify/3` is called from `Candil.Gateway.Plug` **before the route is
+  resolved**: without a valid credential no handler is reached, and the 401
+  comes back with its reason and a `WWW-Authenticate` header. It is written
+  here because it was not obvious, and it was paid for: measured on
+  2026-10-16, this module was written and fully tested —constant-time
+  comparison included— and **nothing called it from the pipeline**: a gateway
+  started with `auth: :api_key` answered 200 to a request with no
+  `Authorization`. A security module that only tests itself is a promise; what
+  keeps it is the place that calls it.
   """
 
   @type mode :: :none | :api_key

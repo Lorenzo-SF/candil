@@ -178,7 +178,21 @@ defmodule Candil.Gateway.EndToEndTest do
 
     case Finch.request(Finch.build(method, url, headers, payload), Finch) do
       {:ok, %Finch.Response{status: status, body: resp}} ->
-        {status, Jason.decode!(resp)}
+        # `Jason.decode!/1` a pelo decia «unexpected end of input at position 0»
+        # y nada mas: un cuerpo vacio con un 500 no es lo mismo que un cuerpo
+        # vacio con un 200, y el mensaje no decia cual de los dos. El status y
+        # el cuerpo en crudo son la primera pregunta que uno se hace.
+        case Jason.decode(resp) do
+          {:ok, decoded} ->
+            {status, decoded}
+
+          {:error, reason} ->
+            flunk("""
+            #{method} #{url} no devolvio JSON: #{inspect(reason)}
+            status: #{status}
+            body: #{inspect(resp)}
+            """)
+        end
 
       {:error, reason} ->
         flunk("no se pudo #{method} a #{url}: #{inspect(reason)}")
@@ -208,10 +222,39 @@ defmodule Candil.Gateway.EndToEndTest do
       assert status == 200
       assert body["object"] == "list"
       # Lo que sale son los CANDIDATOS del consumer, no el catalogo entero: es
-      # lo que ese cliente puede pedir de verdad. Aqui el consumer es
-      # `:default`, y en la maquina de pruebas sus candidatos vienen del toml.
+      # lo que ese cliente puede pedir de verdad. Aqui el consumer es `:default`
+      # y **no hay `[consumer.default]` en ningun sitio** —el suite corre sin
+      # `candil.toml`—, asi que sale el catalogo del Store, donde este test
+      # acaba de registrar `:enprueba`. Antes este test sacaba sus candidatos
+      # del toml del developer, y con eso pasaba en una maquina y no en CI.
       assert [%{"id" => id, "object" => "model"} | _] = body["data"]
       assert is_binary(id)
+    end
+
+    # El caso medido el 2026-10-15: `[consumer.default] models` con un alias
+    # que no existe como atomo en la VM. Antes salia un **500 con el cuerpo
+    # vacio** (`Jason.DecodeError` en el cliente, `body: ""`), porque el raise
+    # ocurria antes de que ningun handler pudiera pintar nada. El 400 y su
+    # mensaje ya estaban escritos en `Gateway.error_body/1`: no llegaban a
+    # pintarse nunca.
+    test "un consumer que nombra un modelo que no existe da 400 CON motivo", %{gw: gw} do
+      tmp = Path.join(System.tmp_dir!(), "candil-gw-#{System.unique_integer([:positive])}")
+      File.mkdir_p!(tmp)
+
+      File.write!(Path.join(tmp, "candil.toml"), """
+      [consumer.default]
+      model_default = "enprueba"
+      models        = ["enprueba", "sin_atomo_ni_modelo"]
+      """)
+
+      Candil.TestConfig.override!(Path.join(tmp, "candil.toml"))
+      on_exit(fn -> File.rm_rf(tmp) end)
+
+      {status, body} = get(gw <> "/v1/models")
+
+      assert status == 400
+      assert body["error"]["type"] == "invalid_request_error"
+      assert body["error"]["message"] =~ "sin_atomo_ni_modelo"
     end
 
     test "metrics da el tribunal en JSON", %{gw: gw} do
@@ -383,6 +426,65 @@ defmodule Candil.Gateway.EndToEndTest do
       assert body["error"]["message"] =~ "not written"
       # Un 500 sin cuerpo seria indistinguible de Candil roto.
       refute body["error"]["message"] == nil
+    end
+  end
+
+  # El agujero que este bloque cierra, medido el 2026-10-16: `Auth.verify/3`
+  # estaba escrito, documentado y probado a mano (`Candil.GatewayTest`), y
+  # **nadie lo llamaba desde el pipeline**. Un gateway arrancado con
+  # `auth: :api_key` contestaba **200 a una peticion sin `Authorization`**: la
+  # promesa del modulo —«requires a key on every request»— era una promesa que
+  # el pipeline no cumplia, y ningun test la miraba por HTTP, que es donde se
+  # cumple o no se cumple.
+  #
+  # Se prueba aqui y no con `Plug.Test` porque la pregunta es exactamente esta:
+  # ¿un cliente de verdad, por el socket, recibe un 401?
+  describe "auth por HTTP" do
+    setup do
+      {:ok, gateway} =
+        Gateway.start(
+          port: 0,
+          route: [candidates: [:enprueba]],
+          auth: :api_key,
+          api_keys: ["sk-test"]
+        )
+
+      on_exit(fn -> if Process.alive?(gateway.pid), do: Process.exit(gateway.pid, :shutdown) end)
+
+      %{auth_gw: "http://127.0.0.1:#{gateway.port}"}
+    end
+
+    test "sin Authorization, 401 con el motivo", %{auth_gw: gw} do
+      {status, body} = get(gw <> "/metrics")
+
+      assert status == 401
+      assert body["error"]["message"] =~ "Authorization"
+      # `invalid_request_error` y no `server_error`: un 401 marcado como de
+      # servidor hace que openai-sdk reintente con la misma clave vacia.
+      assert body["error"]["type"] == "invalid_request_error"
+    end
+
+    test "con una clave que no es, 401 y no filtra cual era", %{auth_gw: gw} do
+      {status, body} = request(:get, gw <> "/metrics", nil, [{"authorization", "Bearer sk-nope"}])
+
+      assert status == 401
+      assert body["error"]["message"] =~ "invalid API key"
+      refute body["error"]["message"] =~ "sk-test"
+    end
+
+    test "con la clave buena, 200", %{auth_gw: gw} do
+      {status, body} = request(:get, gw <> "/metrics", nil, [{"authorization", "Bearer sk-test"}])
+
+      assert status == 200
+      assert is_map(body["tribunal"])
+    end
+
+    test "la clave hace falta tambien para chatear", %{auth_gw: gw} do
+      {status, _body} = chat(gw <> "/v1/chat/completions", %{model: "enprueba"})
+
+      # La ruta del chat es la que gasta GPU: si hay una sola ruta que exige la
+      # clave, tiene que ser esta.
+      assert status == 401
     end
   end
 end

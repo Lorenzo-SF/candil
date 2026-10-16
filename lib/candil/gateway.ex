@@ -129,11 +129,17 @@ defmodule Candil.Gateway do
   defp parse_ip(_), do: {127, 0, 0, 1}
 
   @doc """
-  The full route table: one map per method and path.
+  La tabla de rutas entera: un mapa por metodo y camino.
 
-  The handlers are named but not written; they land with the listener in
-  phase 8. The table is real now so the start banner and the handler tests
-  have something to iterate over.
+  Diez filas, y las diez tienen handler: las tres de lectura (`Models`,
+  `Health`, `Metrics`), `ChatCompletions` —que pasa por el router cuando el
+  modelo es `"auto"`— y `Messages` con `Embeddings`, que existen y contestan
+  **501 con motivo** porque les falta el cuerpo (`handlers/pending.ex`).
+
+  Lo que falta no es ni la tabla ni el listener: es el comando `candil serve`
+  que levante esto desde el CLI. `start/1` ya lo levanta, y
+  `test/candil/gateway/end_to_end_test.exs` lo prueba con HTTP de verdad a los
+  dos lados.
   """
   @spec routes() :: [Endpoint.route()]
   defdelegate routes(), to: Endpoint
