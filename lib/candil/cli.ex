@@ -52,7 +52,7 @@ defmodule Candil.CLI do
     # that `doctor` had.
     catch_all: {Candil.CLI.Escript, :unknown}
 
-  alias Candil.CLI.{Doctor, Help, Lifecycle, Models, Router, Version}
+  alias Candil.CLI.{Doctor, Help, Lifecycle, Models, Router, Serve, Version}
 
   # The name aliases (`-v`, `--version`, `model`) are rewritten in
   # `Candil.CLI.Escript` before dispatch: `command/3` has no `aliases:`, only
@@ -165,6 +165,27 @@ defmodule Candil.CLI do
     flag(:json, :boolean, default: false, help: "machine-readable output, undecorated")
 
     run({Lifecycle, :status})
+  end
+
+  # La fase 8 entera, desde el terminal: los modulos y los handlers ya estaban,
+  # y esto es lo que los levantaba. `serve` y no `gateway` porque es lo que se
+  # escribe: `candil serve` levanta el servidor y se queda.
+  command "serve", "Serve the OpenAI API to any client that speaks it" do
+    flag(:host, :string, help: "address to bind (default 127.0.0.1)")
+
+    flag(:port, :integer,
+      aliases: ["p"],
+      help: "port to bind (default 7777; 0 picks a free one)"
+    )
+
+    flag(:auth, :string, help: "none or api_key (default none)")
+
+    flag(:api_key, :string,
+      repeatable: true,
+      help: "an API key; repeat it, or set CANDIL_API_KEYS"
+    )
+
+    run({Serve, :run})
   end
 
   command "init", "Write a commented candil.toml to get started" do
