@@ -5,6 +5,15 @@
 >
 > **Medido el**: 2026-10-07 · rama `docs-v2` · `main` en `e168ccd`
 > **Gates**: 27 doctests, 800 tests, 0 failures
+>
+> ⚠️ **Esto es la foto del 2026-10-07, y varias filas de aquí ya no son
+> verdad.** El estado de hoy está en
+> [`09-deuda-y-pendientes`](../09-deuda-y-pendientes/README.md); este documento se
+> queda como estaba porque es un inventario, no un parte de guerra. Lo que ha
+> cambiado, medido el 2026-10-16: **`candil serve` existe y sirve** (el gateway,
+> cerrado), **`candil stats` existe y corre**, y **el router sí tiene
+> consumidor** — `ChatCompletions` llama a `Router.route/2` cuando el `model` de
+> la petición es `"auto"`.
 
 ---
 

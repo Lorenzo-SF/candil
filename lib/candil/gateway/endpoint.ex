@@ -2,11 +2,11 @@ defmodule Candil.Gateway.Endpoint do
   @moduledoc """
   The gateway's route table.
 
-  Kept as data rather than as a Plug pipeline for now: the handlers land in
-  phase 8, and a route table that exists and is tested is worth more at this
-  point than a pipeline that returns 501. `routes/0` is what the start banner
-  prints and what the handler tests iterate over, so the contract is already
-  pinned before the bodies exist.
+  Kept as data rather than as a Plug pipeline: `routes/0` is what the start
+  banner prints, what `Candil.Gateway.Plug` consults to dispatch, and what the
+  handler tests iterate over. The route table exists in one place only, and a
+  route that is declared but not written answers **501 with a reason** instead
+  of a 404 or an empty 500.
   """
 
   @type route :: %{

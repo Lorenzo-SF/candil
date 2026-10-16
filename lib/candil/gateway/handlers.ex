@@ -56,6 +56,43 @@ defmodule Candil.Gateway.Handlers do
   end
 
   @doc """
+  Un error del router o de la inferencia, pintado entero: cuerpo y status.
+
+  ## Por que vive aqui y no en `ChatCompletions`
+
+  Vivia alli, y `Models` necesita ya el mismo mapa: un `[consumer.X] models` con
+  una errata tiene que contestar 400, no 500. Dos copias de esta tabla son dos
+  sitios donde arreglar el proximo `reason` que se anada, y el que se olvide es
+  el que un cliente vera como un 500.
+
+  `:no_models_for_consumer` y `{:unknown_model, _}` van al 400 porque son
+  configuracion y no un fallo de Candil, y porque un 500 en un cliente OpenAI
+  significa «reintenta»: sobre una errata, reintentar es trabajo tirado.
+  """
+  @spec reason(Plug.Conn.t(), term()) :: Plug.Conn.t()
+  def reason(conn, reason) do
+    {:error, body} = Candil.Gateway.error_body(reason)
+
+    conn
+    |> Plug.Conn.put_resp_content_type("application/json")
+    |> Plug.Conn.send_resp(status_for(reason), Jason.encode!(body))
+  end
+
+  @doc """
+  El status HTTP de un `reason`. Ver `reason/2`.
+  """
+  @spec status_for(term()) :: pos_integer()
+  def status_for(:rate_limited), do: 429
+  def status_for(:no_models_for_consumer), do: 400
+  def status_for({:unknown_model, _alias}), do: 400
+  def status_for(%Candil.Error{reason: :context_overflow}), do: 400
+  def status_for(%Candil.Error{reason: :invalid_request}), do: 400
+  def status_for(%Candil.Error{reason: :model_not_found}), do: 404
+  def status_for(%Candil.Error{reason: :provider_not_found}), do: 404
+  def status_for(%Candil.Error{reason: :auth_error}), do: 401
+  def status_for(_reason), do: 500
+
+  @doc """
   Lee el cuerpo JSON de una peticion.
   """
   @spec read_json(Plug.Conn.t()) :: {:ok, map()} | {:error, String.t()}

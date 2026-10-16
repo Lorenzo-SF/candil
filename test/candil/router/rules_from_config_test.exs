@@ -39,12 +39,9 @@ defmodule Candil.Router.RulesFromConfigTest do
     File.mkdir_p!(tmp)
     File.write!(Path.join(tmp, "candil.toml"), toml)
 
-    System.put_env("CANDIL_CONFIG", Path.join(tmp, "candil.toml"))
+    Candil.TestConfig.override!(Path.join(tmp, "candil.toml"))
 
-    on_exit(fn ->
-      System.delete_env("CANDIL_CONFIG")
-      File.rm_rf(tmp)
-    end)
+    on_exit(fn -> File.rm_rf(tmp) end)
 
     :ok
   end

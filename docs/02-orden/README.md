@@ -70,15 +70,24 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 | **1** | Los behaviours que faltan | 0 | RAG, provider, router configurable | ✅ |
 | **2** | `Arrea.Resource` (la forma de una capacidad) | — | La política; y es lo que usa la scheduler | ✅ |
 | **3** | **El enrutado: las capas que faltan** | 1, 2 | Que el enrutado elija por significado y no solo por regla | ✅ |
-| **4** | **La política: quién va primero** | 3 | Que varios compitan por un destino y no se estorben | 🟡 |
-| **5** | **El refusal, en los tres tipos** | 4 | Que un "no" diga qué corregir | ⬜ |
+| **4** | **La política: quién va primero** | 3 | Que varios compitan por un destino y no se estorben | ✅ **mergeada y medida** (§2.1 de la deuda); `rest_for_one` no está, a propósito (P-3) |
+| **5** | **El refusal, en los tres tipos** | 4 | Que un "no" diga qué corregir | 🟡 |
 | **6** | RAG | 1 | La mesa camilla | ⬜ |
 | **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ |
-| **8** | **Gateway** `candil serve` | 3, 5 | Que otro proceso use Candil sin escribir Elixir | ⬜ |
+| **8** | **Gateway** `candil serve` | 3, 5 | Que otro proceso use Candil sin escribir Elixir | ✅ **cerrada el 2026-10-16**: el comando existe y sirve, medido con `curl` |
 | **9** | Mesa camilla | 4, 6 | Agentes con memoria compartida | ⬜ |
 | **10** | `Arrea.Agent` (en Arrea) | 4 | Agentes | ⬜ |
-| **11** | `candil stats` | 4 | Saber si está funcionando | ⬜ |
+| **11** | `candil stats` | 4 | Saber si está funcionando | ✅ |
 | **12** | El CLI entero | 8 | — | ⬜ |
+
+> **Lo que dicen los amarillos, medido el 2026-10-16** (ver
+> [`09-deuda-y-pendientes`](../09-deuda-y-pendientes/README.md) §5): la **5**
+> tiene `:fail` (el defecto, con `Retry-After`) y `:wait` escritos, y `:degrade`
+> no es alcanzable y no bloquea nada. La **8** ya no es un amarillo: existía
+> todo menos el comando, el comando se escribió, y por el camino salió que **la
+> auth no estaba enchufada al pipeline** —un `auth = api_key` contestaba 200 sin
+> credencial— y se arregló. La **11** existe y corre, pero hasta ayer reventaba
+> al invocarlo: existía en el papel y no en el terminal.
 
 **La 8b · Scheduler no está en esta tabla.** Está aparcada, con lo que hay
 medido y lo que falta, en [`07-local-aparcado`](../07-local-aparcado/). Volvería
@@ -96,10 +105,11 @@ siguiente: es una extensión.**
 ### El gateway se mueve al 8 y no es un castigo
 
 El módulo **ya está escrito** —`gateway.ex`, `gateway/endpoint.ex`,
-`gateway/auth.ex`—, lo que falta es el comando que lo arranque y el control de
-concurrencia. Se mueve al 8 porque **va justo detrás de lo que tiene que
-servir**: un gateway montado antes del enrutado expone una respuesta que no
-cambia, y eso no se nota hasta que alguien lo usa y se queja.
+`gateway/auth.ex`—, y desde el 2026-10-16 también el comando que lo arranca
+(`candil serve`); el control de concurrencia es `Policy.run/3`, que ya estaba y
+es por donde pasa el chat. Se movió al 8 porque **va justo detrás de lo que
+tiene que servir**: un gateway montado antes del enrutado expone una respuesta
+que no cambia, y eso no se nota hasta que alguien lo usa y se queja.
 
 ---
 
@@ -134,16 +144,17 @@ mismo `Store` y el mismo `Router`.
 
 ---
 
-## 6 · La decisión que sigue abierta
+## 6 · La decisión que estaba abierta, y ya está escrita
 
 **Cuando algo está ocupado y no cabe de ninguna manera, ¿qué hace Candil?**
 Falla, espera, o degrada.
 
-No está escrita a propósito, y es del dueño. Lo que **no** vale es un default
-silencioso. Está razonada en
-[`06-capacidad-y-politica` §4](../06-capacidad-y-politica/README.md), y el sitio
-donde se escribirá es `Gateway.error_body/1`, que ya sabe emitir las otras
-razones y hoy no tiene ninguna de escasez.
+Estaba sin escribir a propósito, y era del dueño — y el dueño la decidió: **D-09
+(2026-10-11)**, configurable, y las tres son válidas. El defecto es **`:fail`**,
+y no por gusto: medido el 2026-10-14, con `wait` la suite del router tardaba
+60,3 s y con `fail` 0,3 s, porque esperar no hace aparecer un modelo que no
+está. Lo que **no** vale sigue siendo un default silencioso, y no lo hay: la
+decisión, sus números y su porqué están en `Candil.Refusal`.
 
 ---
 
@@ -153,7 +164,7 @@ razones y hoy no tiene ninguna de escasez.
 |---|---|
 | **Cuánto cuesta cada fase** | En sesiones, no en días. El calendario depende del paralelismo, que es tuyo |
 | **La política de reparto** | Está escrita en `06-capacidad-y-politica`, y su *defecto* está decidido: el aburrido |
-| **El refusal** | Es decisión del dueño. Está marcada, no resuelta |
+| **El refusal** | **Ya no**: D-09 lo decidió el 2026-10-11 (`fail` por defecto, configurable) y `Candil.Refusal` lo tiene escrito |
 
 > Y una cosa que este documento no puede resolver y conviene decir: el plan
 > anterior estimaba 57-67 días de contenido. Eso era para once fases de

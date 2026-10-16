@@ -27,8 +27,7 @@ defmodule Candil.DoctorTest do
   defp write_config!(dir, contents) do
     File.mkdir_p!(Path.join(dir, "candil"))
     File.write!(Path.join([dir, "candil", "candil.toml"]), contents)
-    System.put_env("CANDIL_CONFIG", Path.join([dir, "candil", "candil.toml"]))
-    on_exit(fn -> System.delete_env("CANDIL_CONFIG") end)
+    Candil.TestConfig.override!(Path.join([dir, "candil", "candil.toml"]))
   end
 
   defp engine!(attrs \\ []) do
@@ -191,8 +190,7 @@ defmodule Candil.DoctorTest do
     test "no config at all is a warning, not a lie saying all is well" do
       # A doctor that says "todo bien" about a machine with no configuration
       # is worse than useless.
-      System.put_env("CANDIL_CONFIG", "/nowhere/nothing.toml")
-      on_exit(fn -> System.delete_env("CANDIL_CONFIG") end)
+      Candil.TestConfig.override!("/nowhere/nothing.toml")
 
       report = Doctor.run()
       config = check(report, :config)

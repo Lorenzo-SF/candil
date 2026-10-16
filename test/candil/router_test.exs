@@ -57,11 +57,18 @@ defmodule Candil.RouterTest do
       assert decision.model_alias == :coder
       assert decision.strategy == :rule
 
-      # El score es **cobertura del prompt**: 4 de sus 9 palabras casan con el
-      # diccionario de `coder` —refactoriza, modulo, elixir, bug—. Antes era 3
-      # de las 8 palabras del **diccionario**, que es una medida que cambia
-      # cuando anades sinonimos sin que cambie nada del prompt.
-      assert_in_delta decision.score, 0.444, 0.001
+      # El score es **cobertura del prompt**: 3 de sus 9 palabras casan con el
+      # vocabulario que hay en juego —`refactor` (dentro de «refactoriza»),
+      # `elixir` y `bug`—. Antes era 3 de las 8 palabras del **diccionario**,
+      # que es una medida que cambia cuando anades sinonimos sin que cambie
+      # nada del prompt.
+      #
+      # El vocabulario es el de reserva de `Scorer`, en ingles, porque la suite
+      # corre **sin `candil.toml`** (el suelo de `test_helper.exs`): un test que
+      # saca sus palabras del fichero del developer mide el fichero, no el
+      # codigo. El camino de `[router.rules.<alias>]` —el que si lee el
+      # fichero— tiene su propio fichero de test: `rules_from_config_test.exs`.
+      assert_in_delta decision.score, 0.333, 0.001
     end
 
     test "a reasoning prompt picks the reasoning model" do
@@ -372,12 +379,9 @@ defmodule Candil.RouterTest do
         "[general]\ndata_dir = \"#{tmp}\"\n[router]\nenable_llm_classifier = true\n"
       )
 
-      System.put_env("CANDIL_CONFIG", Path.join(tmp, "candil.toml"))
+      Candil.TestConfig.override!(Path.join(tmp, "candil.toml"))
 
-      on_exit(fn ->
-        System.delete_env("CANDIL_CONFIG")
-        File.rm_rf(tmp)
-      end)
+      on_exit(fn -> File.rm_rf(tmp) end)
 
       assert Router.settings().enable_llm_classifier
     end

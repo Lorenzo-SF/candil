@@ -281,12 +281,9 @@ defmodule Candil.Router.DecisionEngineLayersTest do
       "[general]\ndata_dir = \"#{tmp}\"\n[router]\n#{flags}\n"
     )
 
-    System.put_env("CANDIL_CONFIG", Path.join(tmp, "candil.toml"))
+    Candil.TestConfig.override!(Path.join(tmp, "candil.toml"))
 
-    on_exit(fn ->
-      System.delete_env("CANDIL_CONFIG")
-      File.rm_rf(tmp)
-    end)
+    on_exit(fn -> File.rm_rf(tmp) end)
 
     :ok
   end

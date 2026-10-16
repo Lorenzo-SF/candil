@@ -106,6 +106,28 @@ defmodule Candil.GatewayTest do
     end
   end
 
+  describe "un handler que revienta" do
+    defmodule Revienta do
+      @moduledoc false
+
+      # El handler que no existe todavía, o el que mañana tendrá un bug: lo que
+      # se prueba aquí no es este módulo, es que el socket nunca se queda sin
+      # JSON.
+      def call(_conn, _context), do: raise("se rompio por dentro")
+    end
+
+    test "sale un 500 CON cuerpo, y la forma de un error de OpenAI" do
+      conn = Plug.Test.conn(:get, "/v1/models")
+
+      conn = Candil.Gateway.Plug.dispatch(conn, Revienta, %{consumer: :default, opts: []})
+
+      assert conn.status == 500
+      assert %{"error" => error} = Jason.decode!(conn.resp_body)
+      assert error["type"] == "server_error"
+      assert error["message"] =~ "se rompio por dentro"
+    end
+  end
+
   describe "start/1" do
     test "validates auth before anything else" do
       assert {:error, "auth = \"api_key\" needs at least one key"} =

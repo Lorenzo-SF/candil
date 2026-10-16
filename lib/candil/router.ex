@@ -183,12 +183,20 @@ defmodule Candil.Router do
 
   @doc """
   The aliases eligible to answer for a consumer, in preference order.
+
+  Un `[consumer.X] models` que nombre un modelo que no existe **no** se
+  completa con otros: sale `{:error, {:unknown_model, nombre}}`, que es un error
+  que se puede corregir. Ver `Candil.Router.Consumer.candidates/1`.
   """
-  @spec candidates(atom()) :: {:ok, [atom()]} | {:error, :no_models_for_consumer}
+  @spec candidates(atom()) ::
+          {:ok, [atom()]}
+          | {:error, :no_models_for_consumer}
+          | {:error, {:unknown_model, binary()}}
   def candidates(consumer) do
     case Consumer.candidates(consumer) do
-      [] -> {:error, :no_models_for_consumer}
-      aliases -> {:ok, aliases}
+      {:ok, []} -> {:error, :no_models_for_consumer}
+      {:ok, aliases} -> {:ok, aliases}
+      {:error, reason} -> {:error, reason}
     end
   end
 
