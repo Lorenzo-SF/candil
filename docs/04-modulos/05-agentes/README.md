@@ -45,6 +45,21 @@
 > y las herramientas se registran con `Candil.Tool.define/1`. Sin esas cuatro el
 > bucle no cierra, y sin ellas el paso a paso no funciona.
 
+> ## ⚠️ D-13 (2026-10-16): el behaviour nace en Candil, no en Arrea
+>
+> Este documento se escribió con el plan contrario —`Arrea.Agent` como PR en el
+> repo hermano— y esa mitad ya no existe. La decisión está en
+> [`08-decisiones`](../../08-decisiones/README.md) **D-13**: a Arrea sube lo que
+> Arrea usa para sí o lo que piden **dos** consumidores, y el behaviour solo lo
+> necesita Candil.
+>
+> - Donde este documento dice `Arrea.Agent` —§3.1, §5.1, §5.2, F5.1, las tres
+>   reglas del orden— se lee **«el behaviour, en Candil»**.
+> - `Arrea.Resource` **no** es un `[PROPUESTO]`: existe desde el 2026-10-10
+>   (fase 2 ✅) y sigue sin consumidor.
+> - Y la F5.0 **ya está cerrada** (`#87`, 2026-10-15): el `@type result/0`, el
+>   `nil.chat/3` y el pin que no existía tienen arreglo y test.
+
 ---
 
 ## 1 · Qué es
@@ -96,15 +111,21 @@ Candil  ──depende──▶  Arrea 3.x  ──depende──▶  Apero, Alaja,
 ```
 
 Qué significa en la práctica, y es lo que hay que tener claro antes de la F5.1:
-**escribir `Arrea.Agent` en Arrea no es un commit en este repo.** Es una PR en
+**el plan original era escribir `Arrea.Agent` en Arrea** — una PR en
 `Lorenzo-SF/arrea`, sobre `main`, desde otro repositorio, con su CI y su door de
-revisión. Candil la consume con `override: true` **desde la rama `main` de
+revisión—. Candil la consume con `override: true` **desde la rama `main` de
 GitHub**, no desde una etiqueta con versión: un `mix deps.get` se lleva lo que haya
 ahí ese día.
 
-> Por qué importa: una fase que ponga el behaviour en Arrea **no es una fase
+> Por qué importaba: una fase que ponga el behaviour en Arrea **no es una fase
 > cerrable en Candil**. Es una fase con dos mitades y dos repositorios, y la mitad
 > de Arrea puede mergearse mientras la de Candil sigue en rojo.
+>
+> **D-13 (2026-10-16) quitó ese problema de en medio**: el behaviour nace en
+> Candil, porque a Arrea solo sube lo que Arrea usa para sí o lo que piden dos
+> consumidores. El párrafo de arriba se queda como lo que era —el coste de la
+> otra opción— y como el mapa del día que el segundo consumidor justifique la
+> extracción.
 
 ### 2.2 · El reparto real: seis de doce, y media docena es código muerto
 
@@ -304,8 +325,8 @@ Todo verificado en `deps/arrea/lib/arrea/`:
 | **Meter el agente en `Arrea.Worker`** | La cola es de Plain Known Length en la práctica (`worker.ex:144`), y no crece. Es la razón de §2.4. |
 | **Un `Task` por cada `run/3`** | Un `Task` no tiene nombre, ni `whereis`, ni supervisor propio, ni se puede reiniciar «a su último estado». Además el diseño dice explícitamente que **no** hay bucles infinitos para mantener vivos a los agentes. |
 | **`Arrea.Pool` de agentes** | `Pool.checkout/2` es un lease con `checkin` y *overflow* (`pool.ex:102-136`): sirve para un conjunto homogeneous que se toma prestado. Un agente no se toma prestado, se habla con él. Y `Pool.Worker` expone **un** callback (`pool/worker.ex:25`), insuficiente para un agente. |
-| **Dejar el behaviour en Candil** | Descartado por decisión, y el precedente está confirmado: Alaja tiene su DSL y **los dos** repos lo consumen — `lib/candil/cli.ex:43` y `deps/arrea/lib/arrea/cli/definition.ex:27`, los dos con `use Alaja.CLI.Definition`. Un behaviour en la biblioteca de abajo, y el framework de arriba como una implementación más. |
-| **Extender `Arrea.Bulkhead` para la VRAM** | Descartado por tipo, no por esfuerzo. `Bulkhead.start_link/3` toma `max_concurrent::pos_integer()` (`bulkhead.ex:64`) y `run/2` acquisition es un `:acquire` binario (`bulkhead.ex:183`). **Contar slots y pesar gigas no son la misma cuenta**: un modelo de 7 GB y uno de 2 GB ocupan el mismo «1». De ahí `Arrea.Resource` **[PROPUESTO]**, módulo nuevo, y `Bulkhead` intacto. |
+| **Dejar el behaviour en Candil** | Era la opción descartada, y **D-13 la decidió al revés** (2026-10-16): a Arrea sube lo que Arrea usa para sí o lo que piden **dos** consumidores. Y el precedente de Alaja se estaba leyendo mal: no decía «abajo», decía «donde lo usan dos» — su DSL lo consumen `lib/candil/cli.ex:43` **y** `deps/arrea/lib/arrea/cli/definition.ex:27`. El behaviour tiene un consumidor y cero implementaciones dentro de Arrea, así que nace en Candil; la extracción queda para cuando aparezca el segundo. |
+| **Extender `Arrea.Bulkhead` para la VRAM** | Descartado por tipo, no por esfuerzo. `Bulkhead.start_link/3` toma `max_concurrent::pos_integer()` (`bulkhead.ex:64`) y `run/2` acquisition es un `:acquire` binario (`bulkhead.ex:183`). **Contar slots y pesar gigas no son la misma cuenta**: un modelo de 7 GB y uno de 2 GB ocupan el mismo «1». De ahí `Arrea.Resource` — que **ya existe** (fase 2 ✅, 2026-10-10) — y `Bulkhead` intacto. |
 
 ### 2.7 · La pieza elegante: cada paso del ReAct **es** una decisión de routing
 
@@ -343,24 +364,26 @@ Y por qué esto es una pieza y no una idea:
 
 Lista cerrada. Todo lo demás está fuera de esta fase.
 
-### 3.1 · En Arrea — otro repositorio
+### 3.1 · En Arrea — nada
 
-**PR **PROPUESTO**, no existe****
+**D-13** dejó esta sección vacía, y conviene que se lea: el behaviour, su
+supervisor y su RPC **nacen en Candil**, porque a Arrea solo sube lo que Arrea usa
+para sí o lo que piden dos consumidores.
 
-| Fichero | Qué |
-|---|---|
-| `deps/arrea/lib/arrea/agent.ex` | **[PROPUESTO]** el behaviour `Arrea.Agent`, §5.2 |
-| `deps/arrea/lib/arrea/agent/supervisor.ex` | **[PROPUESTO]** `DynamicSupervisor` de agentes, `:one_for_one` |
-| `deps/arrea/lib/arrea/resource.ex` | **[PROPUESTO]** contabilidad **ponderada en GB**, §5.2 |
-| `deps/arrea/test/arrea/agent_test.exs` | **[PROPUESTO]** tests del behaviour |
+Lo único de esta lista que existe de verdad es `deps/arrea/lib/arrea/resource.ex`
+— y **no es un [PROPUESTO]**: está mergeado y publicado desde el 2026-10-10
+(fase 2 ✅; D-03, D-05), todavía sin consumidor. El día que un segundo consumidor
+pida el behaviour, la PR cruzada vuelve — con el contrato ya probado, que es la
+diferencia con este documento.
 
 ### 3.2 · En Candil — este repositorio
 
 | Fichero | Qué | Estado |
 |---|---|---|
-| `lib/candil/agent.ex` | pasa a **implementar** `Arrea.Agent`; se arregla el `@type result/0` y `resolve_backend/1` | existe, hay que tocarlo |
+| `lib/candil/agents/behaviour.ex` | **[PROPUESTO]** el behaviour de §5.2 — en Candil por D-13 (nombre provisional, lo fija la F5.1) | no existe |
+| `lib/candil/agent.ex` | pasa a **implementar** el behaviour; el `@type result/0` y `resolve_backend/1` ya los arregló la F5.0 (`#87`) | existe, hay que tocarlo |
 | `lib/candil/agents/simple_reflex.ex` | **[PROPUESTO]** el agente del tipo 1, como `GenServer` | no existe |
-| `lib/candil/agents/supervisor.ex` | **[PROPUESTO]** enganche con `Arrea.Agent.Supervisor` | no existe |
+| `lib/candil/agents/supervisor.ex` | **[PROPUESTO]** el `DynamicSupervisor` de agentes (D-13: el de Arrea ya no hace falta) | no existe |
 | `lib/candil/agents/step_router.ex` | **[PROPUESTO]** la decisión de routing **por paso** (§2.7) | no existe |
 | `lib/candil/agent_test.exs` | los tres tests que hay, **más** los de la F5.0 | existe |
 | `test/candil/agent/simple_reflex_test.exs` | **[PROPUESTO]** | no existe |
@@ -528,8 +551,10 @@ Clasificadores, routers de prioridad. Un paso, una decisión, se acabó.
 | `Arrea.Registry` | ✅ | `registry.ex:36` — el nombre del agente |
 | `Arrea.CircuitBreaker` | ✅ | por nombre de **modelo**, no de agente |
 | `Arrea.Telemetry` | ✅ | ya reflejo en `[:candil, …]` |
-| `Arrea.Agent` (behaviour) | ❌ **[PROPUESTO]** | §5.2 |
-| `Arrea.Agent.call/3` (RPC con respuesta) | ❌ **[PROPUESTO]** | `send_message/2` es un `cast` |
+
+> El behaviour y el RPC con respuesta **ya no están en esta tabla**: D-13 los
+> dejó en Candil. No son cosas que este tipo necesite *de Arrea*, son cosas que
+> se construyen aquí (§5.2).
 
 **Qué aporta Candil**
 
@@ -542,10 +567,10 @@ Clasificadores, routers de prioridad. Un paso, una decisión, se acabó.
 
 | | |
 |---|---|
-| el behaviour | `Arrea.Agent` |
+| el behaviour | `Candil.Agents.Behaviour` (D-13; nombre provisional) |
 | el proceso | `Candil.Agents.SimpleReflex` |
 | el supervisor | hijo en `Candil.Supervisor` (`application.ex:44`) |
-| el RPC | `Arrea.Agent.call/3` |
+| el RPC | `call/3` con respuesta, en Candil (D-13) — contra el `send_message/2` de Arrea, que es un `cast` |
 
 > **El primero, y el único que hoy no depende de 8b.** Con un modelo pineado y un
 > `max_steps: 1` no hay nada que decidir por routing, nada que pesar y nada que
@@ -625,19 +650,21 @@ tienda y su esquema, y el esquema es una decisión de producto.
 
 | Tipo | Arrea que hace falta | Candil que hace falta | ¿Depende de 8b? |
 |---|---|---|---|
-| 1 · Reflejo Simple | `Arrea.Agent`, supervisor, `call/3` | `SimpleReflex` como `GenServer` | **no** |
+| 1 · Reflejo Simple | — (D-13: el behaviour y el RPC nacen en Candil) | el behaviour, `SimpleReflex`, supervisor y `call/3` | **no** |
 | 2 · Basado en Modelos | `snapshot/1`, `restore/1` | migrar `Conversation` → `Context` | no |
 | 3 · Basados en Objetivos | `Leader` (ya está) | almacén de objetivos, descomposición | **sí** (el sub-agente puede pedir otro modelo) |
 | 4 · Basados en Utilidad | `Parallel` (ya está), admisión VRAM | candidatos por paso, `Scorer` de caminos | **sí** |
 | 5 · De Aprendizaje | — | almacén durable + **decisión de diseño** | bloqueado, y no por 8b |
 
-### 5.2 · El behaviour `Arrea.Agent`
+### 5.2 · El behaviour `Candil.Agents.Behaviour`
 
-**[PROPUESTO] — no existe. Esto es el contrato que se propone, no una API que se pueda llamar hoy.**
+**[PROPUESTO] — no existe todavía. Por D-13 (2026-10-16) nace en Candil, no en
+Arrea; el nombre exacto del módulo lo fija la F5.1. Esto es el contrato que se
+propone, no una API que se pueda llamar hoy.**
 
 ```elixir
-# deps/arrea/lib/arrea/agent.ex   ← PROPUESTO, otro repositorio
-defmodule Arrea.Agent do
+# lib/candil/agents/behaviour.ex   ← PROPUESTO, en este repo (D-13)
+defmodule Candil.Agents.Behaviour do
   @moduledoc """
   Behaviour for a long-lived process whose next unit of work is not known yet.
 
@@ -692,8 +719,10 @@ va razonado:
 | **`Arrea.Resource` aparte, y `Bulkhead` intacto** | `Bulkhead.start_link/3` cuenta `pos_integer()` slots (`bulkhead.ex:64`). Pesar es otra cuenta. No es una ampliación de `Bulkhead`; es un módulo que se parece a `Bulkhead` y no es `Bulkhead`. Lo que pesaría: |
 
 ```elixir
-# deps/arrea/lib/arrea/resource.ex   ← PROPUESTO
+# deps/arrea/lib/arrea/resource.ex   ← EXISTE desde el 2026-10-10 (fase 2 ✅)
 defmodule Arrea.Resource do
+  # (boceto — el contrato real tiene dos ejes: capacidad entera en megas y cuota
+  # decimal (D-03), y el titular es opaco)
   @type weight :: non_neg_integer()      # GB
 
   # :ok si cabe; {:error, :no_room} con las cuentas si no
@@ -703,9 +732,10 @@ defmodule Arrea.Resource do
 end
 ```
 
-> `Arrea.Resource` **no se implementa en esta fase**. Se escribe su contrato aquí
-> porque es lo que desbloquea el tipo 3, el 4 y la F5.7, y para que quede escrito
-> **antes** de que haya código que lo dé por hecho.
+> `Arrea.Resource` **existe y está publicado**, pero **sin consumidor**: lo que
+> queda es usarlo, y esa cuenta —la admisión— es la línea de cajas (F5.6/F7).
+> Sigue en Arrea: nació allí antes de que D-13 escribiera la regla, y la regla no
+> se aplica hacia atrás.
 
 ### 5.3 · Escribir un agente desde cero, paso a paso
 
@@ -998,13 +1028,13 @@ F5.0 ──▶ F5.1 ──▶ F5.2 ──▶ F5.3 ──▶ F5.4 ──┬──
 
 | # | Fase | Prerrequisito | Por qué en este sitio |
 |---|---|---|---|
-| **F5.0** | Arreglar el contrato de `Candil.Agent` | — | **No espera a nadie.** Los 4 tests del §4, el `@type result/0`, `resolve_backend/1` y `resolve_model/2` contra el catálogo. Sin tocar Arrea. Es lo más barato y desbloquea todo lo demás |
-| **F5.1** | `Arrea.Agent` en Arrea | F5.0 | El behaviour (§5.2) y su supervisor. **Es un PR en `Lorenzo-SF/arrea`**, no un commit de este repo |
-| **F5.2** | `Candil.Agent` implementa el behaviour | F5.1 **mergeada** | `loop/7` → `step/3`. **Migrar `Conversation` → `Context`**, que es lo que desbloquea el `@deprecated` de 4.1.0 (abajo) |
+| **F5.0** | Arreglar el contrato de `Candil.Agent` — ✅ `#87` | — | **No espera a nadie.** Los 4 tests del §4, el `@type result/0`, `resolve_backend/1` y `resolve_model/2` contra el catálogo. Sin tocar Arrea. Es lo más barato y desbloquea todo lo demás |
+| **F5.1** | El behaviour, en Candil | F5.0 | El behaviour (§5.2) y su supervisor, **en este repo** — D-13 (2026-10-16) quitó de en medio la PR cruzada |
+| **F5.2** | `Candil.Agent` implementa el behaviour | F5.1 | `loop/7` → `step/3`. **Migrar `Conversation` → `Context`**, que es lo que desbloquea el `@deprecated` de 4.1.0 (abajo) |
 | **F5.3** | Tipo 1: Reflejo Simple | F5.2 | El primer `GenServer` de verdad, con `evaluate/2`, un hijo en `Candil.Supervisor` y **el test del cuelgue** (§8.3). **No depende de 8b**: con el modelo pineado no hay nada que pesar |
 | **F5.4** | Tipo 2: Reflejo Basado en Modelos | F5.3 | `snapshot/1` y `restore/1`, y el **reinicio de verdad**, que Arrea no da porque sus workers son `:temporary` |
-| **F5.5** | RPC entre agentes | F5.3 | `Arrea.Agent.call/3`: pregunta **y** respuesta, contra un `send_message/2` que es un `cast` (`worker.ex:112`) |
-| **F5.6** | `Arrea.Resource` | **8b** | **BLOQUEADA por 8b.** Contabilidad **ponderada en GB**. `Arrea.Bulkhead` intacto: contar slots y pesar gigas no son la misma cuenta |
+| **F5.5** | RPC entre agentes | F5.3 | `call/3` con respuesta, **en Candil** (D-13), contra el `send_message/2` de Arrea, que es un `cast` (`worker.ex:112`) |
+| **F5.6** | Usar la cuenta (`Arrea.Resource`, ya existe) desde Candil | **8b** | **BLOQUEADA por 8b.** `Arrea.Resource` está mergeado y publicado (fase 2 ✅) pero **sin consumidor**: conectarlo es la admisión, y su reparto con la F7 es de `02-orden` |
 | **F5.7** | El router por paso | F5.6 **y** F5.2 | **BLOQUEADA.** La pieza del §2.7: `StepRouter` decide en cada paso del ReAct. Sin F5.6 puede pedir un modelo que no está arriba |
 | **F5.8** | Tipo 3: Basados en Objetivos | F5.7 | Descomposición, y `Arrea.Leader` como reparto de sub-agentes. El sub-agente puede pedir otro modelo, así que hereda el bloqueo |
 | **F5.9** | Tipo 4: Basados en Utilidad | F5.7 | Candidatos por paso y `Scorer` aplicado a **caminos**, no a modelos. También bloqueada |
@@ -1038,20 +1068,21 @@ no tenga que adivinarlo:
 
 La forma barata de no duplicar: **`Detector.VRAM` (Candil, F2 del módulo 01) es la
 única que lee la GPU; `Arrea.Resource` (F5.6) es la única que lleva la cuenta.** Si
-`02-orden/` decide lo contrario, este módulo cambia y hay que decirlo aquí.
+`02-orden/` decide lo contrario, este módulo cambia y hay que decirlo aquí. Con
+D-13 escrito, ese reparto deja de ser una hipótesis: la cuenta vive en Arrea —donde
+ya está— y la decisión de admitir, en Candil.
 
 ### Las tres reglas de este orden
 
-**1 · F5.0 va primero y no depende de nadie.** Es la única que se puede empezar hoy,
-en este repo, sin PR y sin 8b. Arregla tres mentiras concretas (§2.3) y es la que
-desbloquea todas las demás.
+**1 · F5.0 fue primero y no dependía de nadie.** ✅ `#87`. En este repo, sin PR
+cruzada y sin 8b; arregló tres mentiras concretas (§2.3) y es la que desbloquea
+todas las demás.
 
-**2 · F5.1 es una fase con dos repositorios, y hay que decirlo al empezar.**
-`Arrea.Agent` vive en `Lorenzo-SF/arrea` sobre `main`, y Candil la consume con
-`override: true` **desde esa rama**, no desde una etiqueta. Mientras la PR no esté
-mergeada, `mix deps.get` en Candil puede traerse algo sin el behaviour. **F5.2 no
-puede empezar hasta que la PR esté mergeada y publicada**, y ese tiempo no lo
-controlamos.
+**2 · F5.1 es una fase de un solo repositorio, y eso lo decidió D-13.**
+El behaviour vive en Candil porque a Arrea solo sube lo que Arrea usa para sí o lo
+que piden dos consumidores — y aquí hay uno. Lo que sigue siendo verdad es la otra
+mitad: Candil consume Arrea de `main` con `override: true`, así que el día que
+aparezca el segundo consumidor, la extracción es mover un módulo — no una release.
 
 **3 · F5.6 y F5.7 son las **únicas** bloqueadas por 8b, y es a propósito.**
 
@@ -1096,9 +1127,9 @@ Que quede escrito antes, y no como sorpresa en la revisión.
 | **El tipo 5, de aprendizaje** | §5.1. No hay almacén de feedback, no hay esquema de prompt, y `instances.json` no es su sitio. Falta una **decisión de producto** antes que una línea de código |
 | **Los tipos 3 y 4** | Dependen de 8b y de la F5.7. El 80 % de sus piezas existen pero en el sitio equivocado: `Leader` reparte tareas donde habría que repartir agentes, y `Scorer` puntúa modelos donde habría que puntuar caminos |
 | **Un agente que se reinicie «a su último estado estable»** | Hay que **construirlo**: `snapshot/1` y `restore/1` no existen, y Arrea no reinicia workers (`worker.ex:35`, `pool/worker.ex:34`, ambos `:temporary`) |
-| **`Arrea.Resource` funcionando** | En esta fase solo se **escribe el contrato** (§5.2). La contabilidad en GB es la línea de cajas |
+| **`Arrea.Resource` funcionando** | Existe y está publicado (fase 2 ✅), pero **sin consumidor**: conectarlo es la línea de cajas y no entra en esta fase |
 | **Un agente validado contra un modelo de verdad** | Las siete puertas pasan con un `StubBackend`. Eso es una hipótesis, y la hipótesis más cara de este repo |
-| **`Arrea.Agent` merged en Arrea** | Es una PR en `Lorenzo-SF/arrea` (`main`). Mientras no esté, `Candil.Agent` compila contra una dependencia que no tiene el behaviour, y **el work de Arrea vive en un repo que no es este** |
+| **`Arrea.Agent` en Arrea** | Decidido que no (D-13): el behaviour nace en Candil. Arrea se queda sin `agent.ex` hasta que un segundo consumidor lo pida — y ese día la PR cruzada vuelve, con el contrato ya probado |
 
 ---
 
