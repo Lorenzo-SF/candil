@@ -16,10 +16,9 @@ defmodule Candil.Agents.Supervisor do
 
   ## Where it lives
 
-  This module exists on its own since F5.1. The child inside the application
-  supervisor arrives with the first real agent (F5.3,
-  `docs/04-modulos/05-agentes`): before that, it would be an empty supervisor
-  in the tree, supervising nothing.
+  In the application tree since F5.3 (`docs/04-modulos/05-agentes`), the phase
+  that brought the first real agent. Before that, it existed on its own: an
+  empty supervisor in the tree would have been supervising nothing.
 
   ## What may be a child
 
