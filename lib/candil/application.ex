@@ -78,6 +78,9 @@ defmodule Candil.Application do
       # supervisor de agentes, que es quien puede arrancar hijos que lo
       # consultan al nacer.
       Candil.Agents.Snapshots,
+      # El almacén de los índices RAG (fase 6): fuera del proceso que los usa,
+      # como los snapshots y los circuitos.
+      Candil.RAG.Store,
       # El circuito del breaker, fuera del proceso por la misma razon que el
       # snapshot (P-9): un agente que revienta y vuelve encuentra su circuito
       # como lo dejo, y si estaba abierto se niega a trabajar en vez de volver

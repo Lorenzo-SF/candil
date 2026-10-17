@@ -97,20 +97,6 @@ defmodule Candil.RAGTest do
     end
   end
 
-  describe "phase 10 stubs" do
-    test "are honest rather than pretending to work" do
-      for call <- [
-            fn -> RAG.create_index("x") end,
-            fn -> RAG.index("x", "text") end,
-            fn -> RAG.search("x", "query") end,
-            fn -> RAG.drop_index("x") end,
-            fn -> RAG.list_indexes() end
-          ] do
-        assert {:error, %Candil.Error{reason: :not_implemented}} = call.()
-      end
-    end
-  end
-
   describe "Chunk" do
     test "requires an id and a text, and keeps the position for citation" do
       chunk = %Chunk{id: "c1", text: "hola", position: 4}
