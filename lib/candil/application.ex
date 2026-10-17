@@ -6,7 +6,8 @@ defmodule Candil.Application do
   store (`Candil.Context`), the dynamic supervisor that manages llama-server
   engines started via `Candil.start_engine/2`, the one agents are started
   under (`Candil.Agents.Supervisor`, in the tree since F5.3) and the store of
-  their last stable state (`Candil.Agents.Snapshots`, since F5.4).
+  their last stable state (`Candil.Agents.Snapshots`, since F5.4) and of
+  their circuit (`Candil.Agents.Breakers`, since 2026-10-17).
 
   `Candil.Store` comes before `Candil.Context` because the other children
   read its tables, and a supervision order that gets this backwards produces
@@ -77,6 +78,12 @@ defmodule Candil.Application do
       # supervisor de agentes, que es quien puede arrancar hijos que lo
       # consultan al nacer.
       Candil.Agents.Snapshots,
+      # El circuito del breaker, fuera del proceso por la misma razon que el
+      # snapshot (P-9): un agente que revienta y vuelve encuentra su circuito
+      # como lo dejo, y si estaba abierto se niega a trabajar en vez de volver
+      # a colgarse. Va antes que el supervisor, que es quien arranca los hijos
+      # que lo consultan al nacer.
+      Candil.Agents.Breakers,
       # El supervisor de los agentes. Entra en el árbol con el primer agente
       # de verdad (F5.3): hasta entonces era un supervisor vacío supervisando
       # nada. Sus hijos nacen después y a petición, así que no exige orden;

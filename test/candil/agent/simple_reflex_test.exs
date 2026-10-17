@@ -162,9 +162,12 @@ defmodule Candil.Agents.SimpleReflexTest do
   describe "el cuelgue, el reinicio y el child spec (§8.3)" do
     @tag timeout: 2_000
     test "el backend que no vuelve no cuelga ni al agente ni a quien llama" do
+      name = "colgado-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Candil.Agents.Breakers.forget(name) end)
+
       pid =
         start_supervised!(
-          {SimpleReflex, name: "colgado", goal: "g", backend: HangingBackend, timeout: 100}
+          {SimpleReflex, name: name, goal: "g", backend: HangingBackend, timeout: 100}
         )
 
       # El plazo vive dentro: quien llama recibe el error, no un cuelgue. El
@@ -174,15 +177,18 @@ defmodule Candil.Agents.SimpleReflexTest do
       assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "hola")
 
       # El plazo mató la llamada, no al agente: sigue vivo y sirviendo.
-      assert %{name: "colgado"} = SimpleReflex.status(pid)
+      assert %{name: ^name} = SimpleReflex.status(pid)
       assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "otra vez")
     end
 
     @tag timeout: 5_000
     test "cinco cuelgues seguidos abren el circuito, y el sexto no paga el plazo" do
+      name = "colgado-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Candil.Agents.Breakers.forget(name) end)
+
       pid =
         start_supervised!(
-          {SimpleReflex, name: "colgado", goal: "g", backend: HangingBackend, timeout: 50}
+          {SimpleReflex, name: name, goal: "g", backend: HangingBackend, timeout: 50}
         )
 
       # Cinco vueltas, cinco plazos: cada una paga su plazo y contesta igual.
@@ -196,7 +202,7 @@ defmodule Candil.Agents.SimpleReflexTest do
       # y dice con quién se cerró.
       t0 = System.monotonic_time(:millisecond)
 
-      assert {:error, {:agent_circuit_open, "colgado"}, []} = SimpleReflex.evaluate(pid, "hola")
+      assert {:error, {:agent_circuit_open, ^name}, []} = SimpleReflex.evaluate(pid, "hola")
 
       assert System.monotonic_time(:millisecond) - t0 < 50
     end
@@ -205,6 +211,7 @@ defmodule Candil.Agents.SimpleReflexTest do
     test "la sonda de después del enfriamiento cierra el circuito si el backend se endereza" do
       :persistent_term.put({FlakyBackend, :colgado?}, true)
       on_exit(fn -> :persistent_term.erase({FlakyBackend, :colgado?}) end)
+      on_exit(fn -> Candil.Agents.Breakers.forget("fugaz") end)
 
       pid =
         start_supervised!(
@@ -228,6 +235,40 @@ defmodule Candil.Agents.SimpleReflexTest do
 
       assert {:ok, "ya", []} = SimpleReflex.evaluate(pid, "tres")
       assert %{breaker: :closed} = SimpleReflex.status(pid)
+    end
+
+    @tag timeout: 5_000
+    test "el circuito abierto sobrevive al reinicio del agente", _ctx do
+      name = "sobrevive-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Candil.Agents.Breakers.forget(name) end)
+
+      pid =
+        start_supervised!(
+          {SimpleReflex,
+           name: name, goal: "g", backend: HangingBackend, timeout: 50, breaker_threshold: 2}
+        )
+
+      assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "uno")
+      assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "dos")
+      assert %{breaker: :open} = SimpleReflex.status(pid)
+
+      Process.exit(pid, :kill)
+
+      assert wait_until(fn ->
+               p = Candil.Agents.whereis(name)
+               is_pid(p) and p != pid
+             end)
+
+      new_pid = Candil.Agents.whereis(name)
+
+      assert %{breaker: :open} = SimpleReflex.status(new_pid)
+
+      t0 = System.monotonic_time(:millisecond)
+
+      assert {:error, {:agent_circuit_open, ^name}, []} =
+               SimpleReflex.evaluate(new_pid, "tres")
+
+      assert System.monotonic_time(:millisecond) - t0 < 50
     end
 
     test "un run que revienta se lleva al agente, y el supervisor lo levanta" do

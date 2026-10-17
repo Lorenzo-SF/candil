@@ -52,6 +52,7 @@ defmodule Candil.Agents.SimpleReflex do
 
   alias Candil.Agent
   alias Candil.Agents.Breaker
+  alias Candil.Agents.Breakers
 
   @default_max_steps 1
   @default_timeout 60_000
@@ -149,15 +150,29 @@ defmodule Candil.Agents.SimpleReflex do
     # arranca el proceso a mano saltándose la puerta, el estado nace con
     # `backend: nil` y `evaluate/2` contesta `{:error, :no_backend, []}` como
     # `Candil.Agent.run/3` — un dato, no un reventón.
+    name = Keyword.get(opts, :name)
+
+    breaker =
+      case name do
+        nil ->
+          Breaker.new(opts)
+
+        n ->
+          case Breakers.load(n) do
+            {:ok, b} -> b
+            {:error, :not_found} -> Breaker.new(opts)
+          end
+      end
+
     {:ok,
      %{
-       name: Keyword.get(opts, :name),
+       name: name,
        goal: Keyword.get(opts, :goal),
        backend: Keyword.get(opts, :backend),
        model: Keyword.get(opts, :model) || "default",
        max_steps: Keyword.get(opts, :max_steps, @default_max_steps),
        timeout: Keyword.get(opts, :timeout, @default_timeout),
-       breaker: Breaker.new(opts)
+       breaker: breaker
      }}
   end
 
@@ -173,6 +188,11 @@ defmodule Candil.Agents.SimpleReflex do
       _cerrado_o_sonda ->
         result = within_timeout(state, input)
         breaker = Breaker.record(state.breaker, Breaker.verdict(result), now())
+
+        if state.name != nil do
+          Breakers.save(state.name, breaker)
+        end
+
         {:reply, result, %{state | breaker: breaker}}
     end
   end
