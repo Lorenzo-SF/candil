@@ -9,6 +9,38 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **El tipo 2 existe, y el reinicio vuelve CON el estado (F5.4).**
+  `Candil.Agents.ModelBasedReflex` es el reflejo basado en modelos del §5.1:
+  el estado del agente vivido por un proceso, así que cada `evaluate/2` es una
+  vuelta entera (pasos, herramientas y todo) que **recuerda las anteriores**
+  — el tipo 1 nace sin memoria a propósito; este no puede. `rounds` se
+  reinicia por vuelta: en `run/3` el contador nace con la llamada, y un proceso
+  que vive lo agotaría para siempre. El run va con el mismo plazo del §8.3
+  (`{:error, :timeout, []}`, y el estado se queda donde estaba), y `status/1`
+  contesta el modelo del mundo: `rounds`, `messages`, `trace`, `last` y
+  `restored`.
+
+  Tras cada vuelta terminada el estado se escribe en
+  `Candil.Agents.Snapshots` (nuevo almacén ETS en el árbol, por `:name` — que
+  por eso es obligatorio en este tipo), **fuera del proceso a propósito**: es
+  lo que hace que el supervisor, al levantar al que se cae, le devuelva su
+  último estado estable en vez de un agente vacío con el mismo nombre. Un
+  snapshot que no se puede restaurar no arranca
+  (`{:error, {:snapshot_invalid, reason}}`): volver sin estado es degradado;
+  volver con medio es otra cosa. Probado en
+  `test/candil/agent/model_based_reflex_test.exs` (§7: el test **mira el
+  estado**, no solo la vida) y `test/candil/agent/snapshots_test.exs`.
+
+- **`Candil.Agent` implementa los dos callbacks opcionales: `snapshot/1` y
+  `restore/1` (F5.4).** `snapshot/1` devuelve el estado entero como dato
+  plano y serializable, con la referencia de cancelación fuera — una
+  referencia pertenece al run que la pidió, y un run muerto no se cancela por
+  un reinicio. `restore/1` reconstruye el estado y se niega con
+  `{:error, {:missing_key, clave}}` si el mapa no es un snapshot: restaurar
+  a medias es un estado que falla luego y en otro sitio. `finalize/1` pasa a
+  pública para que el proceso que conduce `step/3` conteste con la misma
+  forma que `run/3`, desde un solo mapeo de traza a resultado.
+
 - **El tipo 1 existe: `Candil.Agents.SimpleReflex`, el primer agente con
   proceso (F5.3).** Un `GenServer` de verdad: `evaluate/2` (estímulo →
   respuesta) y `status/1`, y sin memoria — cada llamada es un run
@@ -44,6 +76,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `supervisor_test.exs`).
 
 ### Changed
+
+- **El supervisor de agentes tolera diez caídas en cinco segundos, no tres
+  (F5.4).** Medido: con la intensidad por defecto, el cuarto agente que cae
+  seguido mata al supervisor — y los hijos de un `DynamicSupervisor` no
+  resucitan con él, así que una caída en racimo (un backend compartido que se
+  va) se llevaba por delante a los agentes sanos. Diez es margen para el
+  racimo; la defensa contra un agente que cae en bucle es por agente (§8.3),
+  no esta cifra.
 
 - **El supervisor de agentes vive ya en el árbol de la aplicación (F5.3).**
   `Candil.Agents.Supervisor` era un `DynamicSupervisor` en solitario desde la

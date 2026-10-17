@@ -92,6 +92,15 @@ defmodule Candil.Agent.ContractTest do
       end
     end
 
+    test "y los opcionales que la F5.4 trajo también: snapshot/1 y restore/1" do
+      {:module, _} = Code.ensure_loaded(Candil.Agent)
+
+      # El tipo 2 los usa (`Candil.Agents.ModelBasedReflex`): un agente que
+      # vuelve de un reinicio vuelve por aquí.
+      assert function_exported?(Candil.Agent, :snapshot, 1)
+      assert function_exported?(Candil.Agent, :restore, 1)
+    end
+
     test "run/3 ya no promete la opcion que nunca existio" do
       {:module, _} = Code.ensure_loaded(Candil.Agent)
       {:docs_v1, _, _, _, _, _, docs} = Code.fetch_docs(Candil.Agent)
