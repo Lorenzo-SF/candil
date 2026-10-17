@@ -44,6 +44,18 @@ defmodule Candil.Storage.Store do
     GenServer.call(__MODULE__, :list)
   end
 
+  @doc "Lista todos los pares {clave, valor}."
+  @spec entries() :: [{term(), term()}]
+  def entries do
+    GenServer.call(__MODULE__, :entries)
+  end
+
+  @doc "El nombre de la tabla subyacente (para el adaptador ETS)."
+  @spec table() :: atom() | nil
+  def table do
+    GenServer.call(__MODULE__, :table)
+  end
+
   @doc "Cuenta los valores."
   @spec count() :: non_neg_integer()
   def count do
@@ -79,6 +91,16 @@ defmodule Candil.Storage.Store do
   def handle_call(:list, _from, {adapter, state}) do
     {:ok, values, new_state} = adapter.list(state)
     {:reply, values, {adapter, new_state}}
+  end
+
+  def handle_call(:entries, _from, {adapter, state}) do
+    {:ok, entries, new_state} = adapter.entries(state)
+    {:reply, entries, {adapter, new_state}}
+  end
+
+  def handle_call(:table, _from, {adapter, state}) do
+    table = if is_atom(state), do: state, else: nil
+    {:reply, table, {adapter, state}}
   end
 
   def handle_call(:count, _from, {adapter, state}) do
