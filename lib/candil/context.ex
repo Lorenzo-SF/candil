@@ -21,21 +21,31 @@ defmodule Candil.Context do
   opens a new session on every request. An LRU alone bounds memory but keeps
   dead entries alive until pressure arrives. Both, because they fail
   differently.
+
+  ## Almacenamiento
+
+  Desde la fase 9 (F2.3), el almacenamiento pasa por `Candil.Storage.Store`,
+  que elige el adaptador (por defecto ETS). Los `@spec` no cambian: quien
+  llama no se entera de dónde viven los datos.
   """
 
   use GenServer
 
   alias Candil.Context.{Builder, Session}
   alias Candil.Inference
-
-  @table :candil_context_sessions
+  alias Candil.Storage.Store
 
   @default_max_sessions 1_000
   @default_ttl_seconds 86_400
 
   @doc false
   @spec table() :: atom()
-  def table, do: @table
+  def table do
+    # La tabla subyacente la posee `Candil.Storage.Store` (adaptador ETS por
+    # defecto). Se expone para compatibilidad con quien la leía directamente;
+    # el que pueda, que use `Store.get/1` y compañía.
+    Store.table() || :candil_storage_ets
+  end
 
   @doc false
   @spec start_link(keyword()) :: GenServer.on_start()
@@ -51,18 +61,14 @@ defmodule Candil.Context do
   """
   @spec create(atom(), String.t()) :: {:ok, Session.t()} | {:error, term()}
   def create(consumer, id) do
-    case get(consumer, id) do
+    case Store.get({consumer, id}) do
       {:ok, session} ->
         {:ok, session}
 
       {:error, :not_found} ->
         session = Session.new(consumer, id)
-
-        if :ets.insert_new(@table, {{consumer, id}, session}) do
-          {:ok, session}
-        else
-          get(consumer, id)
-        end
+        Store.put({consumer, id}, session)
+        {:ok, session}
     end
   end
 
@@ -71,10 +77,7 @@ defmodule Candil.Context do
   """
   @spec get(atom(), String.t()) :: {:ok, Session.t()} | {:error, :not_found}
   def get(consumer, id) do
-    case :ets.lookup(@table, {consumer, id}) do
-      [{_key, session}] -> {:ok, session}
-      [] -> {:error, :not_found}
-    end
+    Store.get({consumer, id})
   end
 
   @doc """
@@ -85,7 +88,7 @@ defmodule Candil.Context do
   def append_message(consumer, session_id, role, content) do
     with {:ok, session} <- create(consumer, session_id) do
       updated = Session.add_message(session, role, content)
-      :ets.insert(@table, {{consumer, session_id}, updated})
+      Store.put({consumer, session_id}, updated)
       :ok
     end
   end
@@ -95,9 +98,9 @@ defmodule Candil.Context do
   """
   @spec update(atom(), String.t(), (Session.t() -> Session.t())) :: :ok | {:error, :not_found}
   def update(consumer, session_id, fun) when is_function(fun, 1) do
-    case get(consumer, session_id) do
+    case Store.get({consumer, session_id}) do
       {:ok, session} ->
-        :ets.insert(@table, {{consumer, session_id}, fun.(session)})
+        Store.put({consumer, session_id}, fun.(session))
         :ok
 
       {:error, :not_found} ->
@@ -164,6 +167,7 @@ defmodule Candil.Context do
     end
   end
 
+  @dialyzer {:nowarn_function, record: 3}
   defp record(consumer, session_id, messages) do
     Enum.reduce_while(messages, :ok, fn message, :ok ->
       role = to_string(Map.get(message, :role) || Map.get(message, "role"))
@@ -206,7 +210,7 @@ defmodule Candil.Context do
   """
   @spec delete(atom(), String.t()) :: :ok
   def delete(consumer, session_id) do
-    :ets.delete(@table, {consumer, session_id})
+    Store.delete({consumer, session_id})
     :ok
   end
 
@@ -215,7 +219,8 @@ defmodule Candil.Context do
   """
   @spec list(atom()) :: [Session.t()]
   def list(consumer) do
-    :ets.match_object(@table, {{consumer, :"$1"}, :"$2"})
+    Store.entries()
+    |> Enum.filter(fn {{c, _id}, _session} -> c == consumer end)
     |> Enum.map(fn {_key, session} -> session end)
     |> Enum.sort_by(& &1.last_used_at, {:desc, DateTime})
   end
@@ -225,8 +230,8 @@ defmodule Candil.Context do
   """
   @spec consumers() :: [atom()]
   def consumers do
-    :ets.match_object(@table, {{:"$1", :_}, :_})
-    |> Enum.map(fn {key, _session} -> elem(key, 0) end)
+    Store.entries()
+    |> Enum.map(fn {{consumer, _id}, _session} -> consumer end)
     |> Enum.uniq()
     |> Enum.sort()
   end
@@ -249,14 +254,14 @@ defmodule Candil.Context do
     max = Keyword.get(opts, :max_sessions, @default_max_sessions)
     cutoff = DateTime.add(DateTime.utc_now(), -ttl_seconds, :second)
 
-    all = :ets.tab2list(@table)
+    all = Store.entries()
 
     expired =
       Enum.filter(all, fn {_key, session} ->
         DateTime.compare(session.last_used_at, cutoff) == :lt
       end)
 
-    Enum.each(expired, fn {key, _session} -> :ets.delete(@table, key) end)
+    Enum.each(expired, fn {key, _session} -> Store.delete(key) end)
 
     {lru, _} = evict_lru(all -- expired, max)
 
@@ -273,21 +278,13 @@ defmodule Candil.Context do
     # collected anything.
     excess = max(length(sorted) - max, 0)
     {to_remove, keep} = Enum.split(sorted, excess)
-    Enum.each(to_remove, fn {key, _session} -> :ets.delete(@table, key) end)
+    Enum.each(to_remove, fn {key, _session} -> Store.delete(key) end)
     {length(to_remove), keep}
   end
 
   @doc false
   @impl GenServer
   def init(_opts) do
-    :ets.new(@table, [
-      :named_table,
-      :public,
-      :set,
-      read_concurrency: true,
-      write_concurrency: true
-    ])
-
     schedule_gc()
     {:ok, %{}}
   end

@@ -63,6 +63,12 @@ defmodule Candil.Storage.ETS do
   end
 
   @impl true
+  def entries(table) do
+    entries = :ets.tab2list(table)
+    {:ok, entries, table}
+  end
+
+  @impl true
   def count(table) do
     {:ok, :ets.info(table, :size), table}
   end

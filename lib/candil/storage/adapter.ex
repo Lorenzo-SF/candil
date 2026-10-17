@@ -29,6 +29,9 @@ defmodule Candil.Storage.Adapter do
   @doc "Lista todos los valores."
   @callback list(state :: term()) :: {:ok, [term()], term()}
 
+  @doc "Lista todos los pares {clave, valor}."
+  @callback entries(state :: term()) :: {:ok, [{term(), term()}], term()}
+
   @doc "Cuenta los valores."
   @callback count(state :: term()) :: {:ok, non_neg_integer(), term()}
 end
