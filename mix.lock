@@ -38,7 +38,7 @@
   "telemetry_poller": {:hex, :telemetry_poller, "1.3.0", "d5c46420126b5ac2d72bc6580fb4f537d35e851cc0f8dbd571acf6d6e10f5ec7", [:rebar3], [{:telemetry, "~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "51f18bed7128544a50f75897db9974436ea9bfba560420b646af27a9a9b35211"},
   "thousand_island": {:hex, :thousand_island, "1.6.0", "d6ad7c2220c96a270cc8ca1586ec4d8bde648a4a3a53f003ce093f41beec0288", [:mix], [{:telemetry, "~> 0.4 or ~> 1.0", [hex: :telemetry, repo: "hexpm", optional: false]}], "hexpm", "4d4720470f091fc21a1311777c2ac66916c43621bffc068590c9f9bb3cd057a3"},
   "toml": {:hex, :toml, "0.7.0", "fbcd773caa937d0c7a02c301a1feea25612720ac3fa1ccb8bfd9d30d822911de", [:mix], [], "hexpm", "0690246a2478c1defd100b0c9b89b4ea280a22be9a7b313a8a058a2408a2fa70"},
-  "trebejo": {:git, "https://github.com/Lorenzo-SF/trebejo.git", "003acf1125ae644ce1fdf4c5e68d7bb9373b209c", [branch: "main"]},
+  "trebejo": {:git, "https://github.com/Lorenzo-SF/trebejo.git", "024598f16493f58e445b6c832584f25e773c47c8", [branch: "main"]},
   "websock": {:hex, :websock, "0.5.3", "2f69a6ebe810328555b6fe5c831a851f485e303a7c8ce6c5f675abeb20ebdadc", [:mix], [], "hexpm", "6105453d7fac22c712ad66fab1d45abdf049868f253cf719b625151460b8b453"},
   "xref_runner": {:hex, :xref_runner, "1.2.0", "8d128ac290015ba481947028260216f8906491f3d17e76e294120f5c6e372f81", [:"erlang.mk", :rebar], [{:getopt, "1.0.1", [hex: :getopt, repo: "hexpm", optional: false]}], "hexpm", "22d4bb466b1bf8b206f03d1f43f01233b547f8b81351f29af2c6d668e0734ffc"},
 }
