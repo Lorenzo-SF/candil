@@ -419,6 +419,52 @@ defmodule Candil.Gateway.EndToEndTest do
     end
   end
 
+  # El refusal, por HTTP entero: el router dice que no cabe, `Candil.Refusal`
+  # construye el error con su `Retry-After`, y el gateway lo entrega. Antes de
+  # la fase 5 esto salia como un **500 sin cabecera**: el numero se calculaba,
+  # el mensaje se escribia, y las dos cosas morian en el contexto del error
+  # porque `status_for/1` no tenia clausula para `:no_capacity`.
+  describe "el refusal" do
+    setup do
+      # Un gateway SIN candidatos: nadie puede contestar, que es el caso.
+      # `skip_cache: true` porque sin el, una decision cacheada por otro test
+      # podria contestar por este y el test pasaria por el motivo equivocado.
+      {:ok, gateway} = Gateway.start(port: 0, route: [candidates: [], skip_cache: true])
+
+      on_exit(fn -> if Process.alive?(gateway.pid), do: Process.exit(gateway.pid, :shutdown) end)
+
+      %{refusal_gw: "http://127.0.0.1:#{gateway.port}"}
+    end
+
+    test "no cabe: 503, Retry-After, y el motivo dentro", %{refusal_gw: gw} do
+      payload =
+        Jason.encode!(%{
+          model: "auto",
+          messages: [%{role: "user", content: "¿cabe aqui esta pregunta?"}]
+        })
+
+      {:ok, resp} =
+        Finch.request(
+          Finch.build(
+            :post,
+            gw <> "/v1/chat/completions",
+            [{"content-type", "application/json"}],
+            payload
+          ),
+          Finch
+        )
+
+      assert resp.status == 503
+      # 30 s: el defecto de `Candil.Refusal` para `:fail` (min(30 000, 60 000/2)).
+      assert {"retry-after", "30"} = List.keyfind(resp.headers, "retry-after", 0)
+
+      body = Jason.decode!(resp.body)
+      assert body["error"]["message"] =~ "no hay quien conteste"
+      # El motivo de escasez, para que quien depura sepa que no daba.
+      assert body["error"]["message"] =~ "no_models_for_consumer"
+    end
+  end
+
   describe "las rutas que NO existen" do
     test "una ruta inexistente es un 404 con forma de cliente", %{gw: gw} do
       {status, body} = get(gw <> "/v1/nada")

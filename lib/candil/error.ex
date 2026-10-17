@@ -23,6 +23,7 @@ defmodule Candil.Error do
           | :auth_error
           | :timeout
           | :rate_limited
+          | :no_capacity
           | :invalid_api_key
           | :context_overflow
           | :provider_not_found
@@ -212,9 +213,12 @@ defmodule Candil.Error do
       context: %{
         reason_origen: reason_origen,
         retry_after: retry_after_ms,
+        # Hacia arriba: prometer menos de lo que se tarda invita a reintentar
+        # antes de tiempo. El mismo redondeo va en la cabecera del gateway
+        # (`Candil.Gateway.Handlers.reason/2`).
         message:
           "no hay quien conteste esta pregunta ahora mismo (#{inspect(reason_origen)}); " <>
-            "reintenta en #{div(retry_after_ms, 1000)} s"
+            "reintenta en #{div(retry_after_ms + 999, 1000)} s"
       }
     }
   end

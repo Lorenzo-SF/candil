@@ -182,6 +182,18 @@ defmodule Candil.Refusal do
       :fail ->
         {:error, error(motivo, retry_after_ms(wait_timeout_ms(nil, config), config))}
 
+      # `:degrade` esta declarado en el tipo y no es alcanzable: para servir
+      # con otro modelo «que cubra lo mismo» hay que saber **que pide la
+      # pregunta** (enrutado por cobertura), y eso hoy no existe — degradar sin
+      # eso seria adivinar. El raise lo dice aqui, y no un «desconocida»: quien
+      # lo escriba en su configuracion se entera de que le falta a Candil, no
+      # de que el se haya equivocado al teclear.
+      :degrade ->
+        raise ArgumentError,
+              "el refusal :degrade no es alcanzable todavia: servir con otro " <>
+                "modelo exige saber que pide la pregunta (enrutado por cobertura) " <>
+                "y Candil no lo sabe. Usa :fail o :wait"
+
       otra ->
         raise ArgumentError,
               "estrategia de refusal desconocida: #{inspect(otra)}; " <>

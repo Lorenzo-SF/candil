@@ -126,7 +126,12 @@ defmodule Candil.Config.Hydrate do
       port: spec["port"] || 8080,
       api_key: api_key(spec),
       start_args: spec["start_args"] || [],
-      install: build
+      install: build,
+      # El sha256 del archivo que se descarga al instalar (el zip
+      # precompilado). Escrito a mano en el catalogo **gana**: es la unica
+      # fuente que hay —GitHub no promete el digest como HuggingFace— y sin
+      # esto el `Installer` lo pasaba siempre `nil` y no verificaba nada.
+      checksum_sha256: spec["checksum_sha256"]
     }
   end
 

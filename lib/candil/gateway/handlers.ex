@@ -74,6 +74,7 @@ defmodule Candil.Gateway.Handlers do
     {:error, body} = Candil.Gateway.error_body(reason)
 
     conn
+    |> retry_after(reason)
     |> Plug.Conn.put_resp_content_type("application/json")
     |> Plug.Conn.send_resp(status_for(reason), Jason.encode!(body))
   end
@@ -90,7 +91,25 @@ defmodule Candil.Gateway.Handlers do
   def status_for(%Candil.Error{reason: :model_not_found}), do: 404
   def status_for(%Candil.Error{reason: :provider_not_found}), do: 404
   def status_for(%Candil.Error{reason: :auth_error}), do: 401
+  # El refusal: `Candil.Error.no_capacity/2` lo dice en su propio `@doc` —«esto
+  # es un 503»— y hasta la fase 5 caia en el `500` de abajo. Un 503 es «ahora
+  # no, quizas luego»; un 500 es «Candil esta roto» — y un cliente que
+  # reintenta sobre un 500 sin saber cuando hace trabajo tirado.
+  def status_for(%Candil.Error{reason: :no_capacity}), do: 503
   def status_for(_reason), do: 500
+
+  # El `Retry-After` de un refusal: `Candil.Error.no_capacity/2` lo trae en el
+  # contexto, en milisegundos, y la cabecera va en segundos (RFC 9110 §10.2.3).
+  # Se redondea hacia arriba —`+ 999`— porque prometer menos de lo que se tarda
+  # invita a quien obedece a volver a chocar. El numero no viaja en el cuerpo a
+  # proposito (ver `Candil.Error.no_capacity/2`): quien sabe leer cabeceras lo
+  # lee donde se lo espera.
+  @spec retry_after(Plug.Conn.t(), term()) :: Plug.Conn.t()
+  defp retry_after(conn, %Candil.Error{context: %{retry_after: ms}}) when is_integer(ms) do
+    Plug.Conn.put_resp_header(conn, "retry-after", Integer.to_string(div(ms + 999, 1000)))
+  end
+
+  defp retry_after(conn, _reason), do: conn
 
   @doc """
   Lee el cuerpo JSON de una peticion.

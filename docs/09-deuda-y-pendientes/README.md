@@ -21,6 +21,12 @@
 > `candil stats` **reventaba al invocarlo**, y la **auth del gateway no estaba
 > llamada desde el pipeline** (un `auth = api_key` contestaba 200 sin
 > credencial). Los dos arreglados, con tests que los miran desde fuera. Ver §5.
+>
+> ⚠️ **Y la cabecera se quedó vieja otra vez el 2026-10-17**: cerró la **fase
+> 5** —el refusal llega al cliente como 503 + `Retry-After`— y con ella se
+> escribieron las **condiciones de retorno** de `:degrade` (P-1) y la mitad que
+> no cubre el breaker de los agentes (P-9). Lo medido hoy va abajo (§1); la
+> cabecera de arriba (1159) es del 2026-10-16.
 
 ---
 
@@ -33,13 +39,15 @@
 | **2** | `Arrea.Resource` (Arrea 4.0.0) | ✅ mergeada y publicada en Hex |
 | **3** | **El enrutado: las capas `:embedding` y `:llm`** | ✅ mergeada |
 | **4** | **La política: quién va primero** | ✅ mergeada y **medida contra una GPU de verdad** |
-| **5** | El refusal, en los tres tipos | 🟡 **desbloqueada**: D-09 está decidido (`fail` es el defecto). `:fail` y `:wait` están escritos; `:degrade` no es alcanzable hoy (§5, P-1) |
+| **5** | El refusal, en los tres tipos | ✅ **cerrada el 2026-10-17**: `fail` y `wait` llegan al cliente HTTP —503 + `Retry-After` y el motivo dentro, con test de punta a punta—; `:degrade` sigue declarado y no alcanzable, con el porqué y las condiciones de retorno en §5 (P-1) |
 | **8** | Gateway `candil serve` | ✅ **cerrada el 2026-10-16, medida con `curl`**: los módulos, los diez handlers, los tests de punta a punta **y el comando** `candil serve` (banner, `--host/--port/--auth/--api-key`, `CANDIL_API_KEYS`, se queda en primer plano). De paso: la **auth no estaba enchufada al pipeline** y se arregló (§5). El control de concurrencia ya estaba: el chat pasa por `Policy.run/3` |
 | **11** | `candil stats` | ✅ existe y **corre** hoy: `candil stats` + `--quality`, `Candil.Telemetry.Decisions`/`Quality` y `GET /metrics` en el gateway. Hasta el 2026-10-16 el comando **reventaba** al invocarlo (ver §5) |
 | 6, 7, 9, 10, 12 | RAG · MCP · mesa camilla · agentes (D-13: en Candil) · el CLI entero | ⬜ |
 
-**`main` hoy**: **1159 tests + 27 doctests, 0 fallos**, credo 0, dialyzer 0, CI en
-verde. La 4 ya no es «verde sin medir»: está medida. La **8** ya no es «el
+**`main` hoy** (2026-10-17): **1247 tests + 27 doctests, 0 fallos**, credo 0,
+dialyzer 0, y el CI —que ahora corre **dos semillas**, 0 y 1: los dos fallos de
+orden medidos esta semana no se veían con una sola— en verde. La 4 ya no es
+«verde sin medir»: está medida. La **8** ya no es «el
 gateway no existe»: ver §5, P-7, y ya no es «falta el comando»: existe y sirve.
 
 ---
@@ -221,7 +229,7 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 
 | # | Problema | Estado |
 |---|---|---|
-| **P-1** | El defecto del refusal | ✅ **decidido** (D-09, 2026-10-11): `fail` es el defecto, y las tres son válidas y configurables. `:fail` (con su `Retry-After`) y `:wait` están escritos y probados; **`degrade` no es alcanzable hoy** — necesitaría saber qué capacidades pide cada llamada, y la única capa que lee `capabilities` es `:classifier`, que está apagada. **No bloquea la fase 5**: el consejero fue explícito en que el gateway no la necesita entera |
+| **P-1** | `:degrade`, el tercero de los tres tipos | ✅ **decidido** (D-09) y **`fail`/`wait` entregados** — fase 5 cerrada el 2026-10-17: el gateway pinta el refusal como **503 + `Retry-After`**, probado por HTTP de punta a punta (§1). **`:degrade` sigue sin ser alcanzable**, y así se queda hasta que exista el enrutado por cobertura — saber **qué pide la pregunta**, cuya materia prima es la capa `:classifier` (hoy apagada) o el RAG (fase 6). Configurarlo revienta con un `ArgumentError` que lo dice con esas palabras. **Cómo retomarlo**: cuando la cobertura exista, la pregunta ya no es «¿se puede?» sino «¿hace falta?» — y si nadie la echa de menos, la relectura honesta es que el caso que la pedía (varios candidatos y la espera no cabe) ya lo resuelve elegir otro candidato **antes** de rechazar, que es lo que hace la escalera del `Scorer`; entonces D-09 se revisa, no se amplía |
 | ~~P-2~~ | La métrica del tribunal | ✅ **cerrado** (A-1). Ya existe, y ha sentenciado: 16.7% |
 | **P-3** | `rest_for_one` sin implementar | **a propósito**: no tiene caso hasta que exista un destino que ceda el turno (D-02) |
 | **P-4** | Quién escribe la verdad de la VRAM | 🟡 **se mide y se enseña**: la columna `VRAM` de `candil status` es el RSS del PID del motor, atribuido por PID (PR #86), y es lo que declara `Engine` en su `@doc`. Lo que sigue sin dueño es **escribirla** —reservar antes de arrancar—, y es la parte de la 8b |
@@ -229,6 +237,7 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 | **P-6** | La colocación de modelos en varias GPUs | es la parte de la 8b que falta, y **depende de P-4** |
 | ~~P-7~~ | ~~**El gateway no existe**~~ | ✅ **es falso, y esta fila es un retroceso de hoy**: el `revert` del PR #82 (2026-10-15) devolvió a este documento dos filas que ya estaban cerradas. `Gateway.start/1` arranca Bandit y devuelve el puerto real, los diez handlers están escritos y `test/candil/gateway/end_to_end_test.exs` los prueba con HTTP de verdad a los dos lados (20 tests). Ya no falta el comando: **`candil serve` existe y sirve** (2026-10-16, medido con el escript y `curl`), y el control de concurrencia ya estaba — el chat pasa por `Policy.run/3`. El enrutado **sí** es alcanzable desde un cliente real: `POST /v1/chat/completions` con `"model": "auto"` |
 | ~~P-8~~ | ~~**`reasoning_content` se descarta**~~ | ✅ **cerrado dos veces, y la segunda a propósito**. La descripción era falsa por dos motivos: (1) medido el 2026-10-14 con `Qwen3.8-27B` y `--reasoning-format deepseek`, `content` **sí** trae la respuesta final y el razonamiento viene al lado (`stop` en los dos casos); (2) el campo que se añadió para no perderlo se **revirtió** en el PR #82 porque no lo lee nadie — ni el enrutado, ni la calidad, ni el CLI, que no muestra respuestas. Lo único que queda en pie es el **diagnóstico** cuando un modelo razona y se queda sin presupuesto: sale `content: ""` con `finish_reason: length` y nada lo explica en el cuerpo, que es lo que `Candil.Telemetry.Quality` marca como anomalía por el lado de la telemetría |
+| **P-9** | La otra mitad del §8.3 de los agentes: un agente que **revienta** en bucle | 🟡 **a medias a propósito** (2026-10-17): el breaker por agente cierra el **cuelgue** —5 seguidos abren, y la puerta contesta `{:error, {:agent_circuit_open, …}, []}` sin volver a pagar el plazo—, pero vive **en el proceso del agente** y muere con él, que es justo la situación que un bucle de crashes crea (el supervisor lo levanta con el contador a cero). Cubrirlo necesita decidir **quién** consulta el circuito antes de arrancar —hoy el supervisor reinicia sin preguntar, y la intensidad 10/5 s es toda la defensa— y **con qué señal** cuenta un crash en un contador que no vive en el proceso que se cae. Queda escrito en vez de fingido; al retomarlo, si la señal sigue sin existir, la relectura es que el caso quizá no pida un breaker sino **no reiniciar** (`restart: :transient`, que el árbol sepa que aquel agente no vuelve), y eso ya es decisión del dueño |
 
 ### Lo que se midió el 2026-10-15, y que arregló un 500 vacío
 

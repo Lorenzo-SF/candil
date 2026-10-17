@@ -141,5 +141,20 @@ defmodule Candil.RefusalTest do
 
       assert Refusal.defaults()[:strategy] in [:fail, :wait]
     end
+
+    test "escribirlo en la configuracion revienta diciendo que falta, no «desconocida»" do
+      # El nombre esta bien y la estrategia esta declarada; lo que falta es el
+      # enrutado por cobertura. Un raise que dijera «desconocida» mandaria a
+      # quien lo lee a buscar una errata que no existe.
+      assert_raise ArgumentError, ~r/enrutado por cobertura/, fn ->
+        Refusal.apply(
+          [%{role: "user", content: "hola"}],
+          :default,
+          [strategy: :degrade],
+          fn -> {:error, :no_models_for_consumer} end,
+          :no_models_for_consumer
+        )
+      end
+    end
   end
 end

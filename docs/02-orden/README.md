@@ -72,7 +72,7 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 | **2** | `Arrea.Resource` (la forma de una capacidad) | — | La política; y es lo que usa la scheduler | ✅ |
 | **3** | **El enrutado: las capas que faltan** | 1, 2 | Que el enrutado elija por significado y no solo por regla | ✅ |
 | **4** | **La política: quién va primero** | 3 | Que varios compitan por un destino y no se estorben | ✅ **mergeada y medida** (§2.1 de la deuda); `rest_for_one` no está, a propósito (P-3) |
-| **5** | **El refusal, en los tres tipos** | 4 | Que un "no" diga qué corregir | 🟡 |
+| **5** | **El refusal, en los tres tipos** | 4 | Que un "no" diga qué corregir | ✅ **cerrada el 2026-10-17**: `fail` y `wait` llegan al cliente HTTP —503 con `Retry-After` y el motivo dentro—; `:degrade` queda declarado y no alcanzable, con su porqué en P-1 |
 | **6** | RAG | 1 | La mesa camilla | ⬜ |
 | **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ |
 | **8** | **Gateway** `candil serve` | 3, 5 | Que otro proceso use Candil sin escribir Elixir | ✅ **cerrada el 2026-10-16**: el comando existe y sirve, medido con `curl` |
@@ -83,8 +83,9 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 
 > **Lo que dicen los amarillos, medido el 2026-10-16** (ver
 > [`09-deuda-y-pendientes`](../09-deuda-y-pendientes/README.md) §5): la **5**
-> tiene `:fail` (el defecto, con `Retry-After`) y `:wait` escritos, y `:degrade`
-> no es alcanzable y no bloquea nada. La **8** ya no es un amarillo: existía
+> ya no es un amarillo desde el 2026-10-17 — el refusal llega al cliente
+> (503 + `Retry-After`); `:degrade` sigue declarado y no alcanzable, no bloquea
+> nada y su porqué quedó escrito (P-1). La **8** ya no es un amarillo: existía
 > todo menos el comando, el comando se escribió, y por el camino salió que **la
 > auth no estaba enchufada al pipeline** —un `auth = api_key` contestaba 200 sin
 > credencial— y se arregló. La **11** existe y corre, pero hasta ayer reventaba

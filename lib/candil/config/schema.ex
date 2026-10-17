@@ -95,6 +95,7 @@ defmodule Candil.Config.Schema do
 
   defp validate_engine(name, spec) when is_map(spec) do
     validate_binary(name, spec) ++
+      validate_checksum(name, spec) ++
       validate_install(name, spec) ++
       validate_auth(name, spec)
   end
@@ -107,6 +108,27 @@ defmodule Candil.Config.Schema do
       nil -> []
       value when is_binary(value) -> []
       other -> ["engine '#{name}'.binary must be a string, got: #{inspect(other)}"]
+    end
+  end
+
+  # El sha256 del zip precompilado, escrito a mano en el catalogo. Se valida
+  # **al cargar** —64 caracteres hex— para que una errata se vea aqui y no como
+  # un «checksum mismatch» despues de descargar la release entera, que es el
+  # momento mas caro para enterarse.
+  defp validate_checksum(name, spec) do
+    case Map.get(spec, "checksum_sha256") do
+      nil ->
+        []
+
+      value when is_binary(value) ->
+        if value =~ ~r/\A[0-9a-fA-F]{64}\z/ do
+          []
+        else
+          ["engine '#{name}'.checksum_sha256 must be 64 hex characters, got: #{inspect(value)}"]
+        end
+
+      other ->
+        ["engine '#{name}'.checksum_sha256 must be a string, got: #{inspect(other)}"]
     end
   end
 
