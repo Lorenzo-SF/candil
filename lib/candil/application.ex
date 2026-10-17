@@ -54,6 +54,9 @@ defmodule Candil.Application do
       # El registro de adaptadores de provider. Va ANTES que `Store` porque
       # `Provider.validate/1` pregunta al registro, y `Store` valida al registrar.
       Candil.Store,
+      # El almacén del storage (fase 9, F2.2): la fachada que elige el
+      # adaptador. Va antes que `Context`, que es quien lo consume.
+      Candil.Storage.Store,
       Candil.Context,
       Candil.Context.PrefixManager,
       Candil.Router.Cache,
