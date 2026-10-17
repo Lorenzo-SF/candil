@@ -76,8 +76,16 @@ defmodule Candil.Gateway.EndToEndTest do
     # ligado al proceso que lo arranca, asi que arrancarlo por test lo deja
     # muerto entre medias y el segundo test se come un «unknown registry».
     case Process.whereis(Finch) do
-      nil -> {:ok, _} = Finch.start_link(name: Finch)
-      _pid -> :ok
+      nil ->
+        {:ok, pid} = Finch.start_link(name: Finch)
+        # Desenlazado, como en `serve_test`: ligado a este `setup_all`, Finch
+        # muere cuando el modulo termina — y el fichero siguiente que lo vea
+        # (`Process.whereis/1` todavia lo alcanza por un momento) se queda con
+        # un registro fantasma y se come un «unknown registry: Finch».
+        Process.unlink(pid)
+
+      _pid ->
+        :ok
     end
 
     :ok

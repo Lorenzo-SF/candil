@@ -14,6 +14,15 @@ defmodule Candil.Agents.SimpleReflex do
   deadline, and puts it under `Candil.Agents.Supervisor` — which lives in the
   application tree since F5.3.
 
+  ## The name, and the door
+
+  With a `:name` the process registers (`Candil.Registry`, F5.5) and becomes
+  findable and callable by it: `Candil.Agents.whereis/1` and
+  `Candil.Agents.call/3`. The registration follows the process — a restart
+  re-registers, a stop unregisters — and a duplicate name does not fight the
+  live one: the second start is `{:error, {:already_started, pid}}`. Without a
+  name it still works; it is just not findable.
+
   ## The deadline, and the day the engine does not come back
 
   A run ends up talking HTTP, and that HTTP may not come back. A `handle_call`
@@ -61,8 +70,10 @@ defmodule Candil.Agents.SimpleReflex do
     * `:backend` — **required**: the `Candil.Backend` module it talks to.
       Without it the process does not start (`{:error, :no_backend}`): a
       reflex with no engine has nothing to reflect.
-    * `:name` — the agent's name, for `status/1`. It is metadata, not a
-      registration: the process is not findable by it (that story is F5.5).
+    * `:name` — the agent's name. With it the process **registers** and can be
+      found and called by it (`Candil.Agents.call/3`, F5.5); without it, it
+      still works — it is just not findable. A name already taken by a live
+      agent does not start: `{:error, {:already_started, pid}}`.
     * `:goal` — the goal; it goes in the system prompt (no `:goal`, no system
       message — the same as `Candil.Agent`).
     * `:model` — the model alias; `"default"` when not given (the sentinel
@@ -83,7 +94,7 @@ defmodule Candil.Agents.SimpleReflex do
     # proceso ni nace y no hay señal que aguantar.
     case Keyword.get(opts, :backend) do
       backend when is_atom(backend) and not is_nil(backend) ->
-        GenServer.start_link(__MODULE__, opts)
+        GenServer.start_link(__MODULE__, opts, name_opt(opts))
 
       _ ->
         {:error, :no_backend}
@@ -109,7 +120,8 @@ defmodule Candil.Agents.SimpleReflex do
 
   Returns what `Candil.Agent.run/3` returns on each call — `{:ok, answer,
   trace}` | `{:error, reason, trace}` — or `{:error, :timeout, []}` when the
-  engine does not come back within the agent's deadline.
+  engine does not come back within the agent's deadline. Whoever has the name
+  and not the server asks through `Candil.Agents.call/3`.
   """
   @spec evaluate(GenServer.server(), term()) :: result()
   def evaluate(server, input) do
@@ -153,6 +165,19 @@ defmodule Candil.Agents.SimpleReflex do
   end
 
   # ── Private ─────────────────────────────────────────────────────────────
+
+  # El `:name` es la puerta (F5.5): con nombre, el proceso se registra y se
+  # puede encontrar y llamar por el; sin nombre, no — un proceso que solo
+  # trabaja no necesita puerta. La registracion va en el `start_link` del
+  # `GenServer` y no en `init/1`: asi el nombre duplicado es un
+  # `{:error, {:already_started, pid}}` de la puerta, sin proceso a medias.
+  @spec name_opt(keyword()) :: keyword()
+  defp name_opt(opts) do
+    case Keyword.get(opts, :name) do
+      nil -> []
+      name -> [name: Candil.Agents.via(name)]
+    end
+  end
 
   # El run va en una tarea propia y se espera con plazo: `Task.yield/2` no
   # bloquea más de la cuenta, y `Task.shutdown/2` mata lo que no volvió —que

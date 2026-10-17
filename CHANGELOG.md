@@ -9,6 +9,29 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Un agente se encuentra por su nombre y se le pregunta con respuesta:
+  `Candil.Agents.call/3` (F5.5).** La façade nueva —`call/3`, `whereis/1` y
+  `via/1`— es la puerta del §5.5 de `docs/04-modulos/05-agentes`:
+  `Candil.Agents.call(agente, estímulo)` acepta el nombre o el pid, manda el
+  `{:evaluate, …}` que ya hablaban los procesos, y **espera la respuesta**
+  — contra el `send_message/2` de Arrea, que es un `cast`: «se encoló» nunca
+  fue «te contesté». Los errores vuelven **como dato**, con la forma de la
+  casa: un nombre sin proceso es `{:error, {:agent_not_up, nombre}, []}` —no
+  un `:noproc` en la cara de quien pregunta—, y el vencimiento de quien
+  pregunta es `{:error, :timeout, []}`, sin basura en el buzón (medido: OTP
+  descarta la respuesta tardía). Un agente que **revienta** —un fallo de
+  programación, no un error del motor— sí propaga el exit: la puerta
+  distingue «no está» de «se rompió».
+
+  Para encontrarlos, los agentes se registran en `Candil.Registry` con la
+  clave `{:agent, name}`, el mismo patrón que `Policy.Destination`:
+  `SimpleReflex` desde su `:name` opcional, `ModelBasedReflex` siempre (su
+  `:name` es obligatorio: llavea el snapshot). Con nombre, un segundo agente
+  con el mismo no arranca (`{:error, {:already_started, pid}}`), y el
+  reinicio re-registra solo. Probado en `test/candil/agents_test.exs`,
+  colofón incluido: **dos agentes hablando** — uno pregunta al otro a mitad
+  de vuelta con una herramienta, y la respuesta del otro entra en su traza.
+
 - **El tipo 2 existe, y el reinicio vuelve CON el estado (F5.4).**
   `Candil.Agents.ModelBasedReflex` es el reflejo basado en modelos del §5.1:
   el estado del agente vivido por un proceso, así que cada `evaluate/2` es una
@@ -76,6 +99,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `supervisor_test.exs`).
 
 ### Changed
+
+- **`Tool.call/2` ejecuta la herramienta en quien llama, no dentro del
+  registro (F5.5).** Medido: el registro es un `GenServer` y la herramienta
+  corría dentro de él, así que **cualquier herramienta cerraba la puerta del
+  registro mientras durase** — todos los `Tool.list/0` de todas las vueltas
+  de todos los agentes esperando a que terminara. Y con dos agentes que se
+  preguntan, abrazo mortal: el agente A llama a `B` desde su herramienta, y
+  `B`, en su vuelta, le pide la lista de herramientas al registro ocupado. La
+  herramienta corre ahora en quien llama y el registro solo la guarda y la
+  devuelve: el contrato de retorno no cambia, y el registro vuelve a ser lo
+  que dice ser — puerta, no taller.
 
 - **El supervisor de agentes tolera diez caídas en cinco segundos, no tres
   (F5.4).** Medido: con la intensidad por defecto, el cuarto agente que cae

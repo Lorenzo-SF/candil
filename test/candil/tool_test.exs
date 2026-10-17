@@ -39,6 +39,24 @@ defmodule Candil.ToolTest do
       Tool.define(tool)
       assert {:error, :bad_day} = Tool.call("always_fail", %{})
     end
+
+    test "la función corre en quien llama, no en el registro" do
+      # Medido por una fase de agentes (F5.5): un agente que desde su
+      # herramienta llama a otro agente se abrazaba con el registro — el
+      # otro, en su vuelta, pedía `Tool.list/0` al proceso que estaba
+      # ocupado ejecutando la herramienta. Aquí se pincha el porqué: el
+      # `self/0` de dentro es el de quien llama.
+      tool = %Tool{
+        name: "quien_soy",
+        description: "Dice en qué proceso corre",
+        schema: %{},
+        function: fn _ -> {:ok, self()} end
+      }
+
+      Tool.define(tool)
+      assert {:ok, pid} = Tool.call("quien_soy", %{})
+      assert pid == self()
+    end
   end
 
   describe "validate_args/2" do

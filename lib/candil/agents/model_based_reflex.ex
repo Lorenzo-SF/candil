@@ -23,7 +23,7 @@ defmodule Candil.Agents.ModelBasedReflex do
 
   After every finished turn the state is written down
   (`Candil.Agents.Snapshots`, keyed by `:name` — which is why the name is
-  required here, and not decoration as in the type 1). When the process
+  required here, and not decoration). When the process
   crashes, the supervisor raises it again with the same arguments, the new
   process finds the last stable state and continues from it: that is the
   restart Arrea cannot do — its workers are `:temporary` and store no state.
@@ -33,6 +33,14 @@ defmodule Candil.Agents.ModelBasedReflex do
   A snapshot that does not restore is refused at start-up
   (`{:error, {:snapshot_invalid, reason}}`): coming back without state is
   degraded; coming back with half of one is wrong.
+
+  ## The name, and the door
+
+  The same name that keys the snapshot is the door: the process registers in
+  `Candil.Registry` on start, so it can be found and asked by it
+  (`Candil.Agents.whereis/1`, `Candil.Agents.call/3`, F5.5). The registration
+  follows the process — a restart re-registers, and a duplicate name does not
+  start a second agent: `{:error, {:already_started, pid}}`.
 
   ## What it is not
 
@@ -66,9 +74,10 @@ defmodule Candil.Agents.ModelBasedReflex do
 
     * `:backend` — **required**: the `Candil.Backend` module it talks to.
       Without it the process does not start (`{:error, :no_backend}`).
-    * `:name` — **required**: the agent's identity, and the key its snapshot
-      lives under (`Candil.Agents.Snapshots`). Without it
-      (`{:error, :no_name}`).
+    * `:name` — **required**: the agent's identity. It keys the snapshot
+      (`Candil.Agents.Snapshots`) and it is the door (F5.5): the process
+      registers and can be found and called by it (`Candil.Agents.call/3`).
+      Without it, `{:error, :no_name}`.
     * `:goal` — the goal; it goes in the system prompt (no `:goal`, no system
       message — the same as `Candil.Agent`).
     * `:model` — the model alias; `"default"` when not given. Checked against
@@ -91,7 +100,10 @@ defmodule Candil.Agents.ModelBasedReflex do
     with {:ok, backend} <- resolve_backend(opts),
          {:ok, name} <- resolve_name(opts),
          {:ok, engine, restored?} <- initial_engine(opts, backend, name) do
-      GenServer.start_link(__MODULE__, {opts, engine, restored?})
+      # Con nombre —obligatorio aqui— y registrado en el `start_link`, no en
+      # `init/1`: el nombre duplicado es un `{:error, {:already_started,
+      # pid}}` de la puerta (F5.5), sin proceso a medias.
+      GenServer.start_link(__MODULE__, {opts, engine, restored?}, name: Candil.Agents.via(name))
     end
   end
 
@@ -118,7 +130,8 @@ defmodule Candil.Agents.ModelBasedReflex do
   trace}` | `{:error, reason, trace}`, three elements also in error — with
   the trace of THIS turn; `status/1` has the trace of the agent's whole life.
   Or `{:error, :timeout, []}` when the turn does not end within the agent's
-  deadline, in which case the state stays where it was.
+  deadline, in which case the state stays where it was. Whoever has the name
+  and not the server asks through `Candil.Agents.call/3`.
   """
   @spec evaluate(GenServer.server(), term()) :: result()
   def evaluate(server, input) do
