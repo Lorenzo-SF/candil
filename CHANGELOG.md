@@ -9,6 +9,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **El tipo 1 existe: `Candil.Agents.SimpleReflex`, el primer agente con
+  proceso (F5.3).** Un `GenServer` de verdad: `evaluate/2` (estímulo →
+  respuesta) y `status/1`, y sin memoria — cada llamada es un run
+  independiente de `Candil.Agent` y nada de él queda en el proceso. Sin
+  `:session` a propósito: esa es la puerta de la memoria (F5.2), y un reflejo
+  que recuerda no es un reflejo.
+
+  El run va en una tarea con plazo (`:timeout`, 60 s por defecto): cuando el
+  motor no vuelve, la tarea se mata —el HTTP muere con ella— y la respuesta es
+  `{:error, :timeout, []}`; el agente sigue vivo y sirviendo. Es el cuelgue del
+  §8.3 de `docs/04-modulos/05-agentes`, y tiene su test con `@tag timeout:`
+  (backend parado, plazo de 100 ms). Arrancar sin `:backend` no arranca
+  (`{:error, :no_backend}`, comprobado antes de que el proceso nazca), y un run
+  que revienta —un fallo de programación, no un error del motor— se lleva al
+  agente y el supervisor lo levanta. Probado en
+  `test/candil/agent/simple_reflex_test.exs`.
+
 - **El contrato de agente nace en Candil: `Candil.Agents.Behaviour`, con su
   supervisor (F5.1).** Cinco callbacks —`init_agent/1` y `step/3`
   obligatorios; `describe/0`, `snapshot/1` y `restore/1` opcionales— y `step/3`
@@ -27,6 +44,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `supervisor_test.exs`).
 
 ### Changed
+
+- **El supervisor de agentes vive ya en el árbol de la aplicación (F5.3).**
+  `Candil.Agents.Supervisor` era un `DynamicSupervisor` en solitario desde la
+  F5.1 —"vacío, supervisando nada"—; desde ahora es hijo de `Candil.Supervisor`
+  y es el reino del primer agente de verdad: `start_agent/2` con un
+  `SimpleReflex` arranca, evalúa, se para, y al que se cae se le levanta. El
+  child spec del agente lleva escritas las defensas del §8.3: `:permanent` y
+  cinco segundos de gracia, no `:brutal_kill`.
 
 - **`Candil.Agent` es ya el agente que el behaviour describe, y su historia
   vive en `Candil.Context` (F5.2).** El módulo declara

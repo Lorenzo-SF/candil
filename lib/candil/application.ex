@@ -3,8 +3,9 @@ defmodule Candil.Application do
   OTP application for `Candil`.
 
   Starts the ETS-based catalogue (`Candil.Store`), the shared conversation
-  store (`Candil.Context`), and the dynamic supervisor that manages
-  llama-server engines started via `Candil.start_engine/2`.
+  store (`Candil.Context`), the dynamic supervisor that manages llama-server
+  engines started via `Candil.start_engine/2`, and the one agents are started
+  under (`Candil.Agents.Supervisor`, in the tree since F5.3).
 
   `Candil.Store` comes before `Candil.Context` because the other children
   read its tables, and a supervision order that gets this backwards produces
@@ -69,6 +70,11 @@ defmodule Candil.Application do
       Candil.Router.Fallback,
       Candil.Cancellation,
       Candil.Tool,
+      # El supervisor de los agentes. Entra en el árbol con el primer agente
+      # de verdad (F5.3): hasta entonces era un supervisor vacío supervisando
+      # nada. Sus hijos nacen después y a petición, así que no exige orden;
+      # va junto a `Candil.Tool`, que es con lo que trabaja un agente.
+      Candil.Agents.Supervisor,
       Candil.EnginePool,
       # Las colas de la politica, UNA POR DESTINO y arrancadas por perezosis:
       # en un destino no exclusivo no se encola nunca, asi que este supervisor

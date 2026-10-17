@@ -5,10 +5,16 @@ defmodule Candil.Agents.SupervisorTest do
 
   ## Por qué este test existe
 
-  La F5.1 (`docs/04-modulos/05-agentes` §3.2) trae el supervisor antes que al
+  La F5.1 (`docs/04-modulos/05-agentes` §3.2) trajo el supervisor antes que al
   primer agente, así que aquí el hijo no piensa: es un `GenServer` vacío que
   solo tiene lo que el supervisor exige — `child_spec/1` y `start_link/1`. Lo
   que se prueba es la puerta de entrada y la estrategia.
+
+  ## Uno solo, el de la aplicación
+
+  Desde la F5.3 el supervisor vive en el árbol de la aplicación, así que aquí
+  ya no se arranca uno de mentira: se usa el de verdad. Lo único que hay que
+  hacer es no dejarle hijos al siguiente test.
   """
 
   use ExUnit.Case, async: false
@@ -26,7 +32,12 @@ defmodule Candil.Agents.SupervisorTest do
   end
 
   setup do
-    start_supervised!(Supervisor)
+    on_exit(fn ->
+      for {_, pid, _, _} <- Supervisor.list_agents(), is_pid(pid) do
+        Supervisor.stop_agent(pid)
+      end
+    end)
+
     :ok
   end
 
