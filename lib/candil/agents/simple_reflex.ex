@@ -53,9 +53,11 @@ defmodule Candil.Agents.SimpleReflex do
   alias Candil.Agent
   alias Candil.Agents.Breaker
   alias Candil.Agents.Breakers
+  alias Candil.Agents.Crashes
 
   @default_max_steps 1
   @default_timeout 60_000
+  @crash_budget 5
 
   @typedoc """
   What `evaluate/2` returns: the run's result — three elements also in error,
@@ -152,28 +154,34 @@ defmodule Candil.Agents.SimpleReflex do
     # `Candil.Agent.run/3` — un dato, no un reventón.
     name = Keyword.get(opts, :name)
 
-    breaker =
-      case name do
-        nil ->
-          Breaker.new(opts)
+    budget = Keyword.get(opts, :crash_budget, @crash_budget)
 
-        n ->
-          case Breakers.load(n) do
-            {:ok, b} -> b
-            {:error, :not_found} -> Breaker.new(opts)
-          end
-      end
+    if name != nil and Crashes.count(name, now()) >= budget do
+      {:stop, :crash_budget_exceeded}
+    else
+      breaker =
+        case name do
+          nil ->
+            Breaker.new(opts)
 
-    {:ok,
-     %{
-       name: name,
-       goal: Keyword.get(opts, :goal),
-       backend: Keyword.get(opts, :backend),
-       model: Keyword.get(opts, :model) || "default",
-       max_steps: Keyword.get(opts, :max_steps, @default_max_steps),
-       timeout: Keyword.get(opts, :timeout, @default_timeout),
-       breaker: breaker
-     }}
+          n ->
+            case Breakers.load(n) do
+              {:ok, b} -> b
+              {:error, :not_found} -> Breaker.new(opts)
+            end
+        end
+
+      {:ok,
+       %{
+         name: name,
+         goal: Keyword.get(opts, :goal),
+         backend: Keyword.get(opts, :backend),
+         model: Keyword.get(opts, :model) || "default",
+         max_steps: Keyword.get(opts, :max_steps, @default_max_steps),
+         timeout: Keyword.get(opts, :timeout, @default_timeout),
+         breaker: breaker
+       }}
+    end
   end
 
   @impl true
@@ -203,6 +211,9 @@ defmodule Candil.Agents.SimpleReflex do
      |> Map.put(:breaker, Breaker.check(state.breaker, now())), state}
   end
 
+  @impl true
+  def terminate(_reason, _state), do: :ok
+
   # ── Private ─────────────────────────────────────────────────────────────
 
   # El `:name` es la puerta (F5.5): con nombre, el proceso se registra y se
@@ -228,11 +239,30 @@ defmodule Candil.Agents.SimpleReflex do
   # o nada.
   @spec within_timeout(map(), term()) :: result()
   defp within_timeout(state, input) do
-    task = Task.async(fn -> Agent.run(config(state), input, run_opts(state)) end)
+    task =
+      Task.Supervisor.async_nolink(Candil.TaskSupervisor, fn ->
+        Agent.run(config(state), input, run_opts(state))
+      end)
 
     case Task.yield(task, state.timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, result} -> result
-      nil -> {:error, :timeout, []}
+      {:ok, result} ->
+        result
+
+      nil ->
+        {:error, :timeout, []}
+
+      {:exit, reason} ->
+        if state.name != nil do
+          Crashes.record(state.name, System.monotonic_time(:millisecond))
+        end
+
+        case reason do
+          {exception, stacktrace} when is_exception(exception) ->
+            reraise exception, stacktrace
+
+          _ ->
+            exit(reason)
+        end
     end
   end
 
