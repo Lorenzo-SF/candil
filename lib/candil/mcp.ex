@@ -31,8 +31,7 @@ defmodule Candil.MCP do
   """
   @spec serve(keyword()) :: {:ok, pid()} | {:error, term()}
   def serve(opts \\ []) do
-    _ = opts
-    {:error, Error.not_implemented("Candil.MCP.serve/1", phase: 7)}
+    Candil.MCP.Server.start_link(opts)
   end
 
   @doc """
