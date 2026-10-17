@@ -133,10 +133,29 @@ defmodule Candil.MCP.ProtocolTest do
       assert error.error.message =~ "weather"
       assert error.error.message =~ "boom"
     end
+  end
 
-    test "serve and connect are honest about being phase 9" do
-      assert {:error, %Candil.Error{reason: :not_implemented}} = MCP.serve()
-      assert {:error, %Candil.Error{reason: :not_implemented}} = MCP.connect()
+  describe "serve/1" do
+    test "starts a server" do
+      assert {:ok, pid} = MCP.serve()
+      assert is_pid(pid)
+      GenServer.stop(pid)
+    end
+
+    test "handle_request answers initialize" do
+      {:ok, server} = MCP.serve()
+
+      response =
+        Candil.MCP.Server.handle_request(server, %{
+          "jsonrpc" => "2.0",
+          "id" => 1,
+          "method" => "initialize",
+          "params" => %{}
+        })
+
+      assert response.result.protocolVersion == "2025-11-25"
+      assert response.result.serverInfo.name == "candil"
+      GenServer.stop(server)
     end
   end
 end
