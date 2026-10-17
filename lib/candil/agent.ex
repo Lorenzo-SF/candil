@@ -30,6 +30,16 @@ defmodule Candil.Agent do
   is deprecated and goes in 4.1.0; this module was its last consumer inside
   the house, and it migrated in F5.2.
 
+  ## The last state worth restarting from
+
+  The two optional callbacks of the behaviour arrived with F5.4: `snapshot/1`
+  turns the state into plain data — a cancellation reference belongs to the
+  run that asked for it and is left out — and `restore/1` builds the state
+  back, or says why the map was not one. `finalize/1` is public for the same
+  reason: the process that drives `step/3` and keeps the state
+  (`Candil.Agents.ModelBasedReflex`) answers with the same result shape
+  `run/3` does, from one mapping.
+
   ## Stop words
 
   If the model's response contains one of the configured stop words
@@ -93,6 +103,22 @@ defmodule Candil.Agent do
 
   @default_max_steps 8
   @default_consumer :candil_agent
+
+  # Las claves que tiene la forma del estado, sin `cancel_ref`: `snapshot/1`
+  # la quita —una referencia no sobrevive con sentido— y `restore/1` la
+  # devuelve como `nil`. El orden solo manda en el mensaje de error: se
+  # nombra la primera que falte.
+  @snapshot_keys [
+    :config,
+    :backend,
+    :model,
+    :max_steps,
+    :rounds,
+    :consumer,
+    :session,
+    :messages,
+    :trace
+  ]
 
   @doc """
   Run the agent synchronously. Returns `{:ok, final_answer, trace}` on
@@ -183,6 +209,64 @@ defmodule Candil.Agent do
 
       true ->
         react_round(state)
+    end
+  end
+
+  @impl true
+  @doc """
+  The last state worth restarting from: the whole state as plain data.
+
+  Plain means serializable — modules, strings, numbers, maps and lists.
+  `cancel_ref` is left out on purpose: a reference belongs to the run that
+  asked for it, and a run that died is not cancelled by a restart.
+  `restore/1` brings it back as `nil`.
+  """
+  @spec snapshot(agent_state()) :: map()
+  def snapshot(state) when is_map(state) do
+    Map.delete(state, :cancel_ref)
+  end
+
+  @impl true
+  @doc """
+  Builds the state back from a snapshot, or refuses it.
+
+  A map missing any of the fields the state is made of is not a snapshot: the
+  reason names the missing key, because a restore that half-works is a state
+  that fails later and somewhere else. `Map.take/2` and not `Map.put/3`: what
+  goes back in is exactly the state's shape, so a field someone else added
+  does not travel as if it were part of the agent.
+  """
+  @spec restore(map()) :: {:ok, agent_state()} | {:error, term()}
+  def restore(snapshot) when is_map(snapshot) do
+    case Enum.find(@snapshot_keys, &(not Map.has_key?(snapshot, &1))) do
+      nil ->
+        {:ok, snapshot |> Map.take(@snapshot_keys) |> Map.put(:cancel_ref, nil)}
+
+      missing ->
+        {:error, {:missing_key, missing}}
+    end
+  end
+
+  def restore(_other), do: {:error, :not_a_snapshot}
+
+  @doc """
+  The result a trace ends in — what `run/3` answers.
+
+  Public since F5.4: the process that drives `step/3` answers with the same
+  shape, and the mapping from trace to result lives here and not in two
+  places.
+  """
+  @spec finalize(trace()) :: result()
+  def finalize(trace) do
+    case List.last(trace) do
+      %{kind: :final, content: content} when is_binary(content) ->
+        {:ok, content, Enum.reject(trace, &match?(%{kind: :final}, &1))}
+
+      %{kind: :final, content: other} ->
+        {:error, other, Enum.reject(trace, &match?(%{kind: :final}, &1))}
+
+      _ ->
+        {:ok, "", trace}
     end
   end
 
@@ -412,20 +496,6 @@ defmodule Candil.Agent do
 
   @spec cancel_ref_to_id(reference()) :: String.t()
   defp cancel_ref_to_id(ref), do: inspect(ref)
-
-  @spec finalize(trace()) :: result()
-  defp finalize(trace) do
-    case List.last(trace) do
-      %{kind: :final, content: content} when is_binary(content) ->
-        {:ok, content, Enum.reject(trace, &match?(%{kind: :final}, &1))}
-
-      %{kind: :final, content: other} ->
-        {:error, other, Enum.reject(trace, &match?(%{kind: :final}, &1))}
-
-      _ ->
-        {:ok, "", trace}
-    end
-  end
 
   defmacro __using__(opts) do
     name = Keyword.fetch!(opts, :name)

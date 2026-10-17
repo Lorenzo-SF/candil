@@ -259,4 +259,85 @@ defmodule Candil.AgentTest do
              ]
     end
   end
+
+  describe "snapshot/1 y restore/1: el último estado estable (F5.4)" do
+    test "un estado fotografiado y restaurado es el mismo estado" do
+      push_responses([final_response("uno")])
+
+      {:ok, state} =
+        Candil.Agent.init_agent(config: %{goal: "g"}, backend: StubBackend, model: "test")
+
+      {:ok, state, _} = Candil.Agent.step(state, "hola", [])
+
+      assert {:ok, restored} = Candil.Agent.restore(Candil.Agent.snapshot(state))
+      assert restored == state
+    end
+
+    test "la referencia de cancelación no viaja: se queda fuera del snapshot" do
+      ref = Cancellation.new_ref()
+
+      {:ok, state} =
+        Candil.Agent.init_agent(
+          config: %{goal: "g"},
+          backend: StubBackend,
+          model: "test",
+          cancel_ref: ref
+        )
+
+      snapshot = Candil.Agent.snapshot(state)
+
+      refute Map.has_key?(snapshot, :cancel_ref)
+
+      # Y al volver, la cancelación es cosa de un run muerto: nace en nil.
+      assert {:ok, restored} = Candil.Agent.restore(snapshot)
+      assert restored.cancel_ref == nil
+    end
+
+    test "y el snapshot es dato plano: cruza term_to_binary sin perder nada" do
+      push_responses([final_response("hecho")])
+
+      {:ok, state} =
+        Candil.Agent.init_agent(config: %{goal: "g"}, backend: StubBackend, model: "test")
+
+      {:ok, state, _} = Candil.Agent.step(state, "hola", [])
+
+      snapshot = Candil.Agent.snapshot(state)
+
+      assert :erlang.binary_to_term(:erlang.term_to_binary(snapshot)) == snapshot
+    end
+
+    test "restaurar y seguir da el mismo resultado que no haberse caído" do
+      push_responses([final_response("uno"), final_response("dos"), final_response("dos")])
+
+      {:ok, state} =
+        Candil.Agent.init_agent(config: %{goal: "g"}, backend: StubBackend, model: "test")
+
+      {:ok, state, _} = Candil.Agent.step(state, "uno", [])
+
+      {:ok, restored} = Candil.Agent.restore(Candil.Agent.snapshot(state))
+      assert restored == state
+
+      # Dos caminos desde el mismo punto: el estado original y el revivido.
+      assert {:ok, original, %{kind: :final, content: "dos"}} =
+               Candil.Agent.step(state, "dos", [])
+
+      assert {:ok, revivido, %{kind: :final, content: "dos"}} =
+               Candil.Agent.step(restored, "dos", [])
+
+      assert revivido == original
+    end
+
+    test "restore rechaza lo que no es un snapshot, y no deja entrar campos de más" do
+      assert {:error, {:missing_key, :config}} = Candil.Agent.restore(%{})
+      assert {:error, :not_a_snapshot} = Candil.Agent.restore(:no_es_un_mapa)
+
+      {:ok, state} =
+        Candil.Agent.init_agent(config: %{goal: "g"}, backend: StubBackend, model: "test")
+
+      con_extra = Map.put(Candil.Agent.snapshot(state), :extra, 1)
+
+      assert {:ok, restored} = Candil.Agent.restore(con_extra)
+      refute Map.has_key?(restored, :extra)
+    end
+  end
 end
