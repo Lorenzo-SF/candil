@@ -81,9 +81,9 @@
 >   — un agente que se cuelga 5 veces seguidas abre su circuito, la puerta
 >   contesta `{:error, {:agent_circuit_open, …}, []}` **sin volver a pagar el
 >   plazo**, y una sonda lo cierra a los 30 s si el motor volvió. En el proceso
->   y no en `Arrea.CircuitBreaker`, por medida: un agente tiene un solo escritor
->   y un solo lector. La mitad de los **crashes** queda fuera, con el porqué
->   escrito (P-9 en `09-deuda-y-pendientes`).
+>   y, desde el 2026-10-17, **también fuera** (`Candil.Agents.Breakers`), para
+>   que sobreviva al reinicio. La mitad de los **crashes** queda fuera, con el
+>   porqué escrito (P-9 en `09-deuda-y-pendientes`).
 
 > **D-14 (2026-10-16) — el vocabulario**: «agente» significa una sola cosa, y es
 > **este proceso**. La mesa (fase 9) llamará **voces** a sus participantes, y el
@@ -426,6 +426,7 @@ diferencia con este documento.
 | `lib/candil/agents/simple_reflex.ex` | el agente del tipo 1, como `GenServer`: `evaluate/2` (estímulo → respuesta, sin memoria), `status/1`, y el run con plazo — el backend que no vuelve no cuelga a nadie; con `:name` el proceso **se registra** y esa es su puerta; y desde el 2026-10-17 el breaker del §8.3 en el `handle_call` | **existe** (F5.3, 2026-10-17; F5.5, 2026-10-17; breaker, 2026-10-17) |
 | `lib/candil/agents/model_based_reflex.ex` | el agente del tipo 2: `evaluate/2` = una vuelta entera con el estado del proceso (memoria entre vueltas), `status/1` con el modelo del mundo, plazo — y el estado escrito tras cada vuelta, para que el reinicio **vuelva con él**; el `:name` es obligatorio y siempre registra; y el mismo breaker | **existe** (F5.4, 2026-10-17; F5.5, 2026-10-17; breaker, 2026-10-17) |
 | `lib/candil/agents/snapshots.ex` | el almacén del «último estado estable»: ETS en el árbol, por nombre de agente (`save/2`, `load/1`, `forget/1`), y fuera del proceso a propósito | **existe** (F5.4, 2026-10-17) |
+| `lib/candil/agents/breakers.ex` | el circuito del breaker, fuera del proceso por la misma razón que el snapshot (P-9): un agente que revienta y vuelve encuentra su circuito como lo dejó, y si estaba abierto se niega a trabajar. Por nombre; un agente sin nombre no persiste | **existe** (2026-10-17) |
 | `lib/candil/agents/breaker.ex` | el tercer cerrojo del §8.3: 5 cuelgues seguidos abren el circuito —la puerta contesta sin volver a pagar el plazo—, 30 s de enfriamiento y una sonda que lo cierra si el motor volvió. Estado **en el proceso** (y por qué); `now` como parámetro para que el módulo sea puro | **existe** (2026-10-17) |
 | `lib/candil/agents/supervisor.ex` | el `DynamicSupervisor` de agentes, `:one_for_one` (D-13: el de Arrea ya no hace falta), con intensidad de **10 caídas en 5 s** desde la F5.4 — medido: cuatro a la vez mataban al supervisor, y los hijos no resucitan con él | **existe** (F5.1, 2026-10-16; F5.4, 2026-10-17) |
 | `lib/candil/agents.ex` | la puerta (F5.5): `call/3` — nombre o pid, mensaje `{:evaluate, …}`, respuesta o error **como dato** (`{:error, {:agent_not_up, …}, []}`, `{:error, :timeout, []}`) —, `whereis/1` y `via/1`, sobre la clave `{:agent, name}` de `Candil.Registry` | **existe** (F5.5, 2026-10-17) |
@@ -434,6 +435,7 @@ diferencia con este documento.
 | `test/candil/agent/simple_reflex_test.exs` | el tipo 1: sin memoria, el hijo del supervisor, el reinicio, **el test del cuelgue** con `@tag timeout:` — y los del circuito: cinco cuelgues abren, la sonda cierra | **existe** (F5.3, 2026-10-17; breaker, 2026-10-17) |
 | `test/candil/agent/model_based_reflex_test.exs` | el tipo 2: la memoria entre vueltas, el presupuesto por vuelta, el plazo, y **el reinicio a estado estable** del §7 — mirando el estado; y el circuito del tipo 2 | **existe** (F5.4, 2026-10-17; breaker, 2026-10-17) |
 | `test/candil/agent/breaker_test.exs` | el circuito **en puro**: el defecto 5/30 s, el fallo no consecutivo que resetea, la sonda que cierra, la que reaplaza el enfriamiento y qué cuenta como fallo (`verdict/1`) — sin procesos y sin dormir, con `now` a mano | **existe** (2026-10-17) |
+| `test/candil/agent/breaker_store_test.exs` | el circuito **fuera del proceso**: guarda, lee, olvida, no mezcla nombres, y la tabla es del almacén — la prueba de que sobrevive al agente | **existe** (2026-10-17) |
 | `test/candil/agent/snapshots_test.exs` | el almacén: guardar, leer, olvidar, y que la tabla no es del agente | **existe** (F5.4, 2026-10-17) |
 | `test/candil/agents_test.exs` | la puerta: encontrar por nombre, un nombre sin proceso contesta, el que se muere mientras esperas contesta, el plazo del que pregunta, y **dos agentes hablando** —una herramienta llama a otro agente a mitad de vuelta— | **existe** (F5.5, 2026-10-17) |
 | `test/candil/agent/contract_test.exs` | el test de contrato del §4 — escrito **antes** del código, lo trajo la F5.0 (`#87`) | **existe** |
@@ -1107,13 +1109,15 @@ circuito: en ese mismo fichero, en el del tipo 2 y en `breaker_test.exs` (el
 puro, con `now` a mano, sin dormir).
 
 **Y la mitad que este cerrojo NO cubre, dicha en vez de escondida.** El estado
-del circuito vive en el proceso del agente, así que **muere con él** — y eso no
-ayuda con el otro caso de esta sección: un agente que **revienta** en bucle, al
-que el supervisor levanta (intensidad 10 en 5 s) con el contador a cero.
-Cubrirlo necesita decidir **quién** consulta el circuito antes de arrancar (hoy
-el supervisor reinicia sin preguntar) y **con qué señal** cuenta un crash en un
-contador que no vive en el proceso que se cae — diseño de supervisor, no de
-agente. Está apuntado como **P-9** en
+del circuito vive **también fuera** del proceso —en `Candil.Agents.Breakers`,
+por nombre— desde el 2026-10-17, así que un agente nombrado que revienta y
+vuelve encuentra su circuito como lo dejó y se niega a trabajar en vez de
+volver a colgarse. Lo que sigue fuera: un agente **sin nombre** (no tiene
+identidad que sobreviva) y un crash que no es un cuelgue —un `raise` en
+bucle—, que el breaker no cuenta (solo el plazo es fallo) y que el supervisor
+solo frena con su intensidad 10/5 s global. Cubrirlo del todo necesita un
+presupuesto de crashes **por agente** en el supervisor, y decidir si el caso
+pide breaker o `restart: :transient`. Está apuntado como **P-9** en
 [`09-deuda-y-pendientes`](../../09-deuda-y-pendientes/README.md), con la
 relectura por si al llegar ahí el caso no pidiera un breaker sino no reiniciar
 (`restart: :transient`).

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **El circuito del breaker sobrevive al reinicio: `Candil.Agents.Breakers`.**
+  El circuito vivía en el proceso y moría con él —que era justo lo que no
+  ayudaba con un agente que revienta en bucle. Ahora hay un almacén ETS en el
+  árbol de la aplicación, por nombre de agente (como `Candil.Agents.Snapshots`),
+  y un agente nombrado que revienta y vuelve encuentra su circuito como lo
+  dejó: si estaba abierto, se niega a trabajar en vez de volver a colgarse.
+  Un agente sin nombre no persiste (no tiene identidad que sobreviva) y se
+  queda con el circuito en memoria, como antes. Probado en
+  `test/candil/agent/breaker_store_test.exs` y en
+  `simple_reflex_test.exs` (el circuito abierto sobrevive al reinicio).
+
 - **Un agente que se cuelga cinco veces seguidas se cierra solo: el tercer
   cerrojo del §8.3.** `Candil.Agents.Breaker` — el run con plazo ya estaba
   (F5.3): quien llama recibe `{:error, :timeout, []}` y el agente sigue vivo;

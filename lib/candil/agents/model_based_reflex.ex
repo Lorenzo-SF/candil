@@ -54,6 +54,7 @@ defmodule Candil.Agents.ModelBasedReflex do
 
   alias Candil.Agent
   alias Candil.Agents.Breaker
+  alias Candil.Agents.Breakers
   alias Candil.Agents.Snapshots
 
   # El default del motor (`agent.ex`), y aquí igual: una vuelta puede usar
@@ -156,13 +157,21 @@ defmodule Candil.Agents.ModelBasedReflex do
 
   @impl true
   def init({opts, engine, restored?}) do
+    name = Keyword.fetch!(opts, :name)
+
+    breaker =
+      case Breakers.load(name) do
+        {:ok, b} -> b
+        {:error, :not_found} -> Breaker.new(opts)
+      end
+
     {:ok,
      %{
-       name: Keyword.fetch!(opts, :name),
+       name: name,
        engine: engine,
        timeout: Keyword.get(opts, :timeout, @default_timeout),
        restored: restored?,
-       breaker: Breaker.new(opts)
+       breaker: breaker
      }}
   end
 
@@ -198,6 +207,8 @@ defmodule Candil.Agents.ModelBasedReflex do
           end
 
         breaker = Breaker.record(state.breaker, Breaker.verdict(reply), now())
+
+        Breakers.save(state.name, breaker)
 
         {:reply, reply, %{state | breaker: breaker}}
     end
