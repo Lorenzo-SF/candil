@@ -76,7 +76,16 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
   # Un nombre desconocido es un **400**, no un silencio. Quien pide una capa y
   # recibe otra no se entera nunca, y un enrutado que se equivoca sin decirlo es
   # peor que uno que se equivoca diciendo.
-  @capas ~w(rule embedding llm)
+  #
+  # Las capas y sus atomos, en un mapa **literal**. No se construye con
+  # `String.to_existing_atom/1`: ese atomo solo existe si algo lo creo antes en
+  # esa VM, y medido, en un arranque limpio la cabecera `x-candil-strategy: rule`
+  # reventaba con `:erlang.binary_to_existing_atom/1` y salia un 500 — un nombre
+  # valido que solo funcionaba por lo que otra parte de la VM hubiera cargado
+  # antes. Aqui los crea el compilador al cargar este modulo, que es el unico
+  # sitio donde tienen que existir. Y tampoco `String.to_atom/1` con lo que
+  # llega en una peticion: eso llena la tabla de atomos y no se vacia nunca.
+  @capas %{"rule" => :rule, "embedding" => :embedding, "llm" => :llm}
 
   defp capa_forzada(conn, body) do
     # El cuerpo gana sobre la cabecera: quien manda el cuerpo entero esta mas
@@ -96,13 +105,16 @@ defmodule Candil.Gateway.Handlers.ChatCompletions do
       valor when is_binary(valor) ->
         capa = valor |> String.trim() |> String.downcase()
 
-        if capa in @capas do
-          {:ok, String.to_existing_atom(capa)}
-        else
-          {:error,
-           Error.invalid_request(
-             "unknown candil strategy #{inspect(valor)}. One of: #{Enum.join(@capas, ", ")}."
-           )}
+        case Map.fetch(@capas, capa) do
+          {:ok, capa_atom} ->
+            {:ok, capa_atom}
+
+          :error ->
+            {:error,
+             Error.invalid_request(
+               "unknown candil strategy #{inspect(valor)}. One of: " <>
+                 "#{Enum.join(Map.keys(@capas), ", ")}."
+             )}
         end
 
       _otra ->

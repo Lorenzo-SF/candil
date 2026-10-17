@@ -158,6 +158,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **La cabecera `x-candil-strategy` daba un 500 en un arranque limpio.** El
+  valor era válido —`rule`, `embedding`, `llm`—, pero el handler lo pasaba
+  por `String.to_existing_atom/1`, y ese átomo **solo existe si algo lo creó
+  antes en esa VM**: la misma petición funcionaba o reventaba según el orden
+  en que se hubieran cargado las cosas. Medido: el test de la cabecera
+  (`test/candil/gateway/end_to_end_test.exs`) falla con `--seed 3`, `5` y `7`
+  —500 en vez de 200—, y queda verde en todas las semillas con el arreglo.
+  Las capas y sus átomos van ahora en un mapa literal que el compilador crea
+  al cargar el módulo, que es el único sitio donde tienen que existir; nada
+  se convierte desde lo que llega en una petición.
+
 - **Ninguna descarga se quedaba sin red solo porque nadie escribiera
   `sha256`.** El campo existe en `Source`, se verifica al vuelo —en
   streaming, sembrado con lo que ya hay en un `.part` reanudado—, y **ningún
