@@ -53,7 +53,6 @@ defmodule Candil.RAG do
   come back in retrieval order.
   """
 
-  alias Candil.Error
   alias Candil.RAG.Chunk
 
   @type index_name :: binary()
@@ -75,8 +74,7 @@ defmodule Candil.RAG do
   """
   @spec create_index(index_name(), keyword()) :: :ok | {:error, term()}
   def create_index(name, opts \\ []) do
-    _ = {name, opts}
-    {:error, Error.not_implemented("Candil.RAG.create_index/2", phase: 6)}
+    Candil.RAG.Store.create_index(name, opts)
   end
 
   @doc """
@@ -86,9 +84,40 @@ defmodule Candil.RAG do
   """
   @spec index(index_name(), binary(), keyword()) :: {:ok, non_neg_integer()} | {:error, term()}
   def index(name, path_or_text, opts \\ []) do
-    _ = {name, path_or_text, opts}
-    {:error, Error.not_implemented("Candil.RAG.index/3", phase: 6)}
+    case Candil.RAG.Store.get_index(name) do
+      {:error, :not_found} -> {:error, :index_not_found}
+      {:ok, meta} -> do_index(name, path_or_text, opts, meta)
+    end
   end
+
+  defp do_index(name, path_or_text, opts, meta) do
+    text = resolve_text(path_or_text)
+    strategy = Keyword.get(opts, :strategy, meta.strategy)
+    document_id = Keyword.get(opts, :document_id, name)
+
+    chunks = Candil.RAG.Chunker.chunk(text, strategy: strategy, document_id: document_id)
+
+    chunks =
+      enrich_chunks(
+        chunks,
+        Keyword.get(opts, :embeddings),
+        Keyword.get(opts, :embedder, meta.embedder)
+      )
+
+    Candil.RAG.Store.put_chunks(name, chunks)
+    {:ok, length(chunks)}
+  end
+
+  defp enrich_chunks(chunks, embeddings, _embedder)
+       when is_list(embeddings) and length(embeddings) == length(chunks) do
+    chunks
+    |> Enum.zip(embeddings)
+    |> Enum.map(fn {chunk, vec} -> %{chunk | embedding: vec} end)
+  end
+
+  defp enrich_chunks(chunks, _embeddings, nil), do: chunks
+
+  defp enrich_chunks(chunks, _embeddings, embedder), do: embed_chunks(chunks, embedder)
 
   @doc """
   Searches an index.
@@ -98,17 +127,63 @@ defmodule Candil.RAG do
   """
   @spec search(index_name(), binary(), keyword()) :: {:ok, [Chunk.t()]} | {:error, term()}
   def search(name, query, opts \\ []) do
-    _ = {name, query, opts}
-    {:error, Error.not_implemented("Candil.RAG.search/3", phase: 6)}
+    case Candil.RAG.Store.get_index(name) do
+      {:error, :not_found} -> {:error, :index_not_found}
+      {:ok, meta} -> do_search(name, query, opts, meta)
+    end
   end
+
+  defp do_search(name, query, opts, meta) do
+    chunks = Candil.RAG.Store.get_chunks(name)
+    if chunks == [], do: {:ok, []}, else: rank_chunks(chunks, query, opts, meta)
+  end
+
+  defp rank_chunks(chunks, query, opts, meta) do
+    query_emb = resolve_query_embedding(query, opts, meta)
+    has_emb = Enum.any?(chunks, &(&1.embedding != nil))
+
+    if has_emb and query_emb == nil do
+      {:error, :no_query_embedding}
+    else
+      min_score = Keyword.get(opts, :min_score, 0.0)
+      limit = Keyword.get(opts, :limit, 5)
+
+      results =
+        chunks
+        |> Enum.map(fn chunk -> %{chunk | score: score_chunk(chunk, query_emb)} end)
+        |> Enum.filter(fn c -> c.score == nil or c.score >= min_score end)
+        |> Enum.sort_by(fn c -> {-(c.score || 0.0), c.id} end)
+        |> Enum.take(limit)
+
+      {:ok, results}
+    end
+  end
+
+  defp resolve_query_embedding(query, opts, meta) do
+    case Keyword.get(opts, :embedding) do
+      nil ->
+        case embed_query(query, Keyword.get(opts, :embedder, meta.embedder)) do
+          {:ok, vec} -> vec
+          {:error, _} -> nil
+        end
+
+      vec ->
+        vec
+    end
+  end
+
+  defp score_chunk(%{embedding: emb}, query_emb) when emb != nil and query_emb != nil do
+    cosine(emb, query_emb)
+  end
+
+  defp score_chunk(_chunk, _query_emb), do: nil
 
   @doc """
   Deletes an index.
   """
   @spec drop_index(index_name()) :: :ok | {:error, term()}
   def drop_index(name) do
-    _ = name
-    {:error, Error.not_implemented("Candil.RAG.drop_index/1", phase: 6)}
+    Candil.RAG.Store.drop_index(name)
   end
 
   @doc """
@@ -116,7 +191,7 @@ defmodule Candil.RAG do
   """
   @spec list_indexes() :: [index_name()] | {:error, term()}
   def list_indexes do
-    {:error, Error.not_implemented("Candil.RAG.list_indexes/0", phase: 6)}
+    Candil.RAG.Store.list_indexes()
   end
 
   @doc """
@@ -251,4 +326,85 @@ defmodule Candil.RAG do
       dot / (norm_a * norm_b)
     end
   end
+
+  # ── helpers privados ────────────────────────────────────────────────────
+
+  defp resolve_text(path_or_text) when is_binary(path_or_text) do
+    if File.exists?(path_or_text) and not File.dir?(path_or_text) do
+      File.read!(path_or_text)
+    else
+      path_or_text
+    end
+  end
+
+  defp embed_chunks(chunks, nil), do: chunks
+
+  defp embed_chunks(chunks, embedder) do
+    cfg = resolve_embedder(embedder)
+
+    if cfg == nil do
+      chunks
+    else
+      texts = Enum.map(chunks, & &1.text)
+
+      case Candil.Embeddings.embed_batch(texts,
+             url: cfg.url,
+             model: cfg.model,
+             api_key: cfg[:api_key]
+           ) do
+        {:ok, vectors} when is_list(vectors) and length(vectors) == length(chunks) ->
+          chunks
+          |> Enum.zip(vectors)
+          |> Enum.map(fn {chunk, vec} -> %{chunk | embedding: vec} end)
+
+        _ ->
+          chunks
+      end
+    end
+  end
+
+  defp embed_query(_query, nil), do: {:error, :no_embedder}
+
+  defp embed_query(query, embedder) do
+    cfg = resolve_embedder(embedder)
+
+    if cfg == nil do
+      {:error, :no_embedder}
+    else
+      Candil.Embeddings.embed(query, url: cfg.url, model: cfg.model, api_key: cfg[:api_key])
+    end
+  end
+
+  defp resolve_embedder(nil), do: nil
+
+  defp resolve_embedder(embedder) when is_binary(embedder) do
+    alias_ =
+      try do
+        String.to_existing_atom(embedder)
+      rescue
+        ArgumentError -> nil
+      end
+
+    case if alias_ != nil, do: Candil.Store.get_model(alias_), else: :error do
+      {:ok, model} when model.type == :local ->
+        case Candil.Store.get_engine(model.engine) do
+          {:ok, engine} ->
+            %{
+              url: "http://#{engine.host}:#{engine.port}",
+              model: to_string(model.alias),
+              api_key: engine.api_key
+            }
+
+          _ ->
+            %{url: "http://127.0.0.1:8080", model: embedder}
+        end
+
+      _ ->
+        %{url: "http://127.0.0.1:8080", model: embedder}
+    end
+  end
+
+  defp resolve_embedder(%{} = m), do: m
+
+  defp resolve_embedder(_), do: nil
 end

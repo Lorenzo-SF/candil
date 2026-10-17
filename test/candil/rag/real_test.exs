@@ -31,7 +31,6 @@ defmodule Candil.RAG.RealTest do
 
   use ExUnit.Case, async: false
 
-  alias Candil.Error
   alias Candil.RAG
   alias Candil.RAG.Chunk
 
@@ -69,47 +68,6 @@ defmodule Candil.RAG.RealTest do
     end
   end
 
-  # ── las cinco funciones, que NO existen todavía ──────────────────────────────
-
-  describe "las cinco funciones publicas, que no estan escritas" do
-    test "create_index/2 dice que no, y en que fase esta" do
-      assert {:error, %Error{reason: :not_implemented} = error} =
-               RAG.create_index("mi_indice")
-
-      # No basta con "no funciona": dice EN QUE FASE esta. Un error sin sitio
-      # donde mirar es un callejon sin salida.
-      #
-      # Y el numero es el del plan **vigente**: RAG es la fase 6 desde la
-      # renumeracion del 2026-10-11. Este test afirmaba 10 —el numero del plan
-      # viejo— y por eso no lo hacia falta para que el codigo y el error
-      # mintieran juntos: un test que fija el numero equivocado **traba el
-      # arreglo**, y por eso hace falta de verdad.
-      assert error.context[:phase] == 6
-    end
-
-    test "index/3 tambien, y con las dos formas de entrada" do
-      assert {:error, %Error{reason: :not_implemented}} = RAG.index("mi_indice", "texto")
-      assert {:error, %Error{reason: :not_implemented}} = RAG.index("mi_indice", "/tmp/f.txt")
-    end
-
-    test "search/3 tambien" do
-      assert {:error, %Error{reason: :not_implemented}} = RAG.search("mi_indice", "una consulta")
-    end
-
-    test "el patron se sostiene para cualquier combinacion" do
-      # Si alguien implementa UNA de las cinco y se olvida de avisar, esto se
-      # queda en rojo y se ve en el commit, no en produccion.
-      for {_name, resultado} <- [
-            {"create_index", RAG.create_index("i")},
-            {"index", RAG.index("i", "t")},
-            {"search", RAG.search("i", "q")}
-          ] do
-        assert {:error, %Error{reason: :not_implemented}} = resultado,
-               "#{_name} ya no es un stub: la fase 10 ha empezado sin updating esto"
-      end
-    end
-  end
-
   # ── la unica funcion con logica real ──────────────────────────────────────────
 
   describe "embedder/1, que es lo unico que hace algo" do
@@ -143,14 +101,17 @@ defmodule Candil.RAG.RealTest do
 
   describe "lo que el @moduledoc promete" do
     test "coseno sobre un escaneo lineal" do
-      # Prometido en el moduledoc, y no hay una linea de codigo que lo haga. Se
-      # deja anotado para que la fase 10 no lo descubra tarde: la promesa es
-      # real, la implementacion no.
+      # Implementado en la fase 6 (Nivel 1): el escaneo lineal con coseno
+      # existe ahora. La promesa del moduledoc se cumple.
       Code.ensure_loaded(RAG)
       assert function_exported?(RAG, :search, 3)
-      # Que exista la funcion NO significa que el escaneo exista. Por eso este
-      # test mira LAS DOS COSAS: la superficie esta, y el cuerpo no.
-      assert {:error, %Error{reason: :not_implemented}} = RAG.search("x", "y")
+
+      RAG.create_index("scan-test")
+      on_exit(fn -> RAG.drop_index("scan-test") end)
+
+      RAG.index("scan-test", "hola mundo", embeddings: [[1.0, 0.0]])
+      assert {:ok, [chunk]} = RAG.search("scan-test", "q", embedding: [1.0, 0.0])
+      assert chunk.score == 1.0
     end
   end
 end
