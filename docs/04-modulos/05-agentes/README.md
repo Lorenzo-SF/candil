@@ -70,6 +70,13 @@
 >   (`Candil.Agents.Snapshots`) y el tipo 2 (`Candil.Agents.ModelBasedReflex`)
 >   también: un agente que se cae y **vuelve con su estado**, con el test del
 >   §7 mirando el estado en vez de la vida.
+> - Y la F5.5, el mismo día: **cerrada el 2026-10-17** — el RPC con respuesta
+>   (`Candil.Agents.call/3`, `{:evaluate, …}` → respuesta) y los agentes
+>   **localizables por su nombre**: `{:agent, name}` en `Candil.Registry`, con
+>   los errores como datos — un nombre sin proceso contesta
+>   `{:error, {:agent_not_up, name}, []}` en vez de un `:noproc` en la cara de
+>   quien pregunta. Y dos agentes hablando, con la respuesta del otro dentro de
+>   un test.
 
 > **D-14 (2026-10-16) — el vocabulario**: «agente» significa una sola cosa, y es
 > **este proceso**. La mesa (fase 9) llamará **voces** a sus participantes, y el
@@ -321,7 +328,7 @@ Todo verificado en `deps/arrea/lib/arrea/`:
 
 | Falta | Dónde se comprueba | Por qué le importa a un agente |
 |---|---|---|
-| **RPC dirigido** | `worker.ex:112-118` — `send_message/2` es `GenServer.cast/2`: `:ok` significa «se encoló», nunca «lo procesó» | dos agentes necesitan **pregunta y respuesta**, no un aviso |
+| **RPC dirigido** | `worker.ex:112-118` — `send_message/2` es `GenServer.cast/2`: `:ok` significa «se encoló», nunca «lo procesó» | dos agentes necesitan **pregunta y respuesta**, no un aviso — **y se construyó en la F5.5 (2026-10-17)**: `Candil.Agents.call/3` pregunta y espera, por nombre o por pid |
 | **Descubrimiento** | `registry.ex` tiene `all/0`, `count/0`, `lookup/1` | «quién hay vivo» no existe; hay «los pids registrados» |
 | **Registro con metadatos** | `registry.ex:13-21` — `Registry.select` devuelve `%{atom() => pid()}` | no hay dónde guardar `goal`, `kind` o `max_steps` de un agente |
 | **Heartbeats** | `grep -riE "heartbeat" deps/arrea/lib` → **0 resultados** | no hay forma de saber que un agente vive sin perguntarle |
@@ -336,6 +343,14 @@ Todo verificado en `deps/arrea/lib/arrea/`:
 > opcionales del behaviour, el almacén `Candil.Agents.Snapshots` y el tipo 2, que
 > es el que vuelve con su estado. De Arrea sigue sin heredarse nada, y ya no hace
 > falta: el agente de Candil no es un worker de Arrea (§2.4).
+>
+> Sobre la primera fila, que es la que abrió la F5.5: lo que Arrea tiene es un
+> `cast` — «ahí va», y nunca «ya te contesté». Dos agentes que se preguntan
+> necesitan lo segundo, y **se construyó en Candil el 2026-10-17**:
+> `Candil.Agents.call/3` (nombre o pid → `{:evaluate, …}` → respuesta), con el
+> vencimiento de quien pregunta como dato (`{:error, :timeout, []}`) y sin
+> cerrar nada en la cara de nadie: un nombre sin proceso contesta
+> `{:error, {:agent_not_up, name}, []}`.
 
 ### 2.6 · Lo que se descartó, y por qué
 
@@ -401,15 +416,17 @@ diferencia con este documento.
 |---|---|---|
 | `lib/candil/agents/behaviour.ex` | el behaviour de §5.2 — en Candil por D-13; el sentido de «agente» lo fija D-14, y el nombre y el contrato los confirmó la F5.1 | **existe** (F5.1, 2026-10-16) |
 | `lib/candil/agent.ex` | **implementa** el behaviour (F5.2): `init_agent/1` construye el estado, `step/3` es una vuelta ReAct, el bucle es un reductor y la historia va por `Candil.Context`. Desde la F5.4 implementa también los opcionales: `snapshot/1` (el estado como dato plano, sin la referencia de cancelación), `restore/1` (que se niega si el mapa no es un snapshot) y `finalize/1`, pública para que un proceso conteste con la misma forma que `run/3` | **existe** (F5.2, 2026-10-16; F5.4, 2026-10-17) |
-| `lib/candil/agents/simple_reflex.ex` | el agente del tipo 1, como `GenServer`: `evaluate/2` (estímulo → respuesta, sin memoria), `status/1`, y el run con plazo — el backend que no vuelve no cuelga a nadie | **existe** (F5.3, 2026-10-17) |
-| `lib/candil/agents/model_based_reflex.ex` | el agente del tipo 2: `evaluate/2` = una vuelta entera con el estado del proceso (memoria entre vueltas), `status/1` con el modelo del mundo, plazo — y el estado escrito tras cada vuelta, para que el reinicio **vuelva con él** | **existe** (F5.4, 2026-10-17) |
+| `lib/candil/agents/simple_reflex.ex` | el agente del tipo 1, como `GenServer`: `evaluate/2` (estímulo → respuesta, sin memoria), `status/1`, y el run con plazo — el backend que no vuelve no cuelga a nadie; con `:name` el proceso **se registra** y esa es su puerta | **existe** (F5.3, 2026-10-17; F5.5, 2026-10-17) |
+| `lib/candil/agents/model_based_reflex.ex` | el agente del tipo 2: `evaluate/2` = una vuelta entera con el estado del proceso (memoria entre vueltas), `status/1` con el modelo del mundo, plazo — y el estado escrito tras cada vuelta, para que el reinicio **vuelva con él**; el `:name` es obligatorio y siempre registra | **existe** (F5.4, 2026-10-17; F5.5, 2026-10-17) |
 | `lib/candil/agents/snapshots.ex` | el almacén del «último estado estable»: ETS en el árbol, por nombre de agente (`save/2`, `load/1`, `forget/1`), y fuera del proceso a propósito | **existe** (F5.4, 2026-10-17) |
 | `lib/candil/agents/supervisor.ex` | el `DynamicSupervisor` de agentes, `:one_for_one` (D-13: el de Arrea ya no hace falta), con intensidad de **10 caídas en 5 s** desde la F5.4 — medido: cuatro a la vez mataban al supervisor, y los hijos no resucitan con él | **existe** (F5.1, 2026-10-16; F5.4, 2026-10-17) |
+| `lib/candil/agents.ex` | la puerta (F5.5): `call/3` — nombre o pid, mensaje `{:evaluate, …}`, respuesta o error **como dato** (`{:error, {:agent_not_up, …}, []}`, `{:error, :timeout, []}`) —, `whereis/1` y `via/1`, sobre la clave `{:agent, name}` de `Candil.Registry` | **existe** (F5.5, 2026-10-17) |
 | `lib/candil/agents/step_router.ex` | **[PROPUESTO]** la decisión de routing **por paso** (§2.7) | no existe |
 | `test/candil/agent_test.exs` | los que había, **más** los de la F5.0 y la F5.2 (pasos sin proceso, continuidad de sesión) | **existe** |
 | `test/candil/agent/simple_reflex_test.exs` | el tipo 1: sin memoria, el hijo del supervisor, el reinicio, y **el test del cuelgue** con `@tag timeout:` | **existe** (F5.3, 2026-10-17) |
 | `test/candil/agent/model_based_reflex_test.exs` | el tipo 2: la memoria entre vueltas, el presupuesto por vuelta, el plazo, y **el reinicio a estado estable** del §7 — mirando el estado | **existe** (F5.4, 2026-10-17) |
 | `test/candil/agent/snapshots_test.exs` | el almacén: guardar, leer, olvidar, y que la tabla no es del agente | **existe** (F5.4, 2026-10-17) |
+| `test/candil/agents_test.exs` | la puerta: encontrar por nombre, un nombre sin proceso contesta, el que se muere mientras esperas contesta, el plazo del que pregunta, y **dos agentes hablando** —una herramienta llama a otro agente a mitad de vuelta— | **existe** (F5.5, 2026-10-17) |
 | `test/candil/agent/contract_test.exs` | el test de contrato del §4 — escrito **antes** del código, lo trajo la F5.0 (`#87`) | **existe** |
 | `test/candil/agent/behaviour_test.exs` | el contrato de §5.2, y que un tipo 1 se escribe con dos callbacks | **existe** (F5.1, 2026-10-16) |
 | `test/candil/agent/supervisor_test.exs` | el supervisor: vacío, hijos, bajas, y al que se cae se le levanta | **existe** (F5.1, 2026-10-16) |
@@ -417,10 +434,14 @@ diferencia con este documento.
 ### 3.3 · Lo que NO toca esta fase
 
 `lib/candil/tools.ex`, `lib/candil/tool.ex` y `lib/candil/structured.ex` **se leen
-y se usan tal cual**. No se cambian. `parse_tool_calls/1` y `schemas_to_prompt/1`
+y se usan tal cual**. `parse_tool_calls/1` y `schemas_to_prompt/1`
 ya hacen el trabajo pesado del parseo y son la razón por la que el agente puede ser
 pequeño. `lib/candil/application.ex` se tocó en la F5.3 y en la F5.4, y solo para añadir
-hijos: el supervisor de agentes, y el almacén de snapshots.
+hijos: el supervisor de agentes, y el almacén de snapshots. Y `lib/candil/tool.ex`
+se tocó **una vez**, en la F5.5, y no por el agente: `Tool.call/2` ejecuta ahora la
+herramienta en quien llama en vez de dentro del registro — medido, dos agentes que
+se preguntan se abrazaban con el `GenServer` del registro, que quedaba cerrado
+mientras una herramienta corría.
 
 ---
 
@@ -605,12 +626,14 @@ Clasificadores, routers de prioridad. Un paso, una decisión, se acabó.
 | el behaviour | `Candil.Agents.Behaviour` — ✅ F5.1 (D-13; sentido en D-14) |
 | el proceso | `Candil.Agents.SimpleReflex` — ✅ F5.3 (2026-10-17) |
 | el supervisor | hijo en `Candil.Supervisor` (`application.ex`) — ✅ F5.3 |
-| el RPC | `call/3` con respuesta, en Candil (D-13) — contra el `send_message/2` de Arrea, que es un `cast`; **es la F5.5** |
+| el RPC | `call/3` con respuesta, en Candil (D-13) — contra el `send_message/2` de Arrea, que es un `cast`: ✅ **F5.5 (2026-10-17)**, en `Candil.Agents.call/3` |
 
 > **El primero, y el único que no dependió de 8b.** Con un modelo pineado y un
 > `max_steps: 1` no había nada que decidir por routing, nada que pesar y nada
-> que persistir: por eso fue el primero, y está hecho (F5.1 → F5.3). Lo que
-> queda de este tipo es el RPC (`call/3`), que es la F5.5.
+> que persistir: por eso fue el primero, y está hecho entero (F5.1 → F5.5).
+> El RPC (`call/3`) llegó en la F5.5: un agente pregunta a otro **y espera la
+> respuesta** — y el que no está contesta, no revienta en la cara de quien
+> pregunta.
 
 ---
 
@@ -696,7 +719,7 @@ tienda y su esquema, y el esquema es una decisión de producto.
 
 | Tipo | Arrea que hace falta | Candil que hace falta | ¿Depende de 8b? |
 |---|---|---|---|
-| 1 · Reflejo Simple | — (D-13: el behaviour y el RPC nacen en Candil) | el behaviour ✅ F5.1, el supervisor ✅ F5.1, `SimpleReflex` ✅ F5.3 (2026-10-17), `call/3` (F5.5) | **no** |
+| 1 · Reflejo Simple | — (D-13: el behaviour y el RPC nacen en Candil) | el behaviour ✅ F5.1, el supervisor ✅ F5.1, `SimpleReflex` ✅ F5.3 (2026-10-17), `call/3` ✅ F5.5 (2026-10-17) | **no** |
 | 2 · Basado en Modelos | `snapshot/1`, `restore/1` — en Candil (D-13), ✅ F5.4 | migrar `Conversation` → `Context` ✅ F5.2 (2026-10-16); `ModelBasedReflex` + `Snapshots` ✅ F5.4 (2026-10-17) | no |
 | 3 · Basados en Objetivos | `Leader` (ya está) | almacén de objetivos, descomposición | **sí** (el sub-agente puede pedir otro modelo) |
 | 4 · Basados en Utilidad | `Parallel` (ya está), admisión VRAM | candidatos por paso, `Scorer` de caminos | **sí** |
@@ -712,7 +735,10 @@ llama a `Candil.Agent.run/3` —que por dentro es `init_agent/1` + `step/3`, pas
 a paso— desde su `handle_call`. Desde la F5.4 hay un segundo proceso,
 `Candil.Agents.ModelBasedReflex`, y es el que usa los dos opcionales del
 contrato: conduce `step/3` él mismo (una vuelta entera por estímulo) y vuelve
-de un reinicio por `snapshot/1` y `restore/1`.**
+de un reinicio por `snapshot/1` y `restore/1`. Y desde la F5.5 hay **puerta**:
+`Candil.Agents.call/3` habla con los procesos por su nombre o su pid, con la
+respuesta de vuelta y los errores como dato — el contrato, en cambio, sigue
+sin saber de mensajes.
 
 ```elixir
 # lib/candil/agents/behaviour.ex   ← en este repo (D-13); existe desde la F5.1
@@ -764,7 +790,7 @@ va razonado:
 |---|---|
 | **`step/3` es una función, no un mensaje** | Es lo que hace que un agente se pueda probar sin BEAM. `Candil.Agent.loop/7` ya es una función pura con forma de ReAct; el contrato la saca de `privado` a `público` sin cambiarle la forma. **Es el movimiento más barato de todos los de esta fase.** |
 | **No `run/2`** | `run/3` bloquea. Un `GenServer` que bloquea es un `Task` con nombre, y un `Task` no se reinicia ni se registra. Un agente que ejecuta un paso y devuelve es un proceso que hace N pasos sin morir en ninguno. |
-| **No `handle_call/3` ni `handle_info/2`** | Son internos de GenServer. Un behaviour que los declara ata el framework al proceso. El precedente está en la casa: `Arrea.Pool.Worker` declara **un** callback, `start_link/1` (`pool/worker.ex:25`), y deja que `use GenServer` sea dueño del resto. |
+| **No `handle_call/3` ni `handle_info/2`** | Son internos de GenServer. Un behaviour que los declara ata el framework al proceso. El precedente está en la casa: `Arrea.Pool.Worker` declara **un** callback, `start_link/1` (`pool/worker.ex:25`), y deja que `use GenServer` sea dueño del resto. El RPC con respuesta **no** es un callback por eso mismo: es la puerta — `Candil.Agents.call/3` (F5.5) —, y habla con el proceso, no con el contrato |
 | **`describe/0` sin argumentos** | Un supervisor que reinicia a un agente **no tiene su estado**: tiene su nombre. Por eso es de aridad 0 y devuelve lo estático. |
 | **`snapshot/1` y `restore/1` opcionales** | Un tipo 1 no tiene estado estable que restaurar: no tiene memoria. Declararlos obligatorios obligaría a los cinco tipos a fingir un estado que no tienen. Opcional también significa que el supervisor puede reiniciar el proceso sin estado — degradado, pero no muerto. **Implementados desde la F5.4**: los usa el tipo 2, y `restore/1` se niega (`{:error, {:missing_key, …}}`) si el mapa no es un snapshot |
 | **`init_agent/1` y no `init/1`** | Para que el `GenServer` que genera el `__using__` pueda tener su `init/1` sin colisión. `init_agent/1` devuelve `{:ok, state}` y el `__using__` lo envuelve en `{:ok, state}` del `GenServer`. |
@@ -934,7 +960,7 @@ Las siete de `docs/03-convenciones/README.md` §5, y para esta fase dos más:
 | `mix dialyzer` | El `@type result/0` mentiroso (§2.3-a) es justo lo que dialyzer no ve porque el tipo se escribe a mano. **Esta fase añade el test de contrato que sí lo ve.** |
 | `mix escript.build` | Sobrescribe `./candil`, que está **ignorado** por git (`.gitignore:73`): no hay nada que restaurar (el aviso viejo decía «versionado»). Compila igual, y es puerta porque un escript roto es un CLI roto |
 | Verificación por semilla | `for s in 1 42 99991; do mix test --seed $s; done` |
-| **Puerta propia de esta fase** | **El agente se cuelga si el backend se cuelga.** Ninguna de las siete lo detecta porque todas terminan cuando el proceso termina. Hace falta un test con **timeout** que compruebe que el proceso responde — §8.3. **Existe desde la F5.3**: `test/candil/agent/simple_reflex_test.exs` (backend parado, `timeout: 100`, `@tag timeout: 2_000`). **Y la de la F5.4**: el reinicio vuelve **con** el estado — un test que mira el estado del que vuelve, no su vida (§7) |
+| **Puerta propia de esta fase** | **El agente se cuelga si el backend se cuelga.** Ninguna de las siete lo detecta porque todas terminan cuando el proceso termina. Hace falta un test con **timeout** que compruebe que el proceso responde — §8.3. **Existe desde la F5.3**: `test/candil/agent/simple_reflex_test.exs` (backend parado, `timeout: 100`, `@tag timeout: 2_000`). **Y la de la F5.4**: el reinicio vuelve **con** el estado — un test que mira el estado del que vuelve, no su vida (§7). **Y la de la F5.5**: la pregunta con respuesta — un nombre sin proceso contesta `{:error, {:agent_not_up, …}, []}`, un proceso que se muere mientras esperas también, y el colofón son **dos agentes hablando** a mitad de vuelta: `test/candil/agents_test.exs` |
 | **Puerta de máquina** | Un agente **real**, con un modelo de verdad, contestando. Un `StubBackend` verde es una hipótesis (`docs/README.md` §3) |
 
 ---
@@ -951,6 +977,7 @@ Cada test dice las dos cosas: cómo se ve pasar, y **cómo se ve fallar**.
 | `max_steps` | `{:error, :max_steps_exhausted, trace}` con `≤ max_steps` acciones | con `max_steps: 5` y una respuesta final en el paso 6: 0 fallos, y eso está bien |
 | Un agente no cuelga | el proceso responde en < N ms con un backend parado — `{:error, :timeout, []}` (F5.3) | con el backend bloqueado y el plazo fuera del `handle_call`, **`mix test` se queda colgado hasta el timeout global**. Por eso el test lleva su propio `@tag timeout:` |
 | Reinicio a estado estable | tras tumbar el agente, vuelve con el estado del último `snapshot` — ✅ F5.4: `test/candil/agent/model_based_reflex_test.exs` mira el estado del que vuelve (`restored`, `messages`, `rounds`, `last`), no solo que esté vivo | si vuelve **vacío**, el test pasa si no mira el estado. Hay que mirar el estado — el tipo 1 vuelve sin nada que restaurar a propósito; el tipo 2 vuelve con lo suyo |
+| La pregunta con respuesta | `Candil.Agents.call/3` pregunta por nombre o por pid y **la respuesta vuelve** — ✅ F5.5: con el nombre sin proceso contesta `{:error, {:agent_not_up, …}, []}`; con uno que se muere mientras esperas, lo mismo; y el vencimiento del que pregunta es `{:error, :timeout, []}` (medido: la respuesta tardía se descarta, el buzón queda limpio) | con un `GenServer.call` crudo, un nombre sin proceso **sale** por `:noproc` en la cara de quien pregunta; la puerta lo convierte en dato, y `test/candil/agents_test.exs` lo caza preguntando a un fantasma. El colofón: dos agentes —uno pregunta al otro a mitad de vuelta con una herramienta— y la respuesta del otro **dentro de la traza** del primero |
 
 **Y el orden de las siete puertas, y las tres semillas**, están en §5.3 paso 7.
 
@@ -1089,7 +1116,7 @@ F5.0 ──▶ F5.1 ──▶ F5.2 ──▶ F5.3 ──▶ F5.4 ──┬──
 | **F5.2** | `Candil.Agent` implementa el behaviour — ✅ **cerrada el 2026-10-16** | F5.1 | `loop/7` → `step/3` (el bucle, ahora un reductor) y **la migración `Conversation` → `Context`**: hechas, y con ellas el `@deprecated` de 4.1.0 quedó puesto (abajo) |
 | **F5.3** | Tipo 1: Reflejo Simple — ✅ **cerrada el 2026-10-17** | F5.2 | El primer `GenServer` de verdad (`Candil.Agents.SimpleReflex`): `evaluate/2`, el run con plazo —el backend que no vuelve no cuelga a nadie—, el supervisor en el árbol de la aplicación y **el test del cuelgue** (§8.3). **No dependió de 8b**: con el modelo pineado no había nada que pesar |
 | **F5.4** | Tipo 2: Reflejo Basado en Modelos — ✅ **cerrada el 2026-10-17** | F5.3 | El tipo existe (`Candil.Agents.ModelBasedReflex`): una vuelta entera por estímulo con `rounds` por vuelta, `snapshot/1` y `restore/1` en `Candil.Agent`, el almacén `Candil.Agents.Snapshots`, y **el reinicio de verdad** — el que se cae vuelve **con** su estado, que Arrea no da porque sus workers son `:temporary`. De propina, medido y arreglado: cuatro caídas a la vez mataban al supervisor de agentes (intensidad por defecto, 3 en 5 s); ahora son 10 en 5 s |
-| **F5.5** | RPC entre agentes | F5.3 | `call/3` con respuesta, **en Candil** (D-13), contra el `send_message/2` de Arrea, que es un `cast` (`worker.ex:112`) |
+| **F5.5** | RPC entre agentes — ✅ **cerrada el 2026-10-17** | F5.3 | `Candil.Agents.call/3` con respuesta, **en Candil** (D-13): los agentes se registran (`{:agent, name}` en `Candil.Registry`), se encuentran por su nombre y los errores vuelven como datos — un nombre sin proceso contesta, no sale un `:noproc`. Contra el `send_message/2` de Arrea, que es un `cast` (`worker.ex:112`). De propina, medido y arreglado: el registro de herramientas ejecutaba las herramientas dentro de su propio `GenServer`, y dos agentes que se preguntan se abrazaban con él (la herramienta corre ahora en quien llama) |
 | **F5.6** | Usar la cuenta (`Arrea.Resource`, ya existe) desde Candil | **8b** | **BLOQUEADA por 8b.** `Arrea.Resource` está mergeado y publicado (fase 2 ✅) pero **sin consumidor**: conectarlo es la admisión, y su reparto con la F7 es de `02-orden` |
 | **F5.7** | El router por paso | F5.6 **y** F5.2 | **BLOQUEADA.** La pieza del §2.7: `StepRouter` decide en cada paso del ReAct. Sin F5.6 puede pedir un modelo que no está arriba |
 | **F5.8** | Tipo 3: Basados en Objetivos | F5.7 | Descomposición, y `Arrea.Leader` como reparto de sub-agentes. El sub-agente puede pedir otro modelo, así que hereda el bloqueo |
@@ -1191,6 +1218,7 @@ Que quede escrito antes, y no como sorpresa en la revisión.
 | **`Arrea.Resource` funcionando** | Existe y está publicado (fase 2 ✅), pero **sin consumidor**: conectarlo es la línea de cajas y no entra en esta fase |
 | **Un agente validado contra un modelo de verdad** | Las siete puertas pasan con un `StubBackend`. Eso es una hipótesis, y la hipótesis más cara de este repo |
 | **`Arrea.Agent` en Arrea** | Decidido que no (D-13): el behaviour nace en Candil. Arrea se queda sin `agent.ex` hasta que un segundo consumidor lo pida — y ese día la PR cruzada vuelve, con el contrato ya probado |
+| **La herramienta pública de preguntar a otro agente** | La puerta existe (`Candil.Agents.call/3`, F5.5), pero la herramienta que la expone —y las voces de la mesa que la usarán— son de la fase 9: aquí la pregunta se prueba con una herramienta **de test**. Tampoco entran los heartbeats ni el registro con metadatos (§2.5): `call/3` resuelve «quién hay vivo», no «cómo está» |
 
 ---
 
@@ -1216,6 +1244,9 @@ cuelga**. ✅ F5.3 (2026-10-17). Y un `ModelBasedReflex` que se cae y **vuelve
 con su estado**, mirado y no solo «vivo»: `restored`, los `messages`, los
 `rounds` y el `last` del que vuelve (§7). ✅ F5.4 (2026-10-17). El reinicio del
 tipo 1 sigue volviendo sin nada que restaurar, y está bien: no tiene memoria.
+Y **dos agentes hablando** —uno pregunta al otro a mitad de vuelta y la
+respuesta le entra en la traza—, encontrados por su nombre y con el que no
+está contestando en vez de reventando. ✅ F5.5 (2026-10-17).
 Y en la máquina del dueño: un agente con un modelo de verdad contestando. Sin
 esa última, esto es una hipótesis.
 

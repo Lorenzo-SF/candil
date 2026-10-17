@@ -104,11 +104,26 @@ defmodule Candil.Tool do
   Returns the tool's return value (`{:ok, term()} | {:error, term()}`)
   on success, or `{:error, %Candil.Error{reason: :not_found}}` if no
   tool with that name is registered.
+
+  The function runs **in the caller** and not inside the registry: a tool
+  can block for as long as it wants — it can even call another agent, which
+  in turn asks for the tool list — and running it here would close the
+  registry to every other agent that asked for its tools at that moment.
   """
   @spec call(String.t(), map()) :: {:ok, term()} | {:error, term()}
   def call(name, args) when is_binary(name) and is_map(args) do
-    GenServer.call(@name, {:call, name, args})
+    case fetch(name) do
+      {:ok, %__MODULE__{function: function}} ->
+        function.(args)
+
+      :error ->
+        {:error, %Candil.Error{reason: :not_found, context: %{tool: name}}}
+    end
   end
+
+  # El registro guarda y devuelve; quien ejecuta es quien llama (`call/2`).
+  @spec fetch(String.t()) :: {:ok, t()} | :error
+  defp fetch(name), do: GenServer.call(@name, {:fetch, name})
 
   @doc """
   Validate that `args` matches the tool's JSON schema. Returns
@@ -155,13 +170,7 @@ defmodule Candil.Tool do
   end
 
   @impl true
-  def handle_call({:call, name, args}, _from, state) do
-    case Map.fetch(state.tools, name) do
-      {:ok, %__MODULE__{function: function}} ->
-        {:reply, function.(args), state}
-
-      :error ->
-        {:reply, {:error, %Candil.Error{reason: :not_found, context: %{tool: name}}}, state}
-    end
+  def handle_call({:fetch, name}, _from, state) do
+    {:reply, Map.fetch(state.tools, name), state}
   end
 end
