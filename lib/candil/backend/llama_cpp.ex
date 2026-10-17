@@ -45,7 +45,7 @@ defmodule Candil.Backend.LlamaCpp do
   defp resolve(alias_) when is_atom(alias_), do: {:ok, alias_}
 
   defp resolve(alias_) when is_binary(alias_) do
-    String.to_existing_atom(alias_)
+    {:ok, String.to_existing_atom(alias_)}
   rescue
     ArgumentError -> {:error, Backend.backend_unavailable(:local, alias_)}
   end
