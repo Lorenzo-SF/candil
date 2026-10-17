@@ -53,6 +53,7 @@ defmodule Candil.Agents.ModelBasedReflex do
   use GenServer
 
   alias Candil.Agent
+  alias Candil.Agents.Breaker
   alias Candil.Agents.Snapshots
 
   # El default del motor (`agent.ex`), y aquí igual: una vuelta puede usar
@@ -86,6 +87,10 @@ defmodule Candil.Agents.ModelBasedReflex do
       every call.
     * `:max_steps` — max rounds **per turn**; 8 by default.
     * `:timeout` — deadline in ms for the whole turn; 60 000 by default.
+    * `:breaker_threshold` — consecutive hangs that close the door;
+      `5` by default. See `Candil.Agents.Breaker` (§8.3).
+    * `:breaker_cooldown_ms` — cooldown before the probe is let through;
+      `30 000` by default.
 
   A name whose last stable state is stored comes back from it instead of
   starting empty; a stored state that does not restore does not start at all
@@ -156,29 +161,45 @@ defmodule Candil.Agents.ModelBasedReflex do
        name: Keyword.fetch!(opts, :name),
        engine: engine,
        timeout: Keyword.get(opts, :timeout, @default_timeout),
-       restored: restored?
+       restored: restored?,
+       breaker: Breaker.new(opts)
      }}
   end
 
   @impl true
   def handle_call({:evaluate, input}, _from, state) do
-    # `rounds` se reinicia por vuelta: en `run/3` el contador nace con la
-    # llamada, y este proceso vive. Sin esto, `max_steps` sería un tope de
-    # por vida y la vuelta que agotase el presupuesto lo agotaría para
-    # siempre.
-    engine = %{state.engine | rounds: 0}
-    task = Task.async(fn -> turn(engine, input) end)
+    # El tercer cerrojo del §8.3, el mismo que en el tipo 1 y por el mismo
+    # motivo: con el circuito abierto la vuelta ni empieza. El breaker NO va
+    # en el snapshot —es salud del proceso, no estado del mundo—: un agente
+    # restaurado nace con el circuito cerrado, y eso es lo que se quiere.
+    case Breaker.check(state.breaker, now()) do
+      :open ->
+        {:reply, {:error, {:agent_circuit_open, state.name}, []}, state}
 
-    case Task.yield(task, state.timeout) || Task.shutdown(task, :brutal_kill) do
-      {:ok, {engine, reply}} ->
-        Snapshots.save(state.name, Agent.snapshot(engine))
-        {:reply, reply, %{state | engine: engine}}
+      _cerrado_o_sonda ->
+        # `rounds` se reinicia por vuelta: en `run/3` el contador nace con la
+        # llamada, y este proceso vive. Sin esto, `max_steps` sería un tope de
+        # por vida y la vuelta que agotase el presupuesto lo agotaría para
+        # siempre.
+        engine = %{state.engine | rounds: 0}
+        task = Task.async(fn -> turn(engine, input) end)
 
-      nil ->
-        # El plazo mató la vuelta, no al agente: el estado se queda donde
-        # estaba —el último estado estable es el de la última vuelta que
-        # terminó— y el snapshot no se toca.
-        {:reply, {:error, :timeout, []}, state}
+        {reply, state} =
+          case Task.yield(task, state.timeout) || Task.shutdown(task, :brutal_kill) do
+            {:ok, {engine, reply}} ->
+              Snapshots.save(state.name, Agent.snapshot(engine))
+              {reply, %{state | engine: engine}}
+
+            nil ->
+              # El plazo mató la vuelta, no al agente: el estado se queda donde
+              # estaba —el último estado estable es el de la última vuelta que
+              # terminó— y el snapshot no se toca.
+              {{:error, :timeout, []}, state}
+          end
+
+        breaker = Breaker.record(state.breaker, Breaker.verdict(reply), now())
+
+        {:reply, reply, %{state | breaker: breaker}}
     end
   end
 
@@ -197,7 +218,8 @@ defmodule Candil.Agents.ModelBasedReflex do
        rounds: engine.rounds,
        messages: length(engine.messages),
        trace: length(engine.trace),
-       last: last_final(engine.trace)
+       last: last_final(engine.trace),
+       breaker: Breaker.check(state.breaker, now())
      }, state}
   end
 
@@ -299,4 +321,9 @@ defmodule Candil.Agents.ModelBasedReflex do
       {:stop, reason} -> {:error, reason}
     end
   end
+
+  # El reloj del circuito, el mismo que en el tipo 1: `monotonic` porque un
+  # ajuste de hora del sistema no tiene por que abrir ni cerrar un circuito.
+  @spec now() :: integer()
+  defp now, do: System.monotonic_time(:millisecond)
 end

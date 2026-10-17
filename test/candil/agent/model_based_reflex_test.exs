@@ -164,7 +164,8 @@ defmodule Candil.Agents.ModelBasedReflexTest do
                rounds: 0,
                messages: 0,
                trace: 0,
-               last: nil
+               last: nil,
+               breaker: :closed
              } = ModelBasedReflex.status(pid)
     end
 
@@ -373,6 +374,29 @@ defmodule Candil.Agents.ModelBasedReflexTest do
       assert {:error, :not_found} = Snapshots.load(name)
 
       assert {:error, :timeout, []} = ModelBasedReflex.evaluate(pid, "otra vez")
+    end
+
+    @tag timeout: 5_000
+    test "los cuelgues seguidos abren el circuito también en el tipo 2", %{name: name} do
+      # El cerrojo es el mismo (`Candil.Agents.Breaker`) y aquí se prueba en el
+      # tipo 2, que tiene su propio proceso y su propio estado: el circuito va
+      # junto al estado, no en un registro compartido.
+      pid =
+        start_supervised!(
+          {ModelBasedReflex,
+           name: name, goal: "g", backend: HangingBackend, timeout: 50, breaker_threshold: 2}
+        )
+
+      assert {:error, :timeout, []} = ModelBasedReflex.evaluate(pid, "uno")
+      assert {:error, :timeout, []} = ModelBasedReflex.evaluate(pid, "dos")
+      assert %{breaker: :open} = ModelBasedReflex.status(pid)
+
+      # La tercera no paga el plazo, y el error dice con qué agente se cerró.
+      t0 = System.monotonic_time(:millisecond)
+
+      assert {:error, {:agent_circuit_open, ^name}, []} = ModelBasedReflex.evaluate(pid, "tres")
+
+      assert System.monotonic_time(:millisecond) - t0 < 50
     end
 
     test "el child spec: reinicio permanente y cinco segundos de gracia, no brutal_kill" do

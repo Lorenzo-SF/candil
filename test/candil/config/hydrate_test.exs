@@ -378,6 +378,41 @@ defmodule Candil.Config.HydrateTest do
     end
   end
 
+  describe "el sha256 del engine" do
+    test "escrito en el catalogo, llega al struct — que es quien lo verifica" do
+      # El `Installer` ya lo leia (`stream_download(url, tmp_zip,
+      # engine.checksum_sha256)`) y **nadie lo escribia**: viajaba siempre
+      # `nil`, o sea que la verificacion de la descarga no ocurria nunca.
+      # Medido el 2026-10-17.
+      sha = String.duplicate("ab", 32)
+
+      assert %{engines: [:llama_cpp]} =
+               Hydrate.hydrate(%{
+                 "engine" => %{
+                   "llama_cpp" => %{
+                     "checksum_sha256" => sha,
+                     "install" => %{"strategy" => "none"}
+                   }
+                 }
+               })
+
+      {:ok, engine} = Store.get_engine(:llama_cpp)
+      assert engine.checksum_sha256 == sha
+    end
+
+    test "sin la clave, el struct la trae `nil`: no se verifica, y no se finge que si" do
+      assert %{engines: [:llama_cpp]} =
+               Hydrate.hydrate(%{
+                 "engine" => %{
+                   "llama_cpp" => %{"install" => %{"strategy" => "none"}}
+                 }
+               })
+
+      {:ok, engine} = Store.get_engine(:llama_cpp)
+      assert engine.checksum_sha256 == nil
+    end
+  end
+
   describe "el catalogo real, sin tocar" do
     test "las cuatro combinaciones de usage del catalogo siguen arrancando" do
       # Estas son las que hay en `~/.config/candil/candil.toml` el 2026-10-14.

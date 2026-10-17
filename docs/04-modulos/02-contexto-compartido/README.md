@@ -52,8 +52,8 @@ salió de uno o de otro.
 
 **Por qué ahora**: porque
 [`04-modulos`](../README.md) §3 ya dice que la memoria común vive en el RAG, y
-[`02-orden`](../../02-orden/README.md) §2 pone la mesa camilla (fase 8) **por
-debajo** del RAG (fase 7). Es decir: la mesa camilla ya está ordenada en el
+[`02-orden`](../../02-orden/README.md) §2 pone la mesa camilla (fase 9) **por
+debajo** del RAG (fase 6). Es decir: la mesa camilla ya está ordenada en el
 calendario, y lo único que le falta es un diseño escrito. Este documento es ese
 diseño, y las fases que propone son lo que [`02-orden`](../../02-orden/README.md)
 necesita para fechar la 8.
@@ -262,7 +262,7 @@ estas fases.
 | `test/candil/context/prefix_planner_test.exs` | *(test)* | F2.5 |
 | `lib/candil/context/compressor.ex` | `Candil.Context.Compressor` — compresión **asíncrona** al 80 % | F2.6 |
 | `test/candil/context/compressor_test.exs` | *(test)* | F2.6 |
-| `lib/candil/context/shared_memory.ex` | `Candil.Context.SharedMemory` — la memoria común (**fase 8c**) | F2.4 |
+| `lib/candil/context/shared_memory.ex` | `Candil.Context.SharedMemory` — la memoria común (**fase 9**) | F2.4 |
 
 ### 3.2 · Ficheros que se modifican
 
@@ -587,7 +587,7 @@ empezar.**
 | **F2.1** | `Turn` y `SharedSession`, structs solos, sin storage nuevo | [`03-convenciones`](../../03-convenciones/README.md) escrito · `Candil.Context` en verde | F2.2, F2.3, F2.5 |
 | **F2.2** | `Candil.Storage.Adapter` + `Candil.Storage.ETS` + `Candil.Storage.Store` | **F2.1** | F2.3 |
 | **F2.3** | `Candil.Context` detrás de `Store`, **sin cambiar un `@spec`** | **F2.2** | F2.4, F2.6, F2.7 |
-| **F2.4** | `Candil.Context.SharedMemory` — la memoria común | **F2.3** · **fase 7 (RAG)** de [`02-orden`](../../02-orden/README.md) · decisión abierta nº 2 cerrada (§5.4) | La mesa camilla (8c) |
+| **F2.4** | `Candil.Context.SharedMemory` — la memoria común | **F2.3** · **fase 6 (RAG)** de [`02-orden`](../../02-orden/README.md) · decisión abierta nº 2 cerrada (§5.4) | La mesa camilla (9) |
 | **F2.5** | Prefijo estable, `capabilities/0`, `cache_control`, contadores reales | **F2.1** · `Candil.Backend` con `capabilities/0` | Ahorro de tokens cloud |
 | **F2.6** | Compresión asíncrona al 80 % | **F2.3** · `Candil.Context.Summarizer` con modelo configurado | Sesiones largas sin 400 |
 | **F2.7** | La línea de cajas FIFO con VIP | **Decisión abierta §2.4 cerrada** · **F2.3** | La 8b |
@@ -942,7 +942,7 @@ se convierte a `Session` en el borde, en `from_shared/1`. Si cambia, el módulo 
 (que llama a esto) se entera en su propio `mix compile --warnings-as-errors`, y esa
 es exactamente la alarma que se quiere.
 
-### 5.4 · F2.4 — la memoria común (**fase 8c**)
+### 5.4 · F2.4 — la memoria común (**fase 9**)
 
 Esta fase **no se puede empezar** hasta que la decisión abierta nº 2 de
 [`01-inventario`](../../01-inventario/README.md) §7 esté contestada, y **no se

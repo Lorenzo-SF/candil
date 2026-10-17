@@ -53,6 +53,26 @@ defmodule Candil.Agents.SimpleReflexTest do
     def chat(_model, _messages, _opts), do: raise("el backend revienta")
   end
 
+  defmodule FlakyBackend do
+    @moduledoc """
+    Se cuelga mientras el interruptor está puesto y contesta cuando el test lo
+    quita: el backend que se **endereza**, para la sonda del §8.3.
+    """
+
+    def chat(_model, _messages, _opts) do
+      if :persistent_term.get({__MODULE__, :colgado?}, true) do
+        Process.sleep(:infinity)
+      else
+        {:ok,
+         %{
+           content: "FINAL_ANSWER: ya",
+           finish_reason: "stop",
+           usage: %{input_tokens: 0, output_tokens: 0}
+         }}
+      end
+    end
+  end
+
   setup do
     :persistent_term.put({EchoBackend, :observer}, self())
     on_exit(fn -> :persistent_term.erase({EchoBackend, :observer}) end)
@@ -99,7 +119,7 @@ defmodule Candil.Agents.SimpleReflexTest do
       refute Enum.any?(segunda, &(&1[:content] == "uno"))
     end
 
-    test "status/1 cuenta la configuración, y no cambia entre llamadas" do
+    test "status/1 cuenta la configuración — y el circuito, que sigue cerrado tras una vuelta buena" do
       pid =
         start_supervised!(
           {SimpleReflex, name: "router", goal: "clasificar", backend: EchoBackend}
@@ -111,14 +131,16 @@ defmodule Candil.Agents.SimpleReflexTest do
         backend: EchoBackend,
         model: "default",
         max_steps: 1,
-        timeout: 60_000
+        timeout: 60_000,
+        breaker: :closed
       }
 
       assert SimpleReflex.status(pid) == esperado
 
       assert {:ok, "uno", []} = SimpleReflex.evaluate(pid, "uno")
 
-      # Después de trabajar, exactamente lo mismo: no acumula nada.
+      # Después de trabajar, exactamente lo mismo: no acumula nada — y una
+      # vuelta que contesta deja el circuito como estaba.
       assert SimpleReflex.status(pid) == esperado
     end
 
@@ -154,6 +176,58 @@ defmodule Candil.Agents.SimpleReflexTest do
       # El plazo mató la llamada, no al agente: sigue vivo y sirviendo.
       assert %{name: "colgado"} = SimpleReflex.status(pid)
       assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "otra vez")
+    end
+
+    @tag timeout: 5_000
+    test "cinco cuelgues seguidos abren el circuito, y el sexto no paga el plazo" do
+      pid =
+        start_supervised!(
+          {SimpleReflex, name: "colgado", goal: "g", backend: HangingBackend, timeout: 50}
+        )
+
+      # Cinco vueltas, cinco plazos: cada una paga su plazo y contesta igual.
+      for _ <- 1..5 do
+        assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "hola")
+      end
+
+      assert %{breaker: :open} = SimpleReflex.status(pid)
+
+      # La sexta no vuelve a pagar el plazo: el circuito contesta en el acto,
+      # y dice con quién se cerró.
+      t0 = System.monotonic_time(:millisecond)
+
+      assert {:error, {:agent_circuit_open, "colgado"}, []} = SimpleReflex.evaluate(pid, "hola")
+
+      assert System.monotonic_time(:millisecond) - t0 < 50
+    end
+
+    @tag timeout: 5_000
+    test "la sonda de después del enfriamiento cierra el circuito si el backend se endereza" do
+      :persistent_term.put({FlakyBackend, :colgado?}, true)
+      on_exit(fn -> :persistent_term.erase({FlakyBackend, :colgado?}) end)
+
+      pid =
+        start_supervised!(
+          {SimpleReflex,
+           name: "fugaz",
+           goal: "g",
+           backend: FlakyBackend,
+           timeout: 50,
+           breaker_threshold: 2,
+           breaker_cooldown_ms: 20}
+        )
+
+      assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "uno")
+      assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "dos")
+      assert %{breaker: :open} = SimpleReflex.status(pid)
+
+      # Se endereza y pasa el enfriamiento: la sonda corre de verdad y, como
+      # contesta, el circuito cierra.
+      :persistent_term.put({FlakyBackend, :colgado?}, false)
+      assert wait_until(fn -> SimpleReflex.status(pid).breaker == :probe end)
+
+      assert {:ok, "ya", []} = SimpleReflex.evaluate(pid, "tres")
+      assert %{breaker: :closed} = SimpleReflex.status(pid)
     end
 
     test "un run que revienta se lleva al agente, y el supervisor lo levanta" do

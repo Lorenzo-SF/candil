@@ -9,6 +9,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Un agente que se cuelga cinco veces seguidas se cierra solo: el tercer
+  cerrojo del §8.3.** `Candil.Agents.Breaker` — el run con plazo ya estaba
+  (F5.3): quien llama recibe `{:error, :timeout, []}` y el agente sigue vivo;
+  lo que faltaba era dejar de pagar el plazo entero cada vez. Cinco cuelgues
+  seguidos abren el circuito, la puerta contesta
+  `{:error, {:agent_circuit_open, name}, []}` **sin correr la vuelta**, y una
+  sonda —pasado el enfriamiento, 30 s, los mismos del breaker de HTTP— lo
+  cierra si el motor volvió; si la sonda vuelve a colgarse, el enfriamiento
+  se reaplaza. **Solo el plazo cuenta como fallo**: un error del motor es el
+  motor contestando, y eso cierra. El estado vive en el proceso del agente
+  —un solo escritor y un solo lector, y el `GenServer` ya serializa las
+  llamadas— y muere con él: la mitad de los **crashes** en bucle queda fuera,
+  con el porqué y lo que haría falta escrito (P-9, §8.3). Configurable con
+  `:breaker_threshold` y `:breaker_cooldown_ms`; `status/1` lo dice
+  (`breaker: :closed | :open | :probe`). Probado en puro
+  (`test/candil/agent/breaker_test.exs`, con `now` a mano y sin dormir) y en
+  los dos reflejos.
+
 - **Un agente se encuentra por su nombre y se le pregunta con respuesta:
   `Candil.Agents.call/3` (F5.5).** La façade nueva —`call/3`, `whereis/1` y
   `via/1`— es la puerta del §5.5 de `docs/04-modulos/05-agentes`:
@@ -100,6 +118,20 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Changed
 
+- **`:degrade` dice por qué no está, en vez de llamarse «desconocida».** El
+  tercer valor del refusal (D-09) sigue sin ser alcanzable —servir con otro
+  modelo «que cubra lo mismo» exige saber qué pide la pregunta, enrutado por
+  cobertura que no existe— y configurarlo levantaba el `ArgumentError` del
+  catch-all, como si quien lo escribió hubiera tecleado mal. Ahora tiene su
+  propia cláusula y el raise dice qué le falta a Candil, y con qué
+  condiciones se retomaría (`docs/09-deuda-y-pendientes`, P-1).
+
+- **El CI corre dos semillas fijas, 0 y 1.** Con una sola, la cobertura de
+  orden se quedaba corta y se midió dos veces: el flake de `Finch` solo salía
+  con la 1, y el del átomo de `x-candil-strategy` solo con la 3, la 5 y la 7
+  — los dos verdes en el CI. La semilla sigue siendo fija, por la misma razón
+  de siempre: un rojo tiene que ser reproducible.
+
 - **`Tool.call/2` ejecuta la herramienta en quien llama, no dentro del
   registro (F5.5).** Medido: el registro es un `GenServer` y la herramienta
   corría dentro de él, así que **cualquier herramienta cerraba la puerta del
@@ -157,6 +189,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   `@compile {:no_warn_deprecated, M}` no suprime en este Elixir — medido).
 
 ### Fixed
+
+- **Un refusal salía como 500 genérico y sin `Retry-After`.** El error de
+  escasez ya traía la forma correcta (`Error.no_capacity/2` decía «esto es un
+  503»), pero el gateway no tenía la cláusula: caía en el 500 de siempre y la
+  cabecera no salía nunca, así que un cliente que reintenta no se enteraba de
+  cuándo volver. Ahora `:no_capacity` es 503 y el `Retry-After` sale en
+  segundos (RFC 9110, redondeando hacia arriba — un `retry_after` de 1 500 ms
+  dice `2`, no `1`); el mensaje redondea igual, para que diga el mismo número
+  que la cabecera, y `:no_capacity` entra en el `@type reason` de
+  `Candil.Error`, que no lo tenía. Medido de punta a punta: un gateway sin
+  candidatos (`route: [candidates: []]`) contesta `503` + `Retry-After: 30`
+  con `no_models_for_consumer` dentro
+  (`test/candil/gateway/end_to_end_test.exs`).
+
+- **El `checksum_sha256` del engine viajaba siempre `nil`.** El `Installer`
+  ya lo leía —`stream_download(url, tmp_zip, engine.checksum_sha256)`— y
+  **nadie lo escribía**: la verificación del zip precompilado no ocurría
+  nunca. El catálogo ahora lo hidrata (`[engine.X].checksum_sha256`) y el
+  schema lo valida **al cargar** —64 caracteres hex—, para que una errata se
+  vea ahí y no como un «checksum mismatch» después de bajar la release
+  entera. El campo homónimo de `Candil.Model`, que no leía nadie y duplicaba
+  el `sha256` de `Source`, se retiró.
 
 - **La cabecera `x-candil-strategy` daba un 500 en un arranque limpio.** El
   valor era válido —`rule`, `embedding`, `llm`—, pero el handler lo pasaba

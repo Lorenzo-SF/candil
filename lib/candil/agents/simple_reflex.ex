@@ -51,6 +51,7 @@ defmodule Candil.Agents.SimpleReflex do
   use GenServer
 
   alias Candil.Agent
+  alias Candil.Agents.Breaker
 
   @default_max_steps 1
   @default_timeout 60_000
@@ -83,6 +84,10 @@ defmodule Candil.Agents.SimpleReflex do
     * `:max_steps` — max rounds; **1** by default: a reflex decides once.
       Raise it for a tool loop — but then it may not be a type 1.
     * `:timeout` — deadline in ms for the whole run; 60 000 by default.
+    * `:breaker_threshold` — consecutive hangs that close the door;
+      `5` by default. See `Candil.Agents.Breaker` (§8.3).
+    * `:breaker_cooldown_ms` — cooldown before the probe is let through;
+      `30 000` by default.
   """
   @spec start_link(keyword()) :: GenServer.on_start()
   def start_link(opts) do
@@ -151,17 +156,31 @@ defmodule Candil.Agents.SimpleReflex do
        backend: Keyword.get(opts, :backend),
        model: Keyword.get(opts, :model) || "default",
        max_steps: Keyword.get(opts, :max_steps, @default_max_steps),
-       timeout: Keyword.get(opts, :timeout, @default_timeout)
+       timeout: Keyword.get(opts, :timeout, @default_timeout),
+       breaker: Breaker.new(opts)
      }}
   end
 
   @impl true
   def handle_call({:evaluate, input}, _from, state) do
-    {:reply, within_timeout(state, input), state}
+    # El tercer cerrojo del §8.3, y va AQUI y no en la puerta (F5.5): quien
+    # tiene el pid tambien entra por `GenServer.call`, y un cerrojo que solo
+    # cubre una de las puertas es un cerrojo con la puerta de al lado abierta.
+    case Breaker.check(state.breaker, now()) do
+      :open ->
+        {:reply, {:error, {:agent_circuit_open, state.name || self()}, []}, state}
+
+      _cerrado_o_sonda ->
+        result = within_timeout(state, input)
+        breaker = Breaker.record(state.breaker, Breaker.verdict(result), now())
+        {:reply, result, %{state | breaker: breaker}}
+    end
   end
 
   def handle_call(:status, _from, state) do
-    {:reply, Map.take(state, [:name, :goal, :backend, :model, :max_steps, :timeout]), state}
+    {:reply,
+     Map.take(state, [:name, :goal, :backend, :model, :max_steps, :timeout])
+     |> Map.put(:breaker, Breaker.check(state.breaker, now())), state}
   end
 
   # ── Private ─────────────────────────────────────────────────────────────
@@ -204,4 +223,9 @@ defmodule Candil.Agents.SimpleReflex do
 
   @spec run_opts(map()) :: keyword()
   defp run_opts(state), do: [backend: state.backend, model: state.model]
+
+  # El reloj del circuito. `monotonic` porque un ajuste de hora del sistema no
+  # tiene por que abrir ni cerrar un circuito.
+  @spec now() :: integer()
+  defp now, do: System.monotonic_time(:millisecond)
 end

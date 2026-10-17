@@ -172,7 +172,6 @@ defmodule Candil.Model do
             # occurrence of a repeated flag, so order is behaviour.
             model_args: [],
             tags: [],
-            checksum_sha256: nil,
             enabled: true,
             # Cuanto tarda este destino de verdad, en segundos. Lo usa
             # `Candil.Refusal.wait_timeout_ms/2`: con esto declarado, el tope de
@@ -206,7 +205,6 @@ defmodule Candil.Model do
           model_args: [binary()],
           gpu_layers: integer(),
           tags: [binary() | atom()],
-          checksum_sha256: binary() | nil,
           enabled: boolean()
         }
 

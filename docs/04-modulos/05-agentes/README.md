@@ -77,6 +77,13 @@
 >   `{:error, {:agent_not_up, name}, []}` en vez de un `:noproc` en la cara de
 >   quien pregunta. Y dos agentes hablando, con la respuesta del otro dentro de
 >   un test.
+> - Y el tercer cerrojo del §8.3, también el 2026-10-17: **`Candil.Agents.Breaker`**
+>   — un agente que se cuelga 5 veces seguidas abre su circuito, la puerta
+>   contesta `{:error, {:agent_circuit_open, …}, []}` **sin volver a pagar el
+>   plazo**, y una sonda lo cierra a los 30 s si el motor volvió. En el proceso
+>   y no en `Arrea.CircuitBreaker`, por medida: un agente tiene un solo escritor
+>   y un solo lector. La mitad de los **crashes** queda fuera, con el porqué
+>   escrito (P-9 en `09-deuda-y-pendientes`).
 
 > **D-14 (2026-10-16) — el vocabulario**: «agente» significa una sola cosa, y es
 > **este proceso**. La mesa (fase 9) llamará **voces** a sus participantes, y el
@@ -416,15 +423,17 @@ diferencia con este documento.
 |---|---|---|
 | `lib/candil/agents/behaviour.ex` | el behaviour de §5.2 — en Candil por D-13; el sentido de «agente» lo fija D-14, y el nombre y el contrato los confirmó la F5.1 | **existe** (F5.1, 2026-10-16) |
 | `lib/candil/agent.ex` | **implementa** el behaviour (F5.2): `init_agent/1` construye el estado, `step/3` es una vuelta ReAct, el bucle es un reductor y la historia va por `Candil.Context`. Desde la F5.4 implementa también los opcionales: `snapshot/1` (el estado como dato plano, sin la referencia de cancelación), `restore/1` (que se niega si el mapa no es un snapshot) y `finalize/1`, pública para que un proceso conteste con la misma forma que `run/3` | **existe** (F5.2, 2026-10-16; F5.4, 2026-10-17) |
-| `lib/candil/agents/simple_reflex.ex` | el agente del tipo 1, como `GenServer`: `evaluate/2` (estímulo → respuesta, sin memoria), `status/1`, y el run con plazo — el backend que no vuelve no cuelga a nadie; con `:name` el proceso **se registra** y esa es su puerta | **existe** (F5.3, 2026-10-17; F5.5, 2026-10-17) |
-| `lib/candil/agents/model_based_reflex.ex` | el agente del tipo 2: `evaluate/2` = una vuelta entera con el estado del proceso (memoria entre vueltas), `status/1` con el modelo del mundo, plazo — y el estado escrito tras cada vuelta, para que el reinicio **vuelva con él**; el `:name` es obligatorio y siempre registra | **existe** (F5.4, 2026-10-17; F5.5, 2026-10-17) |
+| `lib/candil/agents/simple_reflex.ex` | el agente del tipo 1, como `GenServer`: `evaluate/2` (estímulo → respuesta, sin memoria), `status/1`, y el run con plazo — el backend que no vuelve no cuelga a nadie; con `:name` el proceso **se registra** y esa es su puerta; y desde el 2026-10-17 el breaker del §8.3 en el `handle_call` | **existe** (F5.3, 2026-10-17; F5.5, 2026-10-17; breaker, 2026-10-17) |
+| `lib/candil/agents/model_based_reflex.ex` | el agente del tipo 2: `evaluate/2` = una vuelta entera con el estado del proceso (memoria entre vueltas), `status/1` con el modelo del mundo, plazo — y el estado escrito tras cada vuelta, para que el reinicio **vuelva con él**; el `:name` es obligatorio y siempre registra; y el mismo breaker | **existe** (F5.4, 2026-10-17; F5.5, 2026-10-17; breaker, 2026-10-17) |
 | `lib/candil/agents/snapshots.ex` | el almacén del «último estado estable»: ETS en el árbol, por nombre de agente (`save/2`, `load/1`, `forget/1`), y fuera del proceso a propósito | **existe** (F5.4, 2026-10-17) |
+| `lib/candil/agents/breaker.ex` | el tercer cerrojo del §8.3: 5 cuelgues seguidos abren el circuito —la puerta contesta sin volver a pagar el plazo—, 30 s de enfriamiento y una sonda que lo cierra si el motor volvió. Estado **en el proceso** (y por qué); `now` como parámetro para que el módulo sea puro | **existe** (2026-10-17) |
 | `lib/candil/agents/supervisor.ex` | el `DynamicSupervisor` de agentes, `:one_for_one` (D-13: el de Arrea ya no hace falta), con intensidad de **10 caídas en 5 s** desde la F5.4 — medido: cuatro a la vez mataban al supervisor, y los hijos no resucitan con él | **existe** (F5.1, 2026-10-16; F5.4, 2026-10-17) |
 | `lib/candil/agents.ex` | la puerta (F5.5): `call/3` — nombre o pid, mensaje `{:evaluate, …}`, respuesta o error **como dato** (`{:error, {:agent_not_up, …}, []}`, `{:error, :timeout, []}`) —, `whereis/1` y `via/1`, sobre la clave `{:agent, name}` de `Candil.Registry` | **existe** (F5.5, 2026-10-17) |
 | `lib/candil/agents/step_router.ex` | **[PROPUESTO]** la decisión de routing **por paso** (§2.7) | no existe |
 | `test/candil/agent_test.exs` | los que había, **más** los de la F5.0 y la F5.2 (pasos sin proceso, continuidad de sesión) | **existe** |
-| `test/candil/agent/simple_reflex_test.exs` | el tipo 1: sin memoria, el hijo del supervisor, el reinicio, y **el test del cuelgue** con `@tag timeout:` | **existe** (F5.3, 2026-10-17) |
-| `test/candil/agent/model_based_reflex_test.exs` | el tipo 2: la memoria entre vueltas, el presupuesto por vuelta, el plazo, y **el reinicio a estado estable** del §7 — mirando el estado | **existe** (F5.4, 2026-10-17) |
+| `test/candil/agent/simple_reflex_test.exs` | el tipo 1: sin memoria, el hijo del supervisor, el reinicio, **el test del cuelgue** con `@tag timeout:` — y los del circuito: cinco cuelgues abren, la sonda cierra | **existe** (F5.3, 2026-10-17; breaker, 2026-10-17) |
+| `test/candil/agent/model_based_reflex_test.exs` | el tipo 2: la memoria entre vueltas, el presupuesto por vuelta, el plazo, y **el reinicio a estado estable** del §7 — mirando el estado; y el circuito del tipo 2 | **existe** (F5.4, 2026-10-17; breaker, 2026-10-17) |
+| `test/candil/agent/breaker_test.exs` | el circuito **en puro**: el defecto 5/30 s, el fallo no consecutivo que resetea, la sonda que cierra, la que reaplaza el enfriamiento y qué cuenta como fallo (`verdict/1`) — sin procesos y sin dormir, con `now` a mano | **existe** (2026-10-17) |
 | `test/candil/agent/snapshots_test.exs` | el almacén: guardar, leer, olvidar, y que la tabla no es del agente | **existe** (F5.4, 2026-10-17) |
 | `test/candil/agents_test.exs` | la puerta: encontrar por nombre, un nombre sin proceso contesta, el que se muere mientras esperas contesta, el plazo del que pregunta, y **dos agentes hablando** —una herramienta llama a otro agente a mitad de vuelta— | **existe** (F5.5, 2026-10-17) |
 | `test/candil/agent/contract_test.exs` | el test de contrato del §4 — escrito **antes** del código, lo trajo la F5.0 (`#87`) | **existe** |
@@ -960,7 +969,7 @@ Las siete de `docs/03-convenciones/README.md` §5, y para esta fase dos más:
 | `mix dialyzer` | El `@type result/0` mentiroso (§2.3-a) es justo lo que dialyzer no ve porque el tipo se escribe a mano. **Esta fase añade el test de contrato que sí lo ve.** |
 | `mix escript.build` | Sobrescribe `./candil`, que está **ignorado** por git (`.gitignore:73`): no hay nada que restaurar (el aviso viejo decía «versionado»). Compila igual, y es puerta porque un escript roto es un CLI roto |
 | Verificación por semilla | `for s in 1 42 99991; do mix test --seed $s; done` |
-| **Puerta propia de esta fase** | **El agente se cuelga si el backend se cuelga.** Ninguna de las siete lo detecta porque todas terminan cuando el proceso termina. Hace falta un test con **timeout** que compruebe que el proceso responde — §8.3. **Existe desde la F5.3**: `test/candil/agent/simple_reflex_test.exs` (backend parado, `timeout: 100`, `@tag timeout: 2_000`). **Y la de la F5.4**: el reinicio vuelve **con** el estado — un test que mira el estado del que vuelve, no su vida (§7). **Y la de la F5.5**: la pregunta con respuesta — un nombre sin proceso contesta `{:error, {:agent_not_up, …}, []}`, un proceso que se muere mientras esperas también, y el colofón son **dos agentes hablando** a mitad de vuelta: `test/candil/agents_test.exs` |
+| **Puerta propia de esta fase** | **El agente se cuelga si el backend se cuelga.** Ninguna de las siete lo detecta porque todas terminan cuando el proceso termina. Hace falta un test con **timeout** que compruebe que el proceso responde — §8.3. **Existe desde la F5.3**: `test/candil/agent/simple_reflex_test.exs` (backend parado, `timeout: 100`, `@tag timeout: 2_000`). **Y la de la F5.4**: el reinicio vuelve **con** el estado — un test que mira el estado del que vuelve, no su vida (§7). **Y la de la F5.5**: la pregunta con respuesta — un nombre sin proceso contesta `{:error, {:agent_not_up, …}, []}`, un proceso que se muere mientras esperas también, y el colofón son **dos agentes hablando** a mitad de vuelta: `test/candil/agents_test.exs`. **Y el tercer cerrojo del §8.3 (2026-10-17)**: cinco cuelgues seguidos abren el circuito —la sexta contesta sin volver a pagar el plazo— y la sonda lo cierra; en `simple_reflex_test.exs`, `model_based_reflex_test.exs`, y el puro en `breaker_test.exs` |
 | **Puerta de máquina** | Un agente **real**, con un modelo de verdad, contestando. Un `StubBackend` verde es una hipótesis (`docs/README.md` §3) |
 
 ---
@@ -976,6 +985,7 @@ Cada test dice las dos cosas: cómo se ve pasar, y **cómo se ve fallar**.
 | Alias inexistente | `{:error, :model_not_up, "inventado"}` | **hoy devuelve `"default"` o deja pasar el alias**. Es el bug de la familia «pin que no existía» |
 | `max_steps` | `{:error, :max_steps_exhausted, trace}` con `≤ max_steps` acciones | con `max_steps: 5` y una respuesta final en el paso 6: 0 fallos, y eso está bien |
 | Un agente no cuelga | el proceso responde en < N ms con un backend parado — `{:error, :timeout, []}` (F5.3) | con el backend bloqueado y el plazo fuera del `handle_call`, **`mix test` se queda colgado hasta el timeout global**. Por eso el test lleva su propio `@tag timeout:` |
+| Un agente que se cuelga **cinco veces seguidas** | el circuito abre y la puerta contesta `{:error, {:agent_circuit_open, …}, []}` **sin volver a pagar el plazo**; `status/1` lo dice (`breaker: :open`) y la sonda de después del enfriamiento lo cierra si el motor volvió (✅ 2026-10-17, `Candil.Agents.Breaker`) | sin el cerrojo, la sexta llamada vuelve a tardar el plazo entero — y el test de integración lo caza midiéndolo. El puro entra con `now` a mano (sin dormir) y prueba los casos raros: el fallo no consecutivo que resetea, y la sonda que vuelve a colgarse y **reaplaza** el enfriamiento |
 | Reinicio a estado estable | tras tumbar el agente, vuelve con el estado del último `snapshot` — ✅ F5.4: `test/candil/agent/model_based_reflex_test.exs` mira el estado del que vuelve (`restored`, `messages`, `rounds`, `last`), no solo que esté vivo | si vuelve **vacío**, el test pasa si no mira el estado. Hay que mirar el estado — el tipo 1 vuelve sin nada que restaurar a propósito; el tipo 2 vuelve con lo suyo |
 | La pregunta con respuesta | `Candil.Agents.call/3` pregunta por nombre o por pid y **la respuesta vuelve** — ✅ F5.5: con el nombre sin proceso contesta `{:error, {:agent_not_up, …}, []}`; con uno que se muere mientras esperas, lo mismo; y el vencimiento del que pregunta es `{:error, :timeout, []}` (medido: la respuesta tardía se descarta, el buzón queda limpio) | con un `GenServer.call` crudo, un nombre sin proceso **sale** por `:noproc` en la cara de quien pregunta; la puerta lo convierte en dato, y `test/candil/agents_test.exs` lo caza preguntando a un fantasma. El colofón: dos agentes —uno pregunta al otro a mitad de vuelta con una herramienta— y la respuesta del otro **dentro de la traza** del primero |
 
@@ -1080,19 +1090,33 @@ ausencia de error. Un proceso en la BEAM que no contesta no falla — **se queda
 **Qué hace el sistema**: nada. Un GenServer que ignora su mailbox no encola nada,
 no responde, y su supervisor ve un proceso vivo.
 
-**Tres defensas** — dos existen desde la F5.3 y la tercera está pendiente:
+**Tres defensas** — dos existen desde la F5.3 y la tercera desde el 2026-10-17:
 
 | Defensa | Dónde | Por qué |
 |---|---|---|
 | El run va en una `Task` y el agente la espera con plazo; pasado, `Task.shutdown/2` la mata | `handle_call({:evaluate, …})` (F5.3) | el llamante recibe `{:error, :timeout, []}` **y el agente sigue vivo**. El boceto decía «`GenServer.call` con `timeout`» y se quedaba corto: el `call` corta la espera, pero el agente se queda dentro del HTTP para siempre, sin servir otra vez. El plazo tiene que vivir donde se puede matar la llamada: dentro |
 | `:brutal_kill` no: `shutdown: 5_000` | el child spec del agente (F5.3) | al parar o reiniciar, se le da tiempo a terminar limpio |
-| `Arrea.CircuitBreaker` **por agente** | §2.5 — hoy solo hay por **modelo**; **pendiente** | un agente que se cuelga 5 veces seguidas abre su **propio** breaker, no el del modelo, que puede estar sano para los demás |
+| El breaker **por agente** — `Candil.Agents.Breaker` | en el **proceso** del agente: el `handle_call({:evaluate, …})` de los dos reflejos y `status/1` — ✅ **2026-10-17** | un agente que se cuelga 5 veces seguidas abre su **propio** circuito —30 s de enfriamiento y una sonda—, no el del modelo, que puede estar sano para los demás. **En el proceso y no en `Arrea.CircuitBreaker`**: un agente tiene un solo escritor y un solo lector —él mismo—, y el `GenServer` ya serializa las llamadas, que es el único problema que un circuito normalmente resuelve; el de HTTP es un registro por destino porque lo llaman muchos procesos |
 
 Y un test con `@tag timeout:` propio, porque las siete puertas **no lo detectan**:
 todas terminan cuando el proceso termina, y un proceso colgado hace que termine el
 `mix test` por timeout global, que se lee como «el runner se murió», no como «el
 agente se colgó». **Existe desde la F5.3**:
-`test/candil/agent/simple_reflex_test.exs`.
+`test/candil/agent/simple_reflex_test.exs` — y desde el 2026-10-17, los del
+circuito: en ese mismo fichero, en el del tipo 2 y en `breaker_test.exs` (el
+puro, con `now` a mano, sin dormir).
+
+**Y la mitad que este cerrojo NO cubre, dicha en vez de escondida.** El estado
+del circuito vive en el proceso del agente, así que **muere con él** — y eso no
+ayuda con el otro caso de esta sección: un agente que **revienta** en bucle, al
+que el supervisor levanta (intensidad 10 en 5 s) con el contador a cero.
+Cubrirlo necesita decidir **quién** consulta el circuito antes de arrancar (hoy
+el supervisor reinicia sin preguntar) y **con qué señal** cuenta un crash en un
+contador que no vive en el proceso que se cae — diseño de supervisor, no de
+agente. Está apuntado como **P-9** en
+[`09-deuda-y-pendientes`](../../09-deuda-y-pendientes/README.md), con la
+relectura por si al llegar ahí el caso no pidiera un breaker sino no reiniciar
+(`restart: :transient`).
 
 ---
 

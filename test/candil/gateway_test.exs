@@ -1,8 +1,9 @@
 defmodule Candil.GatewayTest do
   use ExUnit.Case, async: true
 
+  alias Candil.Error
   alias Candil.Gateway
-  alias Candil.Gateway.{Auth, Endpoint}
+  alias Candil.Gateway.{Auth, Endpoint, Handlers}
 
   doctest Candil.Gateway
 
@@ -103,6 +104,54 @@ defmodule Candil.GatewayTest do
 
       assert message =~ "timeout"
       assert message =~ "coder"
+    end
+  end
+
+  # `Candil.Error.no_capacity/2` decia en su `@doc` que un refusal es un
+  # **503** con `context.retry_after`, y `Candil.Refusal` calculaba el numero
+  # desde la fase 4. El gateway, que es quien lo entrega, no tenia clausula
+  # para `:no_capacity`: caia en el 500 generico y el `Retry-After` no salia
+  # nunca. El sitio existia y estaba vacio — medido el 2026-10-17. El camino
+  # completo, por HTTP de verdad, esta en `gateway/end_to_end_test.exs`.
+  describe "el refusal, pintado para el cliente (fase 5)" do
+    test "un refusal es un 503, no el 500 generico" do
+      error = Error.no_capacity(:insufficient_capacity, 30_000)
+
+      assert Handlers.status_for(error) == 503
+      # Y lo que no es un refusal no se mueve.
+      assert Handlers.status_for(:rate_limited) == 429
+      assert Handlers.status_for(%Error{reason: :model_not_found}) == 404
+      assert Handlers.status_for(%Error{reason: :engine_exited}) == 500
+    end
+
+    test "el Retry-After sale en segundos, y hacia arriba" do
+      conn =
+        Plug.Test.conn(:post, "/v1/chat/completions")
+        |> Handlers.reason(Error.no_capacity(:all_candidates_vetoed, 1_500))
+
+      assert conn.status == 503
+      # 1500 ms son 1,5 s: la cabecera dice 2. Prometer menos de lo que se
+      # tarda invita a quien obedece a volver a chocar.
+      assert Plug.Conn.get_resp_header(conn, "retry-after") == ["2"]
+    end
+
+    test "sin retry_after no se inventa la cabecera" do
+      conn = Plug.Test.conn(:post, "/v1/chat/completions") |> Handlers.reason(:rate_limited)
+
+      assert conn.status == 429
+      assert Plug.Conn.get_resp_header(conn, "retry-after") == []
+    end
+
+    test "el cuerpo dice que no daba, ademas de que no cabe" do
+      conn =
+        Plug.Test.conn(:post, "/v1/chat/completions")
+        |> Handlers.reason(Error.no_capacity(:insufficient_capacity, 30_000))
+
+      assert %{"error" => error} = Jason.decode!(conn.resp_body)
+      assert error["message"] =~ "no hay quien conteste"
+      assert error["message"] =~ "insufficient_capacity"
+      assert error["message"] =~ "reintenta en 30 s"
+      assert error["type"] == "server_error"
     end
   end
 

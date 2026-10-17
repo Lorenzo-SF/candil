@@ -182,6 +182,15 @@ caso**, asi que la eleccion no es tecnica: es de política del proyecto de quien
 lo usa. Un desarrollador que factura por rpm quiere `fail`; uno con una GPU local
 quiere `degrade`; un servicio con varios consumidores identicos quiere `wait`.
 
+> **Estado (fase 5, cerrada el 2026-10-17):** `fail` y `wait` están
+> construidos, probados **y entregados al cliente HTTP** (503 + `Retry-After`,
+> ver abajo). **`degrade` no es alcanzable todavía**: servir con otro modelo
+> «que cubra lo mismo» exige saber qué pide la pregunta (enrutado por
+> cobertura) y hoy no existe. Configurarlo revienta con un `ArgumentError` que
+> lo dice con esas palabras. El porqué completo, y con qué condiciones se
+> retomaría, está en [`09-deuda-y-pendientes`](../09-deuda-y-pendientes/README.md)
+> §5 (P-1).
+
 ### Y dos reglas que el valor no puede cambiar
 
 1. **Ninguna puede devolver un modelo vetado.** Un rechazo de recursos que
@@ -194,11 +203,21 @@ quiere `degrade`; un servicio con varios consumidores identicos quiere `wait`.
 
 ### Donde se comprueba
 
-En `Gateway.error_body/1`, que **ya sabe** emitir `:no_models_for_consumer`,
-`:unknown_model`, `:unknown_engine` y `:unknown_provider`, y hoy no tiene
-ninguna razon de escasez. El sitio existe y esta vacio. Las razones de escasez
-se anaden al `@type reason` de `Candil.Error`, que hoy son 18 y ninguna habla
-de recursos.
+**Hecho en la fase 5 (cerrada el 2026-10-17).** El refusal lo construye
+`Candil.Refusal` —con la estrategia decidida y el `retry_after` dentro del
+error— y el gateway lo entrega con los números que ese contexto ya traía:
+
+| Pieza | Donde | Qué |
+|---|---|---|
+| El motivo y el número | `Candil.Refusal.apply/5` | `{:error, %Candil.Error{reason: :no_capacity, context: %{reason_origen, retry_after, message}}}` |
+| El status | `Candil.Gateway.Handlers.status_for/1` | **503** — el propio `Error.no_capacity/2` decía «esto es un 503», y hasta la fase 5 caía en el 500 genérico |
+| El `Retry-After` | `Candil.Gateway.Handlers.reason/2` | en **segundos** (RFC 9110), redondeando hacia arriba |
+| `:no_capacity` | `@type reason` de `Candil.Error` | estaba fuera del tipo y se añadió aquí |
+
+Y la puerta se prueba de verdad, por HTTP: en
+`test/candil/gateway/end_to_end_test.exs` hay un gateway **sin candidatos** y
+su petición recibe **503 + `Retry-After: 30`** con el motivo de escasez dentro.
+Lo que queda **sin solución** —`:degrade`— no se esconde: ver arriba y P-1.
 
 ## 5 · El sitio donde se comprueba
 

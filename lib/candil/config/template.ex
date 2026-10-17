@@ -94,6 +94,12 @@ defmodule Candil.Config.Template do
     #   # si alguno esta ocupado por otro proceso.
     #   base_port = 10000
     #
+    #   # El sha256 del zip que se descarga, si la estrategia es "precompiled":
+    #   # el archivo acaba ejecutandose, asi que si esta puesto se verifica al
+    #   # bajar y una release que haya cambiado no pasa. Opcional — GitHub no
+    #   # promete el digest como HuggingFace, y esto es escrito a mano.
+    #   checksum_sha256 = "0000…"
+    #
     #   # Como CONSEGUIR el binario.
     #   [engine.llama_cpp.install]
     #   #   "source"     = compilar; necesitas cmake, ninja y las cabeceras de

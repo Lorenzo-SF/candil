@@ -60,6 +60,29 @@ defmodule Candil.Config.SchemaTest do
       assert {:ok, ^config} = Schema.validate(config)
     end
 
+    test "el sha256 del engine: 64 hex, y se comprueba al CARGAR" do
+      # La errata se ve aqui y no como un «checksum mismatch» despues de
+      # descargar la release entera, que es el momento mas caro para enterarse.
+      plan = %{
+        "engine" => %{
+          "llama_cpp" => %{
+            "install" => %{"strategy" => "precompiled", "dir" => "/opt/llm"},
+            "checksum_sha256" => String.duplicate("ab", 32)
+          }
+        }
+      }
+
+      assert {:ok, _} = Schema.validate(plan)
+
+      corto = put_in(plan, ["engine", "llama_cpp", "checksum_sha256"], "no-es-un-sha256")
+      assert {:error, problems} = Schema.validate(corto)
+      assert Enum.any?(problems, &String.contains?(&1, "64 hex characters"))
+
+      no_string = put_in(plan, ["engine", "llama_cpp", "checksum_sha256"], 123)
+      assert {:error, problems} = Schema.validate(no_string)
+      assert Enum.any?(problems, &String.contains?(&1, "must be a string"))
+    end
+
     test "rejects an empty binaries list for a source plan" do
       config = %{
         "engine" => %{

@@ -19,6 +19,12 @@
 > Y de esa frontera ya hay código: el behaviour de agentes
 > (`Candil.Agents.Behaviour`) y su supervisor existen desde la F5.1
 > (2026-10-16), todavía sin proceso que los use.
+> ⚠️ **La numeración de fases de este documento ya no es la de `02-orden`**
+> (renumerado el 2026-10-11): lo que aquí se llama **8a** es la fase **8** (el
+> gateway, que ya existe), la **8c** —memoria compartida, la mesa camilla— es
+> la **9**, el RAG es la **6**, y solo la **8b** mantiene su nombre: es la
+> aparcada. Y lo de «sin proceso que los use» también quedó viejo: desde el
+> 2026-10-17 los dos reflejos (F5.2–F5.5) son procesos que lo usan.
 
 ---
 
