@@ -84,6 +84,14 @@ defmodule Candil.Application do
       # a colgarse. Va antes que el supervisor, que es quien arranca los hijos
       # que lo consultan al nacer.
       Candil.Agents.Breakers,
+      # El presupuesto de crashes por agente (P-9, segunda mitad): cuantas
+      # veces ha reventado y cuando. Va antes que el supervisor, que es quien
+      # arranca los hijos que lo consultan al nacer.
+      Candil.Agents.Crashes,
+      # El supervisor de tareas sin enlace: lo usa el breaker para registrar
+      # un crash sin que el task se lleve al agente por delante antes de que
+      # se pueda contar. Va antes que el supervisor de agentes.
+      {Task.Supervisor, name: Candil.TaskSupervisor},
       # El supervisor de los agentes. Entra en el árbol con el primer agente
       # de verdad (F5.3): hasta entonces era un supervisor vacío supervisando
       # nada. Sus hijos nacen después y a petición, así que no exige orden;

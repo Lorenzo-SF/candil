@@ -427,6 +427,7 @@ diferencia con este documento.
 | `lib/candil/agents/model_based_reflex.ex` | el agente del tipo 2: `evaluate/2` = una vuelta entera con el estado del proceso (memoria entre vueltas), `status/1` con el modelo del mundo, plazo — y el estado escrito tras cada vuelta, para que el reinicio **vuelva con él**; el `:name` es obligatorio y siempre registra; y el mismo breaker | **existe** (F5.4, 2026-10-17; F5.5, 2026-10-17; breaker, 2026-10-17) |
 | `lib/candil/agents/snapshots.ex` | el almacén del «último estado estable»: ETS en el árbol, por nombre de agente (`save/2`, `load/1`, `forget/1`), y fuera del proceso a propósito | **existe** (F5.4, 2026-10-17) |
 | `lib/candil/agents/breakers.ex` | el circuito del breaker, fuera del proceso por la misma razón que el snapshot (P-9): un agente que revienta y vuelve encuentra su circuito como lo dejó, y si estaba abierto se niega a trabajar. Por nombre; un agente sin nombre no persiste | **existe** (2026-10-17) |
+| `lib/candil/agents/crashes.ex` | el presupuesto de crashes por agente (P-9, segunda mitad): cuántas veces ha reventado y cuándo, en una ventana de 60 s. Si llega a 5, el agente se niega a arrancar (`:crash_budget_exceeded`) en vez de agotar la intensidad global del supervisor | **existe** (2026-10-17) |
 | `lib/candil/agents/breaker.ex` | el tercer cerrojo del §8.3: 5 cuelgues seguidos abren el circuito —la puerta contesta sin volver a pagar el plazo—, 30 s de enfriamiento y una sonda que lo cierra si el motor volvió. Estado **en el proceso** (y por qué); `now` como parámetro para que el módulo sea puro | **existe** (2026-10-17) |
 | `lib/candil/agents/supervisor.ex` | el `DynamicSupervisor` de agentes, `:one_for_one` (D-13: el de Arrea ya no hace falta), con intensidad de **10 caídas en 5 s** desde la F5.4 — medido: cuatro a la vez mataban al supervisor, y los hijos no resucitan con él | **existe** (F5.1, 2026-10-16; F5.4, 2026-10-17) |
 | `lib/candil/agents.ex` | la puerta (F5.5): `call/3` — nombre o pid, mensaje `{:evaluate, …}`, respuesta o error **como dato** (`{:error, {:agent_not_up, …}, []}`, `{:error, :timeout, []}`) —, `whereis/1` y `via/1`, sobre la clave `{:agent, name}` de `Candil.Registry` | **existe** (F5.5, 2026-10-17) |
@@ -1112,12 +1113,12 @@ puro, con `now` a mano, sin dormir).
 del circuito vive **también fuera** del proceso —en `Candil.Agents.Breakers`,
 por nombre— desde el 2026-10-17, así que un agente nombrado que revienta y
 vuelve encuentra su circuito como lo dejó y se niega a trabajar en vez de
-volver a colgarse. Lo que sigue fuera: un agente **sin nombre** (no tiene
-identidad que sobreviva) y un crash que no es un cuelgue —un `raise` en
-bucle—, que el breaker no cuenta (solo el plazo es fallo) y que el supervisor
-solo frena con su intensidad 10/5 s global. Cubrirlo del todo necesita un
-presupuesto de crashes **por agente** en el supervisor, y decidir si el caso
-pide breaker o `restart: :transient`. Está apuntado como **P-9** en
+volver a colgarse. Y desde el 2026-10-17 tiene también **presupuesto de
+crashes por agente** (`Candil.Agents.Crashes`): 5 crashes en 60 s y el agente
+se niega a arrancar (`:crash_budget_exceeded`) en vez de agotar la intensidad
+global del supervisor (10/5 s). Lo que sigue fuera: un agente **sin nombre**
+(sin identidad que sobreviva) y la decisión de si el caso pide breaker o
+`restart: :transient`. Está apuntado como **P-9** en
 [`09-deuda-y-pendientes`](../../09-deuda-y-pendientes/README.md), con la
 relectura por si al llegar ahí el caso no pidiera un breaker sino no reiniciar
 (`restart: :transient`).

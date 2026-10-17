@@ -272,9 +272,12 @@ defmodule Candil.Agents.SimpleReflexTest do
     end
 
     test "un run que revienta se lleva al agente, y el supervisor lo levanta" do
+      name = "terco-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Candil.Agents.Crashes.forget(name) end)
+
       {:ok, pid} =
         AgentsSupervisor.start_agent(SimpleReflex,
-          name: "terco",
+          name: name,
           goal: "g",
           backend: ExplodingBackend
         )
@@ -288,6 +291,45 @@ defmodule Candil.Agents.SimpleReflexTest do
                AgentsSupervisor.list_agents()
                |> Enum.any?(fn {_, p, _, _} -> is_pid(p) and p != pid end)
              end)
+    end
+
+    test "un crash se registra en el presupuesto del agente" do
+      name = "terco-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Candil.Agents.Crashes.forget(name) end)
+
+      {:ok, pid} =
+        AgentsSupervisor.start_agent(SimpleReflex,
+          name: name,
+          goal: "g",
+          backend: ExplodingBackend
+        )
+
+      assert {{%RuntimeError{message: "el backend revienta"}, _}, {GenServer, :call, _}} =
+               catch_exit(SimpleReflex.evaluate(pid, "hola"))
+
+      # El crash quedó registrado: el presupuesto por agente no muere con
+      # el proceso, que es la diferencia con la intensidad del supervisor.
+      assert wait_until(fn ->
+               Candil.Agents.Crashes.count(name, System.monotonic_time(:millisecond)) >= 1
+             end)
+    end
+
+    test "el presupuesto agotado impide arrancar al agente" do
+      name = "agotado-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Candil.Agents.Crashes.forget(name) end)
+
+      now = System.monotonic_time(:millisecond)
+
+      for _ <- 1..5 do
+        Candil.Agents.Crashes.record(name, now)
+      end
+
+      assert {:error, :crash_budget_exceeded} =
+               AgentsSupervisor.start_agent(SimpleReflex,
+                 name: name,
+                 goal: "g",
+                 backend: EchoBackend
+               )
     end
 
     test "el hijo del supervisor: evaluar, y pararlo" do

@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **El presupuesto de crashes por agente: `Candil.Agents.Crashes`.** El breaker
+  cubre el cuelgue; esto cubre el **crash** que se repite. 5 crashes en 60 s
+  y el agente se niega a arrancar (`:crash_budget_exceeded`) en vez de agotar
+  la intensidad global del supervisor (10/5 s) y llevarse a los agentes sanos.
+  El contador sobrevive al reinicio (ETS en el árbol, por nombre, como el
+  circuito y los snapshots), y un run que revienta se registra antes de
+  propagar el exit (sin `trap_exit`, que se llevaba al agente por delante).
+  Por nombre; un agente sin nombre se queda con el presupuesto del supervisor.
+  Probado en `crashes_store_test.exs` y en `simple_reflex_test.exs` (un crash
+  se registra; el presupuesto agotado impide arrancar).
+
 - **El circuito del breaker sobrevive al reinicio: `Candil.Agents.Breakers`.**
   El circuito vivía en el proceso y moría con él —que era justo lo que no
   ayudaba con un agente que revienta en bucle. Ahora hay un almacén ETS en el

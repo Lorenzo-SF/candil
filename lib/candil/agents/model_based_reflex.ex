@@ -55,6 +55,7 @@ defmodule Candil.Agents.ModelBasedReflex do
   alias Candil.Agent
   alias Candil.Agents.Breaker
   alias Candil.Agents.Breakers
+  alias Candil.Agents.Crashes
   alias Candil.Agents.Snapshots
 
   # El default del motor (`agent.ex`), y aquí igual: una vuelta puede usar
@@ -62,6 +63,7 @@ defmodule Candil.Agents.ModelBasedReflex do
   # reflejo decide una vez; este recuerda, y recuerda también sus pasos.
   @default_max_steps 8
   @default_timeout 60_000
+  @crash_budget 5
 
   @typedoc """
   What `evaluate/2` returns: a `t:Candil.Agent.result/0` for the turn, or the
@@ -159,20 +161,26 @@ defmodule Candil.Agents.ModelBasedReflex do
   def init({opts, engine, restored?}) do
     name = Keyword.fetch!(opts, :name)
 
-    breaker =
-      case Breakers.load(name) do
-        {:ok, b} -> b
-        {:error, :not_found} -> Breaker.new(opts)
-      end
+    budget = Keyword.get(opts, :crash_budget, @crash_budget)
 
-    {:ok,
-     %{
-       name: name,
-       engine: engine,
-       timeout: Keyword.get(opts, :timeout, @default_timeout),
-       restored: restored?,
-       breaker: breaker
-     }}
+    if Crashes.count(name, now()) >= budget do
+      {:stop, :crash_budget_exceeded}
+    else
+      breaker =
+        case Breakers.load(name) do
+          {:ok, b} -> b
+          {:error, :not_found} -> Breaker.new(opts)
+        end
+
+      {:ok,
+       %{
+         name: name,
+         engine: engine,
+         timeout: Keyword.get(opts, :timeout, @default_timeout),
+         restored: restored?,
+         breaker: breaker
+       }}
+    end
   end
 
   @impl true
@@ -191,7 +199,8 @@ defmodule Candil.Agents.ModelBasedReflex do
         # por vida y la vuelta que agotase el presupuesto lo agotaría para
         # siempre.
         engine = %{state.engine | rounds: 0}
-        task = Task.async(fn -> turn(engine, input) end)
+
+        task = Task.Supervisor.async_nolink(Candil.TaskSupervisor, fn -> turn(engine, input) end)
 
         {reply, state} =
           case Task.yield(task, state.timeout) || Task.shutdown(task, :brutal_kill) do
@@ -204,6 +213,9 @@ defmodule Candil.Agents.ModelBasedReflex do
               # estaba —el último estado estable es el de la última vuelta que
               # terminó— y el snapshot no se toca.
               {{:error, :timeout, []}, state}
+
+            {:exit, reason} ->
+              handle_crash(reason, state)
           end
 
         breaker = Breaker.record(state.breaker, Breaker.verdict(reply), now())
@@ -232,6 +244,26 @@ defmodule Candil.Agents.ModelBasedReflex do
        last: last_final(engine.trace),
        breaker: Breaker.check(state.breaker, now())
      }, state}
+  end
+
+  @impl true
+  def terminate(reason, state) when is_map(state) do
+    if abnormal?(reason) and state[:name] != nil do
+      Crashes.record(state[:name], System.monotonic_time(:millisecond))
+    end
+
+    :ok
+  end
+
+  def terminate(_reason, _state), do: :ok
+
+  defp abnormal?(reason) do
+    case reason do
+      :normal -> false
+      :shutdown -> false
+      {:shutdown, _} -> false
+      _ -> true
+    end
   end
 
   # ── Private ─────────────────────────────────────────────────────────────
@@ -337,4 +369,23 @@ defmodule Candil.Agents.ModelBasedReflex do
   # ajuste de hora del sistema no tiene por que abrir ni cerrar un circuito.
   @spec now() :: integer()
   defp now, do: System.monotonic_time(:millisecond)
+
+  # Un run que revientó (no se colgó): se registra en el presupuesto de
+  # crashes antes de propagar, para que el siguiente arranque (si lo hay)
+  # pueda negarse. Después se relanza para que el GenServer y quien llamó
+  # vean el mismo exit que antes.
+  @spec handle_crash(term(), map()) :: no_return()
+  defp handle_crash(reason, state) do
+    if state[:name] != nil do
+      Crashes.record(state[:name], System.monotonic_time(:millisecond))
+    end
+
+    case reason do
+      {exception, stacktrace} when is_exception(exception) ->
+        reraise exception, stacktrace
+
+      _ ->
+        exit(reason)
+    end
+  end
 end
