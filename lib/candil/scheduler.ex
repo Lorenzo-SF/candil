@@ -1,0 +1,147 @@
+defmodule Candil.Scheduler do
+  @moduledoc """
+  Colocación y expulsión de modelos en dispositivos (8b, scheduler).
+
+  Dado un conjunto de dispositivos libres y los modelos que ya están
+  corriendo, decide **dónde** va un modelo nuevo y **qué** (si algo) hay que
+  expulsar. Es una función pura: devuelve la decisión, no la ejecuta. Quien
+  ejecuta es `Candil.Engine` / `Candil.EnginePool`.
+
+  ## Las tres reglas (07-local-aparcado §3)
+
+  1. **Si cabe, no se toca nada.** Nunca expulsar por tener sitio libre.
+  2. **Si no cabe, la víctima más barata** — la que menos se usa y, a
+     igualdad de antigüedad, la más pequeña que haga falta para dejar hueco.
+     Un embedder de 1,8 GB se repone en segundos; un coder de 12 GB, no.
+  3. **Nunca expulsar lo que está en uso ni lo que tiene un pin.**
+
+  ## Por qué dos capas
+
+  La **colocación** (dado un conjunto de dispositivos libres, ¿dónde va este
+  modelo?) es un problema de empaquetado: con dos GPUs de 16 GB, 12 + 12 cabe
+  entero y no se expulsa nada. La **expulsión** solo ocurre cuando no cabe en
+  ninguna. La política depende de la topología, así que no puede ser una
+  constante.
+
+  ## Forma de la decisión
+
+  - `{:ok, device_index}` — cabe tal cual, sin tocar nada.
+  - `{:evict, [model_alias, ...], device_index}` — no cabe; expulsa esos
+    modelos (en ese orden) y coloca el nuevo en `device_index`.
+  - `{:error, :no_room}` — no cabe y no hay víctima expulsable que haga hueco.
+  """
+
+  @type device :: %{
+          index: non_neg_integer(),
+          name: String.t(),
+          total_mb: non_neg_integer() | nil,
+          free_mb: non_neg_integer() | nil,
+          usable: boolean()
+        }
+
+  @type instance :: %{
+          model_alias: term(),
+          device_index: non_neg_integer(),
+          size_mb: non_neg_integer(),
+          in_use: boolean(),
+          pinned: boolean(),
+          last_used_at: DateTime.t() | nil
+        }
+
+  @type decision ::
+          {:ok, non_neg_integer()} | {:evict, [term()], non_neg_integer()} | {:error, :no_room}
+
+  @doc """
+  Decide dónde colocar un modelo de `size_mb` megas.
+
+  `devices` es la lista de dispositivos (de `Candil.Detector.Devices`).
+  `instances` es la lista de modelos ya corriendo, cada uno con su
+  dispositivo, tamaño, si está en uso y si tiene pin.
+
+  ## Ejemplos
+
+      iex> devices = [%{index: 0, name: "GPU0", total_mb: 16_000, free_mb: 10_000, usable: true}]
+      iex> Candil.Scheduler.place(4_000, devices, [])
+      {:ok, 0}
+
+      iex> devices = [%{index: 0, name: "GPU0", total_mb: 16_000, free_mb: 0, usable: true}]
+      iex> instances = [%{model_alias: :embedder, device_index: 0, size_mb: 1_800, in_use: false, pinned: false, last_used_at: nil}]
+      iex> Candil.Scheduler.place(1_800, devices, instances)
+      {:evict, [:embedder], 0}
+  """
+  @spec place(non_neg_integer(), [device()], [instance()]) :: decision()
+  def place(size_mb, devices, instances) when is_integer(size_mb) and size_mb >= 0 do
+    usable_devices = Enum.filter(devices, & &1.usable)
+
+    fitting = Enum.filter(usable_devices, fn d -> (d.free_mb || 0) >= size_mb end)
+
+    if fitting != [] do
+      device = Enum.max_by(fitting, fn d -> d.free_mb || 0 end)
+      {:ok, device.index}
+    else
+      evict(size_mb, usable_devices, instances)
+    end
+  end
+
+  defp evict(_size_mb, [], _instances), do: {:error, :no_room}
+
+  defp evict(size_mb, devices, instances) do
+    # Para cada dispositivo, calcular el conjunto mínimo de víctimas
+    # (las menos usadas, más pequeñas) que libera suficiente espacio.
+    candidates_per_device =
+      Enum.map(devices, fn device ->
+        device_instances = Enum.filter(instances, &(&1.device_index == device.index))
+        evictable = Enum.filter(device_instances, fn i -> not i.in_use and not i.pinned end)
+
+        needed = size_mb - (device.free_mb || 0)
+
+        if needed <= 0 do
+          {:ok, [], device.index}
+        else
+          # Ordenar por menos usado (nil = nunca usado = primero), luego por tamaño.
+          sorted = Enum.sort_by(evictable, fn i -> {usage_key(i.last_used_at), i.size_mb} end)
+          {victims, freed} = accumulate(sorted, needed, [], 0)
+
+          if freed >= needed do
+            {:ok, victims, device.index}
+          else
+            {:insufficient, victims, device.index}
+          end
+        end
+      end)
+
+    # Elegir el dispositivo con menos víctimas (y, a igualdad, menos megas).
+    best =
+      candidates_per_device
+      |> Enum.filter(fn
+        {:ok, _, _} -> true
+        _ -> false
+      end)
+      |> Enum.min_by(
+        fn {:ok, victims, _} ->
+          {length(victims), Enum.sum(Enum.map(victims, & &1.size_mb))}
+        end,
+        fn -> nil end
+      )
+
+    case best do
+      nil -> {:error, :no_room}
+      {:ok, [], device_index} -> {:ok, device_index}
+      {:ok, victims, device_index} -> {:evict, Enum.map(victims, & &1.model_alias), device_index}
+    end
+  end
+
+  defp accumulate([], _needed, acc, freed), do: {Enum.reverse(acc), freed}
+
+  defp accumulate(_rest, needed, acc, freed) when freed >= needed do
+    {Enum.reverse(acc), freed}
+  end
+
+  defp accumulate([candidate | rest], needed, acc, freed) do
+    accumulate(rest, needed, [candidate | acc], freed + candidate.size_mb)
+  end
+
+  # nil = nunca usado → se evicta primero (menos valioso).
+  defp usage_key(nil), do: {0, 0}
+  defp usage_key(%DateTime{} = dt), do: {1, DateTime.to_unix(dt, :millisecond)}
+end
