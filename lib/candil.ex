@@ -4,7 +4,19 @@ defmodule Candil do
 
   Run local models via llama.cpp or remote models via OpenAI-compatible APIs.
 
-  ## Quick start — local model
+  ## Quick start — the easy way
+
+      # One line: auto-resolves the model, auto-starts the engine.
+      {:ok, response} = Candil.chat("llama3", "Hello!")
+      IO.puts(response.content)
+
+      # Download a model (like Ollama's pull):
+      :ok = Candil.pull("llama3")
+
+      # Start the OpenAI-compatible gateway with zero config:
+      {:ok, _pid} = Candil.serve()
+
+  ## Quick start — local model (full control)
 
       engine = %Candil.Engine{alias: :llama_server, binary: "llama-server",
                               host: "127.0.0.1", port: 8080}

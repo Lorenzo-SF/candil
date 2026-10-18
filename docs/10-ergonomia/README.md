@@ -52,7 +52,7 @@ El objetivo: **2 líneas**, como Ollama o LangChain:
 |---|---|---|---|
 | 1 | `Candil.chat/2` (auto-resuelve modelo → engine → arranca si no corre) | 1-2 días | ✅ hecho (PR E1) |
 | 2 | `Candil.pull/1` (descarga engine + modelo en un comando, como Ollama) | 1 día | ✅ hecho (PR E1) |
-| 3 | Quick start en inglés + `examples/` (3 scripts ejecutables) | 1 día | ⬜ pendiente |
+| 3 | Quick start en inglés + `examples/` (3 scripts ejecutables) | 1 día | ✅ hecho (PR E3) |
 | 4 | Auto-start de engines en `chat/2` | incluido en #1 | ✅ hecho (PR E1) |
 
 ### Tier 2 — Alto impacto, esfuerzo medio
@@ -180,7 +180,7 @@ end
 |---|---|---|
 | E1 | `Candil.chat/2` + `Candil.pull/1` + auto-start | ✅ hecho (PR E1) |
 | E2 | `Candil.Agent.new/1` de alto nivel | ⬜ pendiente |
-| E3 | Quick start en inglés + examples/ | ⬜ pendiente |
+| E3 | Quick start en inglés + examples/ | ✅ hecho (PR E3) |
 | E4 | Streaming en agentes | ⬜ pendiente |
 | E5 | `Candil.serve/0` con cero config | ✅ hecho (PR E1) |
 
