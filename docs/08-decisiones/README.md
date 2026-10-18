@@ -406,3 +406,142 @@ de un diseño que aún no existe.
 **La frase que resume todo**:
 > «Agente» es el proceso que decide paso a paso; los que participan en la mesa
 > son voces.
+
+---
+
+## D-15 · El scheduler: round-robin justo por defecto, prioridad como peso
+
+**Cuándo**: 2026-10-18, por el dueño (recomendación del agente, aceptada).
+**Qué**: el scheduler (8b, aparcado) usa **round-robin justo** por defecto y
+una **prioridad como peso opcional por consumidor** (`[consumer.X] priority = N`)
+que solo rompe empates cuando dos consumidores quieren el mismo destino, con
+envejecimiento para que un VIP no mate al resto. No se construye la «línea de
+cajas» completa (FIFO con VIP estricto) hasta que la mesa camilla (fase 9)
+muestre que el envejecimiento no basta.
+
+**Por qué**: el enrutado es el producto y el scheduler es una extensión
+(`02-orden` §2). Construir una cola con prioridad real antes de tener varios
+consumidores reales es adelantarse: los consumidores ya se identifican
+(`[consumer.X]`), y la equidad evita la inanición. El caso de VIP estricto
+(como un servicio que factura por rpm) se cubre con el peso opcional, no con
+una cola distinta.
+
+**Se dejó de hacer**: la cola FIFO con VIP estricto, el scheduler como fase
+bloqueante, y el `rest_for_one` (D-19).
+
+**Desbloquea**: 8b (scheduler), y con él la Fase 10 (agentes multi-modelo) y
+P-4/P-6 (verdad de la VRAM y varias GPUs).
+
+---
+
+## D-16 · La verdad de la VRAM: Arrea mide, Candil consume y decide
+
+**Cuándo**: 2026-10-18, por el dueño (recomendación del agente, aceptada).
+**Qué**: la medida física de la VRAM (y de la capacidad) la produce **Arrea**
+(`Arrea.Resource`, que ya existe desde la fase 2 y hoy no tiene consumidor):
+Arrea corre el motor, conoce el PID, lee `/proc` o `nvidia-smi`. Candil la
+**consume** para enrutar y colocar, y no mide por su cuenta. La columna `SLOT`
+de `candil status` deja de deducirse del número de puerto y pasa a leer la
+medida real (`Candil.Detector.Devices` ya la produce por PID).
+
+**Por qué**: medir pertenece al componente que posee el recurso. Dos verdades
+que se contradigan (Candil diciendo una cosa, Arrea otra) es el fallo que ya
+se tuvo con el refusal de VRAM. `Arrea.Resource` tiene capacidad (megas
+enteros) y cuota (decimal) con identidad del titular: eso es exactamente lo
+que un knapsack de GPU necesita, y Candil no tiene por qué reimplementarlo.
+
+**No se aplica hacia atrás**: `Arrea.Resource` está mergeado y publicado; su
+forma no tiene vocabulario de Candil (el titular es opaco). La regla rige lo
+que entra desde ahora.
+
+**Desbloquea**: P-4 (verdad de la VRAM), P-6 (varias GPUs), 8b (scheduler).
+
+---
+
+## D-17 · `Candil.Provider`: registro, no lista cerrada
+
+**Cuándo**: 2026-10-18, por el dueño (recomendación del agente, aceptada).
+**Qué**: los providers se registran en un registro abierto (`Candil.Registry`,
+el mismo patrón que `Policy.Destination` y los agentes), y cada uno implementa
+un behaviour `Candil.Providers.Provider` (chat, embed, models). Añadir un
+provider es registrar un módulo, no cambiar código ni hacer una release.
+
+**Por qué**: el gateway (fase 8) y MCP (fase 7) van a querer añadir providers
+en tiempo de ejecución, y una lista cerrada exige cambio de código + release
+por cada provider nuevo. La pérdida de exhaustividad en compile-time se
+compensa con el behaviour, que es la misma forma que ya usan los agentes
+(D-13, D-14).
+
+**Desbloquea**: Fase 7 (MCP), Fase 8 (Gateway), Fase 12 (CLI).
+
+---
+
+## D-18 · El camino de librería: fuera de las fases
+
+**Cuándo**: 2026-10-18, por el dueño (recomendación del agente, aceptada).
+**Qué**: la librería (`lib/candil/`) no es una fase: es el sustrato sobre el
+que se construye todo (el behaviour, los agentes, el router). El CLI es el
+empaquetado y tiene su propia fase (12). Lo que merece una fase es la
+**documentación pública** (ExDoc ya se genera) y la **estabilidad del
+contrato** (`@type result/0` y compañía, cerrado en F5.0).
+
+**Por qué**: tratar la librería como fase confunde «entregable» con
+«fundamento». El gateway (fase 8) existe precisamente para que procesos que
+no son Elixir usen Candil, pero la librería es la base.
+
+---
+
+## D-19 · `rest_for_one`: no se implementa
+
+**Cuándo**: 2026-10-18, por el dueño (recomendación del agente, aceptada).
+**Qué**: `rest_for_one` no se implementa. Sin caso de uso real, YAGNI.
+
+**Por qué**: un agente que cede el turno a otro no existe hoy. La mesa camilla
+(fase 9) es el primer candidato; si allí aparece la necesidad, se reabre.
+
+**Se revisará cuando**: la mesa camilla (fase 9) muestre un caso donde un
+agente deba caer junto a otro.
+
+---
+
+## D-20 · El breaker de crashes: ETS persistente + `restart: :transient`
+
+**Cuándo**: 2026-10-18, por el dueño (recomendación del agente, aceptada).
+**Qué**: la mitad restante del §8.3 se cierra con **`restart: :transient`** para
+los agentes cuyo circuito esté abierto, combinado con el estado del breaker en
+ETS (ya implementado en `Candil.Agents.Breakers`). Un agente que revienta en
+bucle deja de reiniciarse cuando su circuito está abierto; los agentes sin
+nombre se quedan con la intensidad global del supervisor (10/5 s), que es la
+única defensa disponible sin identidad.
+
+**Por qué**: es consistente con la arquitectura ya establecida (ETS en el árbol
+de la aplicación, por nombre, como `Snapshots` y `Breakers`). No requiere
+rediseñar el supervisor.
+
+**Se dejó de hacer**: un presupuesto de crashes por agente en el supervisor
+(ya implementado en tanda 3 para los nombrados), y el diseño de supervisor
+completo para los sin nombre.
+
+---
+
+## D-21 · `:degrade` se mantiene declarado y se reinterpreta al existir la cobertura
+
+**Cuándo**: 2026-10-18, por el dueño (recomendación del agente, aceptada).
+**Qué**: `:degrade` sigue en el tipo del refusal (D-09) y sigue sin ser
+alcanzable. Cuando exista el enrutado por cobertura, «degradar» es simplemente
+pedirle al scorer que elija el siguiente candidato capaz (excluyendo el que
+falló). Eso hace que `:degrade` deje de ser un tercer valor de la estrategia
+y se convierta en comportamiento automático del enrutado. D-09 pasaría de «tres
+estrategias» a «dos, y el tercero es cómo funciona el enrutado». Se mantiene
+declarado hasta que la cobertura exista y se pueda medir si alguien lo echa de
+menos.
+
+**Por qué**: no borrar una decisión del dueño sin medir antes; y no implementar
+algo que quizá se colapse en lo que ya hay.
+
+---
+
+**La frase que resume todo**:
+> Las decisiones abiertas se cierran registrando la respuesta y el porqué, no
+> implementando lo que aún no tiene caso. El código llega cuando la decisión
+> tiene un consumidor que lo pida.
