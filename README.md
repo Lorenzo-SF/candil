@@ -7,6 +7,22 @@
 
 LLM inference and model management for Elixir. Run local models via llama.cpp or remote models via OpenAI-compatible APIs.
 
+## Quick start
+
+```elixir
+# The simplest thing that works (auto-starts the engine if needed):
+{:ok, response} = Candil.chat("llama3", "Hello!")
+IO.puts(response.content)
+
+# Download a model (like Ollama's pull):
+:ok = Candil.pull("llama3")
+
+# Start the OpenAI-compatible gateway with zero config:
+{:ok, _pid} = Candil.serve()
+```
+
+For the full power (routing, agents, RAG, MCP), see the [documentation](docs/README.md).
+
 ## Installation
 
 ```elixir
