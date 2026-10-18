@@ -17,6 +17,7 @@ defmodule Candil.Llm do
   @spec download_engine(Engine.t()) :: :ok | {:error, binary()}
   def download_engine(%Engine{install: nil}), do: :ok
   def download_engine(%Engine{install: %{strategy: :none}}), do: :ok
+  def download_engine(%Engine{install: %{strategy: :source}}), do: :ok
 
   def download_engine(%Engine{} = engine) do
     Installer.download_engine(engine)
