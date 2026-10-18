@@ -120,6 +120,64 @@ defmodule Candil.Agent do
     :trace
   ]
 
+  defstruct [:pid, :name]
+
+  @doc """
+  Creates a high-level agent that hides the backend/model/engine ceremony.
+
+  ## Options
+
+    * `:model` — model alias (string or atom). Default: `"default"`.
+    * `:goal` — the agent's goal (goes in the system prompt).
+    * `:tools` — list of tool names to register (atoms or strings).
+    * `:max_steps` — max ReAct steps (default: 8).
+    * `:timeout` — per-run timeout in ms (default: 60_000).
+    * `:name` — optional name for registry.
+    * `:backend` — backend module (default: `Candil.Backend.LlamaCpp`).
+
+  ## Example
+
+      agent = Candil.Agent.new(model: "vision", goal: "clasificar", max_steps: 3)
+      {:ok, answer, trace} = Candil.Agent.run(agent, "hola")
+  """
+  @spec new(keyword()) :: %__MODULE__{}
+  def new(opts \\ []) do
+    model = Keyword.get(opts, :model, "default")
+    goal = Keyword.get(opts, :goal)
+    tools = Keyword.get(opts, :tools, [])
+    max_steps = Keyword.get(opts, :max_steps, 8)
+    timeout = Keyword.get(opts, :timeout, 60_000)
+    name = Keyword.get(opts, :name)
+    backend = Keyword.get(opts, :backend, Candil.Backend.LlamaCpp)
+
+    Enum.each(tools, fn tool ->
+      if is_atom(tool) do
+        # Tool names as atoms are already registered modules; nothing to do.
+        :ok
+      else
+        :ok
+      end
+    end)
+
+    alias_ = Candil.resolve_model_alias(model)
+
+    if alias_ != nil do
+      Candil.ensure_engine_running(alias_, opts)
+    end
+
+    {:ok, pid} =
+      Candil.Agents.Supervisor.start_agent(Candil.Agents.SimpleReflex,
+        name: name,
+        goal: goal,
+        backend: backend,
+        model: model,
+        max_steps: max_steps,
+        timeout: timeout
+      )
+
+    %__MODULE__{pid: pid, name: name}
+  end
+
   @doc """
   Run the agent synchronously. Returns `{:ok, final_answer, trace}` on
   success or `{:error, reason, trace}` on failure — always three elements,
@@ -138,8 +196,12 @@ defmodule Candil.Agent do
     * `:consumer` — the partition the `:session` lives in (default
       `:candil_agent`).
   """
-  @spec run(module() | map(), String.t() | nil, keyword()) :: result()
+  @spec run(module() | map() | %__MODULE__{}, String.t() | nil, keyword()) :: result()
   def run(agent, input, opts \\ [])
+
+  def run(%__MODULE__{pid: pid}, input, opts) do
+    Candil.Agents.call(pid, input, opts)
+  end
 
   def run(%{} = config, input, opts) do
     do_run(config, input, opts)

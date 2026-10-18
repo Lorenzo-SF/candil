@@ -195,7 +195,8 @@ defmodule Candil do
   defp normalize_message(msg) when is_binary(msg), do: [%{role: "user", content: msg}]
   defp normalize_message(msgs) when is_list(msgs), do: msgs
 
-  defp resolve_model_alias(name) when is_atom(name) do
+  @doc false
+  def resolve_model_alias(name) when is_atom(name) do
     # Check if it exists in the store
     case Candil.Store.get_model(name) do
       {:ok, _} -> name
@@ -203,7 +204,8 @@ defmodule Candil do
     end
   end
 
-  defp resolve_model_alias(name) when is_binary(name) do
+  @doc false
+  def resolve_model_alias(name) when is_binary(name) do
     Candil.Store.list_models()
     |> Enum.find(fn m -> to_string(m.alias) == name end)
     |> case do
@@ -212,7 +214,8 @@ defmodule Candil do
     end
   end
 
-  defp ensure_engine_running(model_alias, opts) do
+  @doc false
+  def ensure_engine_running(model_alias, opts) do
     if Candil.Llm.engine_healthy?(model_alias) do
       :ok
     else
