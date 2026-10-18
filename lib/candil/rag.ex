@@ -139,25 +139,74 @@ defmodule Candil.RAG do
   end
 
   defp rank_chunks(chunks, query, opts, meta) do
-    query_emb = resolve_query_embedding(query, opts, meta)
+    # Nivel 2: reescritura de la consulta (opcional). Si hay una funcion,
+    # la consulta que se busca es la reescrita; la original se usa para el
+    # rerank, que es quien mejor entiende la intencion del usuario.
+    rewritten = rewrite_query(query, Keyword.get(opts, :rewrite))
+
+    query_emb = resolve_query_embedding(rewritten, opts, meta)
     has_emb = Enum.any?(chunks, &(&1.embedding != nil))
 
     if has_emb and query_emb == nil do
       {:error, :no_query_embedding}
     else
-      min_score = Keyword.get(opts, :min_score, 0.0)
-      limit = Keyword.get(opts, :limit, 5)
+      rerank? = Keyword.get(opts, :rerank, false) or Keyword.has_key?(opts, :reranker)
 
-      results =
+      retrieve_limit =
+        if rerank?, do: Keyword.get(opts, :retrieve_limit, 20), else: Keyword.get(opts, :limit, 5)
+
+      final_limit = Keyword.get(opts, :limit, 5)
+      min_score = Keyword.get(opts, :min_score, 0.0)
+
+      retrieved =
         chunks
         |> Enum.map(fn chunk -> %{chunk | score: score_chunk(chunk, query_emb)} end)
         |> Enum.filter(fn c -> c.score == nil or c.score >= min_score end)
         |> Enum.sort_by(fn c -> {-(c.score || 0.0), c.id} end)
-        |> Enum.take(limit)
+        |> Enum.take(retrieve_limit)
+
+      reranker = Keyword.get(opts, :reranker)
+
+      results =
+        if reranker != nil and retrieved != [] do
+          rerank(retrieved, query, reranker)
+        else
+          retrieved
+        end
+        |> Enum.take(final_limit)
 
       {:ok, results}
     end
   end
+
+  defp rewrite_query(query, nil), do: query
+  defp rewrite_query(query, fun) when is_function(fun, 1), do: fun.(query)
+  defp rewrite_query(query, _), do: query
+
+  # Un reranker devuelve [{chunk, score}] o [chunk]. Se aceptan las dos formas
+  # para que un tercero pueda implementarlo sin pelearse con el contrato.
+  defp rerank(chunks, query, reranker) when is_function(reranker, 2) do
+    case reranker.(query, chunks) do
+      [] -> []
+      list when is_list(list) -> apply_reranker_result(list, chunks)
+      _ -> chunks
+    end
+  end
+
+  defp apply_reranker_result(list, chunks) do
+    case hd(list) do
+      {_chunk, score} when is_number(score) ->
+        Enum.map(list, fn {c, s} -> %{c | score: s} end)
+
+      %Candil.RAG.Chunk{} ->
+        list
+
+      _ ->
+        chunks
+    end
+  end
+
+  defp rerank(chunks, _query, _reranker), do: chunks
 
   defp resolve_query_embedding(query, opts, meta) do
     case Keyword.get(opts, :embedding) do
