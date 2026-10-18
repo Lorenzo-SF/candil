@@ -271,15 +271,18 @@ defmodule Candil.CLI.Models do
   defp pull_args(opts) when is_list(opts), do: opts
 
   defp lookup(name) do
-    # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
-    alias_name = String.to_atom(name)
+    alias_name = Candil.CLI.Lifecycle.safe_alias(name)
 
-    case Store.get_model(alias_name) do
-      {:ok, model} -> {:ok, model}
-      {:error, :not_found} -> :error
+    case alias_name do
+      nil ->
+        :error
+
+      atom ->
+        case Store.get_model(atom) do
+          {:ok, model} -> {:ok, model}
+          {:error, :not_found} -> :error
+        end
     end
-  rescue
-    ArgumentError -> :error
   end
 
   defp ok_value({:ok, value}), do: [value]

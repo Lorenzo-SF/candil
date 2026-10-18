@@ -187,13 +187,12 @@ defmodule Candil.MixProject do
         Core: [Candil, Candil.Llm, Candil.Error, Candil.Cost],
         Store: [
           Candil.Store,
-          Candil.ConfigManager,
           Candil.Model,
           Candil.Provider,
           Candil.Source,
           Candil.Build
         ],
-        Diagnostics: [Candil.Health, Candil.Embeddings],
+        Diagnostics: [Candil.Embeddings],
         Context: [Candil.Context, Candil.Context.Session],
         MCP: [Candil.MCP, Candil.MCP.Protocol],
         RAG: [Candil.RAG, Candil.RAG.Chunk],
