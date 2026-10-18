@@ -193,6 +193,8 @@ defmodule Candil.RAG do
     end
   end
 
+  defp rerank(chunks, _query, _reranker), do: chunks
+
   defp apply_reranker_result(list, chunks) do
     case hd(list) do
       {_chunk, score} when is_number(score) ->
@@ -205,8 +207,6 @@ defmodule Candil.RAG do
         chunks
     end
   end
-
-  defp rerank(chunks, _query, _reranker), do: chunks
 
   defp resolve_query_embedding(query, opts, meta) do
     case Keyword.get(opts, :embedding) do
