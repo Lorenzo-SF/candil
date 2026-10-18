@@ -137,6 +137,10 @@ defmodule Candil.Model do
             #
             # -1 es el "quepa lo que quepa" de llama-server. 0 es CPU entera.
             gpu_layers: -1,
+            # VRAM estimada en MB (opcional). Si no se pone, el scheduler la
+            # estima del `context_size`. Es la señal que el scheduler usa para
+            # decidir si cabe en un dispositivo.
+            vram_mb: nil,
             # The port belongs to the model, not to the engine. One engine
             # serves many models, and the same model can run twice at once on
             # a GPU slot and a CPU slot.
@@ -204,6 +208,7 @@ defmodule Candil.Model do
           description: binary() | nil,
           model_args: [binary()],
           gpu_layers: integer(),
+          vram_mb: non_neg_integer() | nil,
           tags: [binary() | atom()],
           enabled: boolean()
         }
