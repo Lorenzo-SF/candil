@@ -554,6 +554,8 @@ defmodule Candil.CLI.Lifecycle do
   # Config.Hydrate: the file is the user's, the count is the file's size.
   # One clause, one case. A per-type clause here reads as if some shape of
   # alias bypasses the health check, and it does not.
+  defp state_of(nil), do: "—"
+
   defp state_of(alias_name) when is_binary(alias_name),
     do: alias_name |> to_alias() |> state_of()
 
@@ -584,6 +586,8 @@ defmodule Candil.CLI.Lifecycle do
       n -> "#{n} de GPU"
     end
   end
+
+  defp gpu_layers_of(nil), do: nil
 
   defp gpu_layers_of(alias_name) do
     case Store.get_model(alias_name) do
@@ -631,7 +635,8 @@ defmodule Candil.CLI.Lifecycle do
   # A model alias off the command line is user input, so it goes through the
   # same shape check the configuration does rather than straight to to_atom/1.
   # credo:disable-for-next-line Credo.Check.Warning.UnsafeToAtom
-  defp to_alias(name), do: String.to_atom(name)
+  defp to_alias(name) when is_atom(name), do: name
+  defp to_alias(name) when is_binary(name), do: safe_alias(name)
 
   # Se llama `safe` porque **antes no lo era**: era exactamente `to_alias/1`, o
   # sea `String.to_atom/1`. Un nombre con esta pinta puede venir de una linea de
