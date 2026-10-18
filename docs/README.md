@@ -91,6 +91,7 @@ porque **sin saber qué hay, no se puede planificar**.
 07-local-aparcado/         lo que se hizo en local y lo que queda
 08-decisiones/             qué se decidió, cuándo, por qué y qué costó
 09-deuda-y-pendientes/     deuda, problemas abiertos, y lo que falta por probar
+10-ergonomia/              capa de ergonomia: sacar el 100% con menos friccion
 ```
 
 ## Las cuatro reglas que no se negocian

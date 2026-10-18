@@ -78,37 +78,94 @@ defmodule Candil do
   defdelegate engine_healthy?(model_alias), to: Llm
 
   @doc """
-  Runs a chat completion against a **local** model (identified by alias).
+  Runs a chat completion against a model.
 
-  The engine must already be running via `start_engine/2`.
+  Accepts a model alias (atom or string) and a message (string or list of
+  messages). If the engine is not running, it is started automatically —
+  the common case needs no `start_engine/2` call.
 
-  ## Options
+  ## Examples
 
-    * `:temperature` — sampling temperature (default: `0.7`)
-    * `:max_tokens` — maximum tokens to generate (default: `512`)
-    * `:stop` — list of stop sequences
+      # The simplest thing that works:
+      {:ok, response} = Candil.chat("llama3", "Hello!")
 
+      # With a list of messages:
+      {:ok, response} = Candil.chat(:llama3, [%{role: "user", content: "Hello!"}])
+
+      # With options:
+      {:ok, response} = Candil.chat("llama3", "Hello!", temperature: 0.5)
+
+  Returns `{:error, :model_not_found}` if the model is not in the catalogue,
+  and `{:error, :start_timeout}` if the engine could not start in time.
   """
-  defdelegate chat(model_alias, messages), to: Llm
-
-  @doc """
-  Runs a chat completion against a **local** model (identified by alias).
-
-  The engine must already be running via `start_engine/2`.
-
-  ## Options
-
-    * `:temperature` — sampling temperature (default: `0.7`)
-    * `:max_tokens` — maximum tokens to generate (default: `512`)
-    * `:stop` — list of stop sequences
-
-  """
-  @spec chat(atom(), [Inference.message()], keyword()) ::
+  @spec chat(String.t() | atom(), String.t() | [Inference.message()], keyword()) ::
           {:ok, Inference.response()} | {:error, term()}
-  defdelegate chat(model_alias, messages, opts), to: Llm
+  def chat(model, message, opts \\ []) do
+    messages = normalize_message(message)
+    alias_ = resolve_model_alias(model)
+
+    case alias_ do
+      nil ->
+        {:error, :model_not_found}
+
+      atom ->
+        case ensure_engine_running(atom, opts) do
+          :ok -> Candil.Llm.chat(atom, messages, opts)
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
 
   @doc """
-  Runs a chat completion against a **local** model (identified by alias).
+  Downloads the engine and model for `model` (engine + model files).
+
+  Like Ollama's `pull`: one command, everything needed. Does nothing if
+  already downloaded.
+
+  Returns `:ok` on success.
+  """
+  @spec pull(String.t() | atom()) :: :ok | {:error, term()}
+  def pull(model) do
+    alias_ = resolve_model_alias(model)
+
+    case alias_ do
+      nil ->
+        {:error, :model_not_found}
+
+      atom ->
+        with {:ok, model_struct} <- Candil.Store.get_model(atom),
+             {:ok, engine} <- Candil.Store.get_engine(model_struct.engine) do
+          :ok = Candil.Llm.download_engine(engine)
+          {:ok, _} = Candil.Llm.download_model(model_struct)
+          :ok
+        end
+    end
+  end
+
+  @doc """
+  Starts the gateway with zero configuration.
+
+  Uses the first model available in the catalogue. Arranges for its engine
+  to be running before accepting requests.
+  """
+  @spec serve(keyword()) :: {:ok, pid()} | {:error, term()}
+  def serve(opts \\ []) do
+    models = Candil.Store.list_models()
+
+    case models do
+      [] ->
+        {:error, :no_models}
+
+      [first | _] ->
+        case ensure_engine_running(first.alias, opts) do
+          :ok -> Candil.Gateway.start(opts)
+          {:error, reason} -> {:error, reason}
+        end
+    end
+  end
+
+  @doc """
+  Runs a chat completion against a **remote** model via a provider.
 
   The engine must already be running via `start_engine/2`.
 
@@ -120,6 +177,66 @@ defmodule Candil do
 
   """
   defdelegate chat(model, provider, messages, opts), to: Llm
+
+  # ── Helpers ──────────────────────────────────────────────────────────────
+
+  defp normalize_message(msg) when is_binary(msg), do: [%{role: "user", content: msg}]
+  defp normalize_message(msgs) when is_list(msgs), do: msgs
+
+  defp resolve_model_alias(name) when is_atom(name) do
+    # Check if it exists in the store
+    case Candil.Store.get_model(name) do
+      {:ok, _} -> name
+      {:error, _} -> nil
+    end
+  end
+
+  defp resolve_model_alias(name) when is_binary(name) do
+    Candil.Store.list_models()
+    |> Enum.find(fn m -> to_string(m.alias) == name end)
+    |> case do
+      nil -> nil
+      model -> model.alias
+    end
+  end
+
+  defp ensure_engine_running(model_alias, opts) do
+    if Candil.Llm.engine_healthy?(model_alias) do
+      :ok
+    else
+      case Candil.Store.get_model(model_alias) do
+        {:ok, model} -> ensure_engine_for_model(model, opts)
+        {:error, _} -> {:error, :model_not_found}
+      end
+    end
+  end
+
+  defp ensure_engine_for_model(model, opts) do
+    case model.engine do
+      nil ->
+        {:error, :no_engine}
+
+      engine_alias ->
+        start_engine_if_found(engine_alias, model, opts)
+    end
+  end
+
+  defp start_engine_if_found(engine_alias, model, opts) when is_atom(engine_alias) do
+    case Candil.Store.get_engine(engine_alias) do
+      {:ok, engine} ->
+        case Candil.Llm.start_engine(engine, model) do
+          {:ok, _pid} ->
+            Process.sleep(Keyword.get(opts, :start_wait_ms, 3_000))
+            :ok
+
+          {:error, reason} ->
+            {:error, reason}
+        end
+
+      {:error, _} ->
+        {:error, :engine_not_found}
+    end
+  end
 
   @doc """
   Chats against a model using the shared, consumer-partitioned context.
