@@ -256,7 +256,8 @@ defmodule Candil.Agents.SimpleReflexTest do
       # de crashes y el circuito se encargan de que no vuelva a colgarse.
       # El circuito siguió abierto en el almacén.
       Process.exit(pid, :kill)
-      Process.sleep(100)
+
+      assert wait_until(fn -> Candil.Agents.whereis(name) == nil end)
 
       assert {:error, :circuit_open} =
                AgentsSupervisor.start_agent(SimpleReflex,
