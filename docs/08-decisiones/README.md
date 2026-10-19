@@ -545,3 +545,98 @@ algo que quizá se colapse en lo que ya hay.
 > Las decisiones abiertas se cierran registrando la respuesta y el porqué, no
 > implementando lo que aún no tiene caso. El código llega cuando la decisión
 > tiene un consumidor que lo pida.
+
+---
+
+## D-22 · La memoria común: un mapa clave→valor, no historial
+
+**Cuándo**: 2026-10-19, por el dueño.
+**Qué**: la memoria común (F2.4, fase 9) es un **mapa clave→valor compartido**
+que todos los consumers leen y escriben, con su propia clave (`mem:*`). No es
+historial: responde a «qué sabemos», no «qué hemos dicho». Cuatro respuestas:
+
+1. **¿Qué es?** Un mapa clave→valor compartido, con prefijo propio `mem:*`.
+   No es historial: es un producto distinto porque responde a otra pregunta.
+2. **¿Quién escribe?** Todos, con marca de autor (`meta.author`). Con varios
+   consumers escribiendo a la vez hace falta `put_new/2` o compare-and-swap.
+3. **¿Se puede desmentir?** Sí, y tiene que poder. Sin desmentir, la memoria
+   miente cada vez más fuerte. Se desmiente creando una nueva entrada con
+   `superseded_by`, o borrando y volviendo a escribir.
+4. **¿Se resume?** No. Se poda por antigüedad y caducidad (`expires_at` por
+   entrada). Resumir una memoria compartida produce una memoria que nadie
+   reconoce.
+
+**No depende del RAG ni de un embedder**: una memoria que se busca por clave
+(`mem:proyecto_42`) es un `get`, no un vector. Los embeddings solo harían
+falta si se busca por significado («¿qué sabemos del proyecto 42?» sin decir
+el 42). Atarla al RAG le ponía un prerrequisito que no necesita.
+
+**Desbloquea**: F2.4 (SharedMemory), F2.7 (voces / mesa camilla).
+
+---
+
+## D-23 y D-24 · Ya decididas (D-21 y D-19)
+
+**D-23 = D-21.** `:degrade` se mantiene declarado y no alcanzable; se
+reinterpreta cuando exista la cobertura. Eso es literalmente «se colapsa en
+el scorer». Misma decisión, otro número; no se reabre.
+
+**D-24 = D-19.** `rest_for_one` no se implementa. Sin caso de uso real, YAGNI.
+Se revisa cuando la mesa camilla (fase 9) sea el primer candidato.
+
+No se crean entradas nuevas para estas: el registro ya tiene la respuesta.
+
+---
+
+## D-25 · El breaker de los agentes sin nombre
+
+**Cuándo**: 2026-10-19, por el dueño.
+**Qué**: `restart: :transient` ya está en los dos `child_spec` (D-20). La
+pregunta real no era «breaker o transient» — ambas ya conviven — sino que **un
+agente sin nombre se salta las dos puertas** (presupuesto de crashes y
+circuito), porque no tiene dónde persistir nada:
+
+```elixir
+cond do
+  name != nil and Crashes.count(name, now()) >= budget -> {:stop, :crash_budget_exceeded}
+  name != nil -> ... Breakers.load(name) ...          # el circuito
+  true -> init_state(name, opts)                      # sin nombre: ni presupuesto ni circuito
+end
+```
+
+Tercera opción, la correcta: **darle identidad derivada** —`{módulo, hash de
+las opciones}` o el `goal`— para que caiga en la misma puerta que los
+nombrados. Evita el caso raro de tener que decir «los agentes anónimos son
+los que cuelgan».
+
+**Si se prefiere que sigan sin protección**, queda escrito como decisión
+explícita: «un agente anónimo no tiene identidad y aceptamos que un cuelgue
+suyo lo mate». Lo que no puede ser es que siga siendo una pregunta abierta
+mientras el código parece protegerlo.
+
+**Desbloquea**: P-9 última mitad.
+
+---
+
+## D-26 · El cargador del catálogo avisa de claves desconocidas
+
+**Cuándo**: 2026-10-19, por el dueño.
+**Qué**: `Candil.Config.Hydrate` ahora emite un `Logger.warning` cuando una
+sección (`engine`, `model`, `provider`) tiene claves que no conoce. La causa
+de fondo: tres veces el mismo fallo —`typical_latency_s`, `engine_pid`,
+`vram_mb`— donde un campo existía en el struct pero nadie lo rellenaba ni
+validaba, y el cargador lo ignoraba en silencio.
+
+La raíz no es el cuarto campo: es que el cargador no avisaba. Con el aviso,
+el cuarto se habría visto solo. Ahora se ve.
+
+**También**: `Model.vram_mb` se hidrata (`spec["vram_mb"]`) y se valida en
+el schema (entero no negativo). El template del TOML lo documenta.
+
+---
+
+**La frase que resume todo**:
+> Las decisiones abiertas se cierran registrando la respuesta y el porqué, no
+> implementando lo que aún no tiene caso. El código llega cuando la decisión
+> tiene un consumidor que lo pida. Y un campo que nadie rellena no es un
+> campo: es una mentira con nombre.

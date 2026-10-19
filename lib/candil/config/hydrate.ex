@@ -111,6 +111,8 @@ defmodule Candil.Config.Hydrate do
   # ── sections ─────────────────────────────────────────────────────────────
 
   defp engine(name, spec) do
+    warn_unknown_keys("engine", name, spec)
+
     with {:ok, base} <- Build.new(install_spec(spec)) do
       engine = struct(Engine, engine_attrs(name, spec, base))
       validate(Engine, engine)
@@ -158,6 +160,35 @@ defmodule Candil.Config.Hydrate do
     |> Keyword.put(:strategy, install |> Map.get("strategy", "none") |> atom())
   end
 
+  # Claves que el cargador conoce por seccion. Una clave que no este aqui se
+  # ignora silenciosamente, que es el fallo que se repitio tres veces
+  # (`typical_latency_s`, `engine_pid`, `vram_mb`). Avisar aqui es lo que
+  # evita la cuarta.
+  @known_engine_keys ~w(binary host base_port port api_key start_args install auth checksum_sha256)
+  @known_model_keys ~w(type engine provider name base_url model_dir filename source draft context_size port usage capabilities model_args gpu_layers tags enabled exclusive typical_latency_s description vram_mb)
+  @known_provider_keys ~w(type base_url api_key)
+
+  defp warn_unknown_keys(section, name, spec) when is_map(spec) do
+    known =
+      case section do
+        "engine" -> @known_engine_keys
+        "model" -> @known_model_keys
+        "provider" -> @known_provider_keys
+        _ -> []
+      end
+
+    unknown = spec |> Map.keys() |> Enum.reject(&(&1 in known))
+
+    if unknown != [] do
+      Logger.warning(
+        "[Candil.Config] #{section} '#{name}' tiene claves que se ignoran: #{inspect(unknown)}. " <>
+          "Revisa el nombre: puede ser un typo o un campo que aun no esta cableado."
+      )
+    end
+
+    :ok
+  end
+
   defp api_key(spec) do
     case Map.get(spec, "auth") do
       %{"api_key" => key} -> key
@@ -167,6 +198,7 @@ defmodule Candil.Config.Hydrate do
   end
 
   defp model(name, spec) do
+    warn_unknown_keys("model", name, spec)
     {usage, capabilities} = usage_and_capabilities(name, spec)
 
     attrs =
@@ -204,6 +236,7 @@ defmodule Candil.Config.Hydrate do
       |> maybe_put(:draft, source(spec["draft"]))
       |> maybe_put(:enabled, spec["enabled"])
       |> maybe_put(:typical_latency_s, segundos_de(spec["typical_latency_s"], name))
+      |> maybe_put(:vram_mb, spec["vram_mb"])
 
     validate(Model, struct(Model, attrs))
   end
@@ -319,6 +352,8 @@ defmodule Candil.Config.Hydrate do
   end
 
   defp provider(name, spec) do
+    warn_unknown_keys("provider", name, spec)
+
     attrs = %{
       alias: alias_of(name),
       # Provider.validate/1 checks the type against a list of atoms, so the

@@ -184,6 +184,12 @@ defmodule Candil.Config.Template do
     #   # como llama-server se queja de "already set by user".
     #   gpu_layers   = -1
     #
+    #   # VRAM que ocupa el modelo en MB (opcional). Si no se pone, el scheduler
+    #   # la estima del context_size. Ponla si la conoces: la estimacion es un
+    #   # orden de magnitud, y una decision de eviction con un numero malo
+    #   # expulsa al modelo equivocado.
+    #   vram_mb      = 13000
+    #
     #   # Los flags que se pasan a llama-server.
     #   #
     #   # OJO: un flag y su valor son DOS elementos. Se pasa la lista al argv

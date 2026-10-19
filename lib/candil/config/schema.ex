@@ -249,7 +249,8 @@ defmodule Candil.Config.Schema do
       validate_model_usage(name, spec) ++
       validate_model_capabilities(name, spec) ++
       validate_model_description(name, spec) ++
-      validate_model_exclusive(name, spec)
+      validate_model_exclusive(name, spec) ++
+      validate_model_vram_mb(name, spec)
   end
 
   defp validate_model(name, spec), do: ["model '#{name}' must be a table, got: #{inspect(spec)}"]
@@ -277,6 +278,14 @@ defmodule Candil.Config.Schema do
       nil -> []
       value when is_boolean(value) -> []
       other -> ["model '#{name}'.exclusive must be a boolean, got: #{inspect(other)}"]
+    end
+  end
+
+  defp validate_model_vram_mb(name, spec) do
+    case Map.get(spec, "vram_mb") do
+      nil -> []
+      value when is_integer(value) and value >= 0 -> []
+      other -> ["model '#{name}'.vram_mb must be a non-negative integer, got: #{inspect(other)}"]
     end
   end
 
