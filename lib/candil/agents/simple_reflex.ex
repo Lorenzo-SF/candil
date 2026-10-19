@@ -131,13 +131,9 @@ defmodule Candil.Agents.SimpleReflex do
   engine does not come back within the agent's deadline. Whoever has the name
   and not the server asks through `Candil.Agents.call/3`.
   """
-  @spec evaluate(GenServer.server(), term()) :: result()
-  def evaluate(server, input) do
-    # El plazo del `call` es infinito a propósito: el único que puede matar al
-    # motor es el agente, así que el plazo vive dentro. Un plazo también aquí
-    # obligaría a quien llama a adivinar el del agente — y el agente responde
-    # siempre.
-    GenServer.call(server, {:evaluate, input}, :infinity)
+  @spec evaluate(GenServer.server(), term(), keyword()) :: result()
+  def evaluate(server, input, opts \\ []) do
+    GenServer.call(server, {:evaluate, input, opts}, :infinity)
   end
 
   @doc """
@@ -185,7 +181,7 @@ defmodule Candil.Agents.SimpleReflex do
   end
 
   @impl true
-  def handle_call({:evaluate, input}, _from, state) do
+  def handle_call({:evaluate, input, opts}, _, state) do
     # El tercer cerrojo del §8.3, y va AQUI y no en la puerta (F5.5): quien
     # tiene el pid tambien entra por `GenServer.call`, y un cerrojo que solo
     # cubre una de las puertas es un cerrojo con la puerta de al lado abierta.
@@ -194,7 +190,7 @@ defmodule Candil.Agents.SimpleReflex do
         {:reply, {:error, {:agent_circuit_open, state.name || self()}, []}, state}
 
       _cerrado_o_sonda ->
-        result = within_timeout(state, input)
+        result = within_timeout(state, input, opts)
         breaker = Breaker.record(state.breaker, Breaker.verdict(result), now())
 
         if state.name != nil do
@@ -203,6 +199,11 @@ defmodule Candil.Agents.SimpleReflex do
 
         {:reply, result, %{state | breaker: breaker}}
     end
+  end
+
+  # Compatibilidad con el mensaje de dos elementos (tests antiguos).
+  def handle_call({:evaluate, input}, from, state) do
+    handle_call({:evaluate, input, []}, from, state)
   end
 
   def handle_call(:status, _from, state) do
@@ -237,11 +238,13 @@ defmodule Candil.Agents.SimpleReflex do
   # `trap_exit`, un run que revienta se lleva al agente por delante (arriba,
   # «When it is the code that breaks»), así que aquí solo caben un resultado
   # o nada.
-  @spec within_timeout(map(), term()) :: result()
-  defp within_timeout(state, input) do
+  @spec within_timeout(map(), term(), keyword()) :: result()
+  defp within_timeout(state, input, opts) do
+    run_opts = [backend: state.backend, model: state.model] ++ Keyword.take(opts, [:on_token])
+
     task =
       Task.Supervisor.async_nolink(Candil.TaskSupervisor, fn ->
-        Agent.run(config(state), input, run_opts(state))
+        Agent.run(config(state), input, run_opts)
       end)
 
     case Task.yield(task, state.timeout) || Task.shutdown(task, :brutal_kill) do
@@ -270,9 +273,6 @@ defmodule Candil.Agents.SimpleReflex do
   defp config(state) do
     %{name: state.name, goal: state.goal, max_steps: state.max_steps}
   end
-
-  @spec run_opts(map()) :: keyword()
-  defp run_opts(state), do: [backend: state.backend, model: state.model]
 
   # El reloj del circuito. `monotonic` porque un ajuste de hora del sistema no
   # tiene por que abrir ni cerrar un circuito.

@@ -142,10 +142,10 @@ defmodule Candil.Agents.ModelBasedReflex do
   and not the server asks through `Candil.Agents.call/3`.
   """
   @spec evaluate(GenServer.server(), term()) :: result()
-  def evaluate(server, input) do
+  def evaluate(server, input, opts \\ []) do
     # El plazo del `call` es infinito por lo mismo que en el tipo 1: el único
     # que puede matar la vuelta es el agente, así que el plazo vive dentro.
-    GenServer.call(server, {:evaluate, input}, :infinity)
+    GenServer.call(server, {:evaluate, input, opts}, :infinity)
   end
 
   @doc """
@@ -184,7 +184,7 @@ defmodule Candil.Agents.ModelBasedReflex do
   end
 
   @impl true
-  def handle_call({:evaluate, input}, _from, state) do
+  def handle_call({:evaluate, input, opts}, _from, state) do
     # El tercer cerrojo del §8.3, el mismo que en el tipo 1 y por el mismo
     # motivo: con el circuito abierto la vuelta ni empieza. El breaker NO va
     # en el snapshot —es salud del proceso, no estado del mundo—: un agente
@@ -198,7 +198,7 @@ defmodule Candil.Agents.ModelBasedReflex do
         # llamada, y este proceso vive. Sin esto, `max_steps` sería un tope de
         # por vida y la vuelta que agotase el presupuesto lo agotaría para
         # siempre.
-        engine = %{state.engine | rounds: 0}
+        engine = %{state.engine | rounds: 0, on_token: Keyword.get(opts, :on_token)}
 
         task = Task.Supervisor.async_nolink(Candil.TaskSupervisor, fn -> turn(engine, input) end)
 
@@ -224,6 +224,11 @@ defmodule Candil.Agents.ModelBasedReflex do
 
         {:reply, reply, %{state | breaker: breaker}}
     end
+  end
+
+  # Compatibilidad con el mensaje de dos elementos.
+  def handle_call({:evaluate, input}, from, state) do
+    handle_call({:evaluate, input, []}, from, state)
   end
 
   def handle_call(:status, _from, state) do
