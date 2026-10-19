@@ -190,8 +190,14 @@ defmodule Candil.Detector.Devices do
 
       _path ->
         case System.cmd("nvidia-smi", @query, stderr_to_stdout: true) do
-          {out, 0} -> parse_nvidia(out)
-          {_out, _rc} -> {:error, :smi_failed}
+          {out, 0} ->
+            case parse_nvidia(out) do
+              {:ok, devices} -> {:ok, %{backend: :cuda, devices: devices}}
+              {:error, reason} -> {:error, reason}
+            end
+
+          {_out, _rc} ->
+            {:error, :smi_failed}
         end
     end
   end

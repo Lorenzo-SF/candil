@@ -83,6 +83,57 @@ defmodule Candil.Scheduler do
     end
   end
 
+  @doc """
+  Planifica la colocación de un modelo: detecta los dispositivos, lee las
+  instancias que corren, y devuelve la decisión del scheduler.
+
+  Es el puente entre la función pura (`place/3`) y el mundo: quien llama
+  ejecuta la decisión (para los `{:evict, ...}` y `{:ok, _}`).
+
+  Devuelve `{:ok, :proceed}` si no hay que hacer nada especial, o la
+  decisión de `place/3`.
+  """
+  @spec plan(Candil.Model.t()) :: decision()
+  def plan(%Candil.Model{} = model) do
+    size_mb = model.vram_mb || estimate_model_size(model)
+    devices = Candil.Scheduler.Devices.detect()
+    instances = build_instances()
+
+    place(size_mb, devices, instances)
+  end
+
+  defp estimate_model_size(%Candil.Model{context_size: ctx}) when is_integer(ctx) and ctx > 0 do
+    div(ctx, 1024) * 4
+  end
+
+  defp estimate_model_size(_), do: 0
+
+  defp build_instances do
+    Candil.EnginePool.list()
+    |> Enum.map(fn entry ->
+      model = entry.model
+      size_mb = (model && model.vram_mb) || estimate_model_size(model) || 0
+
+      %{
+        model_alias: entry.alias,
+        device_index: device_index_from_port(entry.port),
+        size_mb: size_mb,
+        in_use: false,
+        pinned: (model && model.exclusive == true) || false,
+        last_used_at: nil
+      }
+    end)
+  end
+
+  # Heurística vieja: puerto acabado en 9x = dGPU. Se mantiene como fallback
+  # hasta que la colocación use el PID y nvidia-smi (D-16). Es la misma que
+  # tenia `candil status` antes de medir de verdad.
+  defp device_index_from_port(port) when is_integer(port) do
+    if rem(port, 100) >= 90, do: 0, else: 1
+  end
+
+  defp device_index_from_port(_), do: 0
+
   defp evict(_size_mb, [], _instances), do: {:error, :no_room}
 
   defp evict(size_mb, devices, instances) do

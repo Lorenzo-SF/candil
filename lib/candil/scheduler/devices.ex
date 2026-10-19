@@ -20,18 +20,20 @@ defmodule Candil.Scheduler.Devices do
   def detect do
     case Devices.detect() do
       {:ok, %{devices: devices}} ->
-        Enum.map(devices, fn d ->
-          %{
-            index: d.index,
-            name: d.name,
-            total_mb: d.total_mb,
-            free_mb: d.free_mb,
-            usable: d.usable
-          }
-        end)
+        Enum.map(devices, &to_device/1)
 
       {:error, _} ->
         []
     end
+  end
+
+  defp to_device(d) do
+    %{
+      index: d.index,
+      name: d.name,
+      total_mb: d.total_mb,
+      free_mb: d.free_mb,
+      usable: d.usable
+    }
   end
 end
