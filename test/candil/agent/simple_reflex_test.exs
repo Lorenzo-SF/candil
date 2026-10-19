@@ -252,23 +252,25 @@ defmodule Candil.Agents.SimpleReflexTest do
       assert {:error, :timeout, []} = SimpleReflex.evaluate(pid, "dos")
       assert %{breaker: :open} = SimpleReflex.status(pid)
 
+      # Con el circuito abierto, el agente ya no se reinicia: el presupuesto
+      # de crashes y el circuito se encargan de que no vuelva a colgarse.
+      # El circuito siguió abierto en el almacén.
       Process.exit(pid, :kill)
 
-      assert wait_until(fn ->
-               p = Candil.Agents.whereis(name)
-               is_pid(p) and p != pid
-             end)
+      assert wait_until(fn -> Candil.Agents.whereis(name) == nil end)
 
-      new_pid = Candil.Agents.whereis(name)
+      assert {:error, :circuit_open} =
+               AgentsSupervisor.start_agent(SimpleReflex,
+                 name: name,
+                 goal: "g",
+                 backend: HangingBackend,
+                 timeout: 50,
+                 breaker_threshold: 2
+               )
 
-      assert %{breaker: :open} = SimpleReflex.status(new_pid)
-
-      t0 = System.monotonic_time(:millisecond)
-
-      assert {:error, {:agent_circuit_open, ^name}, []} =
-               SimpleReflex.evaluate(new_pid, "tres")
-
-      assert System.monotonic_time(:millisecond) - t0 < 50
+      # Y el almacén sigue teniendo el circuito abierto.
+      {:ok, breaker} = Candil.Agents.Breakers.load(name)
+      assert Candil.Agents.Breaker.check(breaker, System.monotonic_time(:millisecond)) == :open
     end
 
     test "un run que revienta se lleva al agente, y el supervisor lo levanta" do
@@ -332,6 +334,25 @@ defmodule Candil.Agents.SimpleReflexTest do
                )
     end
 
+    test "un circuito abierto impide arrancar al agente (P-9, ultima mitad)" do
+      name = "circuito-#{System.unique_integer([:positive])}"
+      on_exit(fn -> Candil.Agents.Breakers.forget(name) end)
+
+      # Abrir el circuito: 5 cuelgues seguidos con umbral 2 (para que sea rapido).
+      breaker = Candil.Agents.Breaker.new(breaker_threshold: 2)
+      breaker = Candil.Agents.Breaker.record(breaker, :timeout, 1)
+      breaker = Candil.Agents.Breaker.record(breaker, :timeout, 2)
+      assert Candil.Agents.Breaker.check(breaker, 3) == :open
+      Candil.Agents.Breakers.save(name, breaker)
+
+      assert {:error, :circuit_open} =
+               AgentsSupervisor.start_agent(SimpleReflex,
+                 name: name,
+                 goal: "g",
+                 backend: EchoBackend
+               )
+    end
+
     test "el hijo del supervisor: evaluar, y pararlo" do
       {:ok, pid} =
         AgentsSupervisor.start_agent(SimpleReflex, name: "hijo", goal: "g", backend: EchoBackend)
@@ -342,12 +363,13 @@ defmodule Candil.Agents.SimpleReflexTest do
       assert {:error, :not_found} = AgentsSupervisor.stop_agent(pid)
     end
 
-    test "el child spec: reinicio permanente y cinco segundos de gracia, no brutal_kill" do
+    test "el child spec: reinicio transiente y cinco segundos de gracia, no brutal_kill" do
       # Las defensas del §8.3 que se leen en el child spec: al parar el árbol
-      # hay 5 s de gracia, y el que se cae vuelve.
+      # hay 5 s de gracia, y el que se cae vuelve (transiente: solo si la
+      # salida no fue normal, que es lo que un crash produce).
       spec = SimpleReflex.child_spec([])
 
-      assert spec.restart == :permanent
+      assert spec.restart == :transient
       assert spec.shutdown == 5_000
       assert spec.type == :worker
     end

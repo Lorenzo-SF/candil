@@ -110,14 +110,15 @@ defmodule Candil.Agents.SimpleReflex do
   end
 
   # El child spec explícito, con los valores que son una decisión (§8.3): el
-  # que se cae vuelve (`:permanent` — un tipo 1 no tiene nada que perder) y al
+  # el que se cae vuelve (`:transient` — solo si la salida no fue normal, que
+  # es lo que un crash produce; un tipo 1 no tiene nada que perder) y al
   # parar el árbol hay cinco segundos de gracia, no `:brutal_kill`.
   @doc false
   def child_spec(opts) do
     %{
       id: __MODULE__,
       start: {__MODULE__, :start_link, [opts]},
-      restart: :permanent,
+      restart: :transient,
       shutdown: 5_000,
       type: :worker
     }
@@ -152,32 +153,51 @@ defmodule Candil.Agents.SimpleReflex do
 
     budget = Keyword.get(opts, :crash_budget, @crash_budget)
 
-    if name != nil and Crashes.count(name, now()) >= budget do
-      {:stop, :crash_budget_exceeded}
-    else
-      breaker =
-        case name do
-          nil ->
-            Breaker.new(opts)
+    cond do
+      name != nil and Crashes.count(name, now()) >= budget ->
+        {:stop, :crash_budget_exceeded}
 
-          n ->
-            case Breakers.load(n) do
-              {:ok, b} -> b
-              {:error, :not_found} -> Breaker.new(opts)
+      name != nil ->
+        case Breakers.load(name) do
+          {:ok, breaker} ->
+            if Breaker.check(breaker, now()) == :open do
+              {:stop, :circuit_open}
+            else
+              init_state(name, opts)
             end
+
+          _ ->
+            init_state(name, opts)
         end
 
-      {:ok,
-       %{
-         name: name,
-         goal: Keyword.get(opts, :goal),
-         backend: Keyword.get(opts, :backend),
-         model: Keyword.get(opts, :model) || "default",
-         max_steps: Keyword.get(opts, :max_steps, @default_max_steps),
-         timeout: Keyword.get(opts, :timeout, @default_timeout),
-         breaker: breaker
-       }}
+      true ->
+        init_state(name, opts)
     end
+  end
+
+  defp init_state(name, opts) do
+    breaker =
+      case name do
+        nil ->
+          Breaker.new(opts)
+
+        n ->
+          case Breakers.load(n) do
+            {:ok, b} -> b
+            {:error, :not_found} -> Breaker.new(opts)
+          end
+      end
+
+    {:ok,
+     %{
+       name: name,
+       goal: Keyword.get(opts, :goal),
+       backend: Keyword.get(opts, :backend),
+       model: Keyword.get(opts, :model) || "default",
+       max_steps: Keyword.get(opts, :max_steps, @default_max_steps),
+       timeout: Keyword.get(opts, :timeout, @default_timeout),
+       breaker: breaker
+     }}
   end
 
   @impl true
