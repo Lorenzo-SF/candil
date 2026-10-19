@@ -41,7 +41,10 @@ defmodule Candil.Stream do
           :ok | {:error, Error.t()}
   def chat(model_alias, messages, callback, opts \\ [])
       when is_atom(model_alias) and is_function(callback, 1) do
-    case Engine.base_url(model_alias) do
+    base_url =
+      Keyword.get(opts, :base_url) || Engine.base_url(model_alias)
+
+    case base_url do
       nil ->
         {:error, Error.engine_not_running(model_alias)}
 

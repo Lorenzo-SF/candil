@@ -98,7 +98,8 @@ defmodule Candil.Agent do
           consumer: atom(),
           session: String.t() | nil,
           messages: [Inference.message()],
-          trace: trace()
+          trace: trace(),
+          on_token: (term() -> any()) | nil
         }
 
   @default_max_steps 8
@@ -240,7 +241,8 @@ defmodule Candil.Agent do
          consumer: consumer,
          session: session,
          messages: session_messages(consumer, session),
-         trace: []
+         trace: [],
+         on_token: Keyword.get(opts, :on_token)
        }}
     else
       {:error, reason} -> {:stop, reason}
@@ -285,7 +287,9 @@ defmodule Candil.Agent do
   """
   @spec snapshot(agent_state()) :: map()
   def snapshot(state) when is_map(state) do
-    Map.delete(state, :cancel_ref)
+    state
+    |> Map.delete(:cancel_ref)
+    |> Map.delete(:on_token)
   end
 
   @impl true
@@ -302,7 +306,11 @@ defmodule Candil.Agent do
   def restore(snapshot) when is_map(snapshot) do
     case Enum.find(@snapshot_keys, &(not Map.has_key?(snapshot, &1))) do
       nil ->
-        {:ok, snapshot |> Map.take(@snapshot_keys) |> Map.put(:cancel_ref, nil)}
+        {:ok,
+         snapshot
+         |> Map.take(@snapshot_keys)
+         |> Map.put(:cancel_ref, nil)
+         |> Map.put(:on_token, nil)}
 
       missing ->
         {:error, {:missing_key, missing}}
@@ -373,8 +381,89 @@ defmodule Candil.Agent do
     prompt_schemas = Tool.list() |> schemas_for(state.config)
     state = %{state | rounds: state.rounds + 1}
 
+    on_token = Map.get(state, :on_token)
+
+    if on_token != nil do
+      stream_round(state, messages, prompt_schemas, on_token)
+    else
+      case state.backend.chat(state.model, messages, tools: prompt_schemas) do
+        {:ok, %{content: content}} ->
+          if stop_word_reached?(content, state.config) do
+            finish(state, extract_final(content, state.config))
+          else
+            continue_or_finish(content, state)
+          end
+
+        {:error, _} = err ->
+          finish(state, {:error, err})
+      end
+    end
+  end
+
+  defp stream_round(state, messages, prompt_schemas, on_token) do
+    model_alias = Candil.resolve_model_alias(state.model)
+    base_url = resolve_base_url(model_alias)
+
+    if model_alias == nil or base_url == nil do
+      chat_round(state, messages, prompt_schemas)
+    else
+      stream_with_model(state, messages, prompt_schemas, on_token, model_alias, base_url)
+    end
+  end
+
+  defp resolve_base_url(nil), do: nil
+
+  defp resolve_base_url(alias_) do
+    case Candil.Store.get_model(alias_) do
+      {:ok, model} ->
+        case Candil.Store.get_engine(model.engine) do
+          {:ok, engine} -> "http://#{engine.host}:#{engine.port}"
+          _ -> Candil.Engine.base_url(alias_)
+        end
+
+      _ ->
+        Candil.Engine.base_url(alias_)
+    end
+  end
+
+  defp chat_round(state, messages, prompt_schemas) do
     case state.backend.chat(state.model, messages, tools: prompt_schemas) do
       {:ok, %{content: content}} ->
+        if stop_word_reached?(content, state.config) do
+          finish(state, extract_final(content, state.config))
+        else
+          continue_or_finish(content, state)
+        end
+
+      {:error, _} = err ->
+        finish(state, {:error, err})
+    end
+  end
+
+  defp stream_with_model(state, messages, prompt_schemas, on_token, model_alias, base_url) do
+    {:ok, acc} = Elixir.Agent.start_link(fn -> "" end)
+
+    opts = [tools: prompt_schemas, base_url: base_url]
+
+    result =
+      Candil.Stream.chat(
+        model_alias,
+        messages,
+        fn chunk ->
+          if is_binary(chunk.content) and chunk.content != "" do
+            Elixir.Agent.update(acc, fn c -> c <> chunk.content end)
+          end
+
+          on_token.(chunk)
+        end,
+        opts
+      )
+
+    content = Elixir.Agent.get(acc, & &1)
+    Elixir.Agent.stop(acc)
+
+    case result do
+      :ok ->
         if stop_word_reached?(content, state.config) do
           finish(state, extract_final(content, state.config))
         else

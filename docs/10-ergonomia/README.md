@@ -181,7 +181,7 @@ end
 | E1 | `Candil.chat/2` + `Candil.pull/1` + auto-start | ✅ hecho (PR E1) |
 | E2 | `Candil.Agent.new/1` de alto nivel | ✅ hecho (PR E2) |
 | E3 | Quick start en inglés + examples/ | ✅ hecho (PR E3) |
-| E4 | Streaming en agentes | ⬜ pendiente |
+| E4 | Streaming en agentes | ✅ hecho (PR E4) |
 | E5 | `Candil.serve/0` con cero config | ✅ hecho (PR E1) |
 
 ## 7 · Lo que NO cambia

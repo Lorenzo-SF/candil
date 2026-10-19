@@ -112,7 +112,7 @@ defmodule Candil.Agents do
     timeout = Keyword.get(opts, :timeout, :infinity)
 
     case resolve(agent) do
-      {:ok, pid} -> safe_call(agent, pid, {:evaluate, message}, timeout)
+      {:ok, pid} -> safe_call(agent, pid, {:evaluate, message, opts}, timeout)
       :error -> {:error, {:agent_not_up, agent}, []}
     end
   end
