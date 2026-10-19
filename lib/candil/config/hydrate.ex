@@ -24,8 +24,8 @@ defmodule Candil.Config.Hydrate do
   attacker.
 
   So the rule holds where it is written — the gateway, the router, anything
-  that reads a request — and this is the one place that is knowingly outside
-  it. The cost is stated rather than hidden:
+  that reads a request — and this module plus `http/breaker.ex` are the two
+  places knowingly outside it. The cost is stated rather than hidden:
 
     * the atom count grows by the number of entries in the file, once, and
     * the aliases are not garbage: they are looked up on every request.
@@ -416,7 +416,9 @@ defmodule Candil.Config.Hydrate do
     else
       {:error,
        "#{inspect(name)} is not [a-z][a-z0-9_]*, so it is not an alias. " <>
-         "Refusing it is what keeps this the only String.to_atom/1 in Candil."}
+         "Refusing it is what keeps the atom table bounded: this module and " <>
+         "http/breaker.ex are the only places that call String.to_atom/1, and " <>
+         "both are guarded."}
     end
   end
 
@@ -427,7 +429,8 @@ defmodule Candil.Config.Hydrate do
     else
       raise ArgumentError,
             "#{inspect(name)} is not a usable alias: expected [a-z][a-z0-9_]*, " <>
-              "and refusing it is what keeps this the only String.to_atom/1 in Candil"
+              "and refusing it is what keeps the atom table bounded: this module " <>
+              "and http/breaker.ex are the only places that call String.to_atom/1"
     end
   end
 

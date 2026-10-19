@@ -233,7 +233,7 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 | ~~P-2~~ | La métrica del tribunal | ✅ **cerrado** (A-1). Ya existe, y ha sentenciado: 16.7% |
 | **P-3** | `rest_for_one` sin implementar | **a propósito**: no tiene caso hasta que exista un destino que ceda el turno (D-02) |
 | **P-4** | Quién escribe la verdad de la VRAM | 🟡 **se mide y se enseña**: la columna `VRAM` de `candil status` es el RSS del PID del motor, atribuido por PID (PR #86), y es lo que declara `Engine` en su `@doc`. Lo que sigue sin dueño es **escribirla** —reservar antes de arrancar—, y es la parte de la 8b |
-| **P-10** | La 8b está construida y desconectada | 🟡 **el scheduler (`Candil.Scheduler.place/3`, `Signal`, `Devices`) tiene dos niveles con tests y cero llamadores en `lib/`.** Su consumidor natural es `Candil.ensure_engine_running/2` (que hoy arranca por nombre sin preguntar si cabe). Un componente con tests pero sin llamador es trabajo sin empezar, no una fase cerrada (D-10). Merece una línea aquí para que el próximo que lea el traspaso no la integre como cerrada. **Arreglado parcialmente**: `ensure_engine_running/2` ahora puede consultar al scheduler (pendiente de cablear). El `vram_mb` (campo huérfano) se hidrata y valida (D-26) |
+| **P-10** | La 8b está construida y desconectada | 🟡 **el scheduler (`Candil.Scheduler.place/3`, `Signal`, `Devices`) tiene dos niveles con tests y cero llamadores en `lib/`.** Su consumidor natural es `Candil.ensure_engine_running/2` (que hoy arranca por nombre sin preguntar si cabe). Un componente con tests pero sin llamador es trabajo sin empezar, no una fase cerrada (D-10). Merece una línea aquí para que el próximo que lea el traspaso no la integre como cerrada. El `vram_mb` (campo huérfano) se hidrata y valida (D-26), pero el scheduler que lo consumiría no está conectado |
 | **P-11** | La carrera del circuito en `simple_reflex_test.exs` | ✅ **arreglada**: el circuito se comprobaba en `init/1`, que corre DESPUÉS de que `GenServer.start_link` registre el nombre; si el nombre seguía tomado, contestaba `{:already_started, pid}` y el circuito ni se miraba. Ahora se comprueba en `start_link/1`, antes de registrar. El test verde dependía de que el nombre se liberara a tiempo; ahora no depende de timing |
 | ~~P-5~~ | La fase 4 sin mergear | ✅ **cerrado** — mergeada y medida (§2.1) |
 | **P-6** | La colocación de modelos en varias GPUs | es la parte de la 8b que falta, y **depende de P-4** |
@@ -368,3 +368,28 @@ servidor local real y las rutas `etiquetado` / `etiquetado-malo`.
 >
 > El defecto del refusal ya no es una de ellas: D-09 lo decidió el 2026-10-11 y
 > `fail` es el defecto, con `Retry-After` y todo.
+
+---
+
+## 12 · Módulos internos y sus llamadores (D-10, aplicada)
+
+La regla: una pieza interna sin llamador en `lib/` es trabajo sin empezar, no
+una fase cerrada. Una API pública sin llamador interno es lo normal y no cuenta.
+
+Medido el 2026-10-19 sobre `main`:
+
+| Módulo | Llamadores en `lib/` | Estado |
+|---|---|---|
+| `Candil.Scheduler` | 0 | Construido y desconectado (P-10) |
+| `Candil.Scheduler.Signal` | 0 | Construido y desconectado |
+| `Candil.Scheduler.Devices` | 0 | Construido y desconectado |
+| `Candil.RAG.Store` | 1 (`Candil.RAG`) | Cableado (fase 6) |
+| `Candil.MCP.Server` | 1 (`Candil.MCP.serve/1`) | Cableado (fase 7 Nivel 1) |
+| `Candil.Storage.Store` | 1 (`Candil.Context`) | Cableado (F2.3) |
+| `Candil.Agents.Breakers` | 2 (`SimpleReflex`, `ModelBasedReflex`) | Cableado |
+| `Candil.Agents.Crashes` | 2 (`SimpleReflex`, `ModelBasedReflex`) | Cableado |
+| `Candil.Agents.Snapshots` | 1 (`ModelBasedReflex`) | Cableado (F5.4) |
+
+**Regla para el futuro**: cuando se proponga una fase, decir qué la va a llamar,
+con fichero y línea. Si la respuesta es «nadie, todavía», eso es una nota de
+trabajo, no una fase cerrada.
