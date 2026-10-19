@@ -102,10 +102,43 @@ defmodule Candil.Agents.SimpleReflex do
     # proceso ni nace y no hay señal que aguantar.
     case Keyword.get(opts, :backend) do
       backend when is_atom(backend) and not is_nil(backend) ->
-        GenServer.start_link(__MODULE__, opts, name_opt(opts))
+        name = Keyword.get(opts, :name)
+
+        case pre_start_checks(name, opts) do
+          :ok -> GenServer.start_link(__MODULE__, opts, name_opt(opts))
+          {:error, reason} -> {:error, reason}
+        end
 
       _ ->
         {:error, :no_backend}
+    end
+  end
+
+  defp pre_start_checks(nil, _opts), do: :ok
+
+  defp pre_start_checks(name, opts) do
+    # El circuito se comprueba AQUÍ y no en `init/1` por la misma razón que
+    # el backend (F5.3): `init/1` corre DESPUÉS de que `GenServer.start_link`
+    # haya registrado el nombre. Si el nombre sigue tomado, contestas
+    # `{:already_started, pid}` y el circuito ni se mira — que era la carrera
+    # que hacía fallar `simple_reflex_test.exs` de forma intermitente. Aquí, el
+    # proceso ni nace y no hay señal que aguantar.
+    budget = Keyword.get(opts, :crash_budget, @crash_budget)
+
+    if Crashes.count(name, now()) >= budget do
+      {:error, :crash_budget_exceeded}
+    else
+      case Breakers.load(name) do
+        {:ok, breaker} ->
+          if Breaker.check(breaker, now()) == :open do
+            {:error, :circuit_open}
+          else
+            :ok
+          end
+
+        {:error, :not_found} ->
+          :ok
+      end
     end
   end
 
