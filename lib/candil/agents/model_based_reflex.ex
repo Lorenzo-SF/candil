@@ -116,14 +116,14 @@ defmodule Candil.Agents.ModelBasedReflex do
   end
 
   # El child spec explícito, como el del tipo 1: el que se cae vuelve
-  # (`:permanent` — y ahora vuelve CON su estado, que es la diferencia de la
+  # (`:transient` — y ahora vuelve CON su estado, que es la diferencia de la
   # F5.4) y al parar el árbol hay cinco segundos de gracia.
   @doc false
   def child_spec(opts) do
     %{
       id: __MODULE__,
       start: {__MODULE__, :start_link, [opts]},
-      restart: :permanent,
+      restart: :transient,
       shutdown: 5_000,
       type: :worker
     }
@@ -172,14 +172,18 @@ defmodule Candil.Agents.ModelBasedReflex do
           {:error, :not_found} -> Breaker.new(opts)
         end
 
-      {:ok,
-       %{
-         name: name,
-         engine: engine,
-         timeout: Keyword.get(opts, :timeout, @default_timeout),
-         restored: restored?,
-         breaker: breaker
-       }}
+      if Breaker.check(breaker, now()) == :open do
+        {:stop, :circuit_open}
+      else
+        {:ok,
+         %{
+           name: name,
+           engine: engine,
+           timeout: Keyword.get(opts, :timeout, @default_timeout),
+           restored: restored?,
+           breaker: breaker
+         }}
+      end
     end
   end
 

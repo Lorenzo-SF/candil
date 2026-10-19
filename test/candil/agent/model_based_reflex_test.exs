@@ -399,10 +399,10 @@ defmodule Candil.Agents.ModelBasedReflexTest do
       assert System.monotonic_time(:millisecond) - t0 < 50
     end
 
-    test "el child spec: reinicio permanente y cinco segundos de gracia, no brutal_kill" do
+    test "el child spec: reinicio transiente y cinco segundos de gracia, no brutal_kill" do
       spec = ModelBasedReflex.child_spec([])
 
-      assert spec.restart == :permanent
+      assert spec.restart == :transient
       assert spec.shutdown == 5_000
       assert spec.type == :worker
     end
