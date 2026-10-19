@@ -68,8 +68,13 @@ defmodule Candil.Scheduler do
       iex> instances = [%{model_alias: :embedder, device_index: 0, size_mb: 1_800, in_use: false, pinned: false, last_used_at: nil}]
       iex> Candil.Scheduler.place(1_800, devices, instances)
       {:evict, [:embedder], 0}
+
+      iex> Candil.Scheduler.place(0, [], [])
+      {:ok, :proceed}
   """
   @spec place(non_neg_integer(), [device()], [instance()]) :: decision()
+  def place(0, _devices, _instances), do: {:ok, :proceed}
+
   def place(size_mb, devices, instances) when is_integer(size_mb) and size_mb >= 0 do
     usable_devices = Enum.filter(devices, & &1.usable)
 
@@ -90,10 +95,15 @@ defmodule Candil.Scheduler do
   Es el puente entre la función pura (`place/3`) y el mundo: quien llama
   ejecuta la decisión (para los `{:evict, ...}` y `{:ok, _}`).
 
+  Si el modelo no pide VRAM (`size_mb == 0`, típicamente un modelo de CPU
+  puro), devuelve `{:ok, :proceed}` sin mirar dispositivos: no hay nada que
+  colocar ni que expulsar. Si pide VRAM y no hay dispositivos (sin GPU o sin
+  nvidia-smi), devuelve `{:error, :no_room}`.
+
   Devuelve `{:ok, :proceed}` si no hay que hacer nada especial, o la
   decisión de `place/3`.
   """
-  @spec plan(Candil.Model.t()) :: decision()
+  @spec plan(Candil.Model.t()) :: decision() | {:ok, :proceed}
   def plan(%Candil.Model{} = model) do
     size_mb = model.vram_mb || estimate_model_size(model)
     devices = Candil.Scheduler.Devices.detect()

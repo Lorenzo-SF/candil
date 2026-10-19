@@ -97,9 +97,10 @@ defmodule Candil.SchedulerTest do
       assert Scheduler.place(4_000, [], []) == {:error, :no_room}
     end
 
-    test "size_mb 0 cabe en cualquier dispositivo usable" do
+    test "size_mb 0 procede sin mirar dispositivos (modelo de CPU)" do
       devices = [%{index: 0, name: "GPU0", total_mb: 16_000, free_mb: 0, usable: true}]
-      assert Scheduler.place(0, devices, []) == {:ok, 0}
+      assert Scheduler.place(0, devices, []) == {:ok, :proceed}
+      assert Scheduler.place(0, [], []) == {:ok, :proceed}
     end
   end
 end
