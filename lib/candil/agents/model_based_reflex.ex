@@ -107,7 +107,9 @@ defmodule Candil.Agents.ModelBasedReflex do
     # `start_link` directo. Comprobado aquí, el proceso ni nace.
     with {:ok, backend} <- resolve_backend(opts),
          {:ok, name} <- resolve_name(opts),
-         {:ok, engine, restored?} <- initial_engine(opts, backend, name) do
+         :ok <- crash_budget_check(name, opts),
+         {:ok, engine, restored?} <- initial_engine(opts, backend, name),
+         :ok <- circuit_check(name, opts) do
       # Con nombre —obligatorio aqui— y registrado en el `start_link`, no en
       # `init/1`: el nombre duplicado es un `{:error, {:already_started,
       # pid}}` de la puerta (F5.5), sin proceso a medias.
@@ -333,6 +335,32 @@ defmodule Candil.Agents.ModelBasedReflex do
     case Keyword.get(opts, :name) do
       nil -> {:error, :no_name}
       name -> {:ok, name}
+    end
+  end
+
+  defp crash_budget_check(name, opts) do
+    budget = Keyword.get(opts, :crash_budget, @crash_budget)
+
+    if Crashes.count(name, now()) >= budget do
+      {:error, :crash_budget_exceeded}
+    else
+      :ok
+    end
+  end
+
+  defp circuit_check(name, opts) do
+    _ = opts
+
+    case Breakers.load(name) do
+      {:ok, breaker} ->
+        if Breaker.check(breaker, now()) == :open do
+          {:error, :circuit_open}
+        else
+          :ok
+        end
+
+      {:error, :not_found} ->
+        :ok
     end
   end
 
