@@ -59,17 +59,17 @@ El objetivo: **2 líneas**, como Ollama o LangChain:
 
 | # | Propuesta | Esfuerzo | Estado |
 |---|---|---|---|
-| 5 | `Candil.Agent.new/1` de alto nivel (oculta Backend/Model/Engine) | 2-3 días | ⬜ pendiente |
-| 6 | Streaming en agentes (`:on_token` callback en `Agent.run/3`) | 1-2 días | ⬜ pendiente |
-| 7 | `Candil.serve/0` con cero config (usa el primer modelo disponible) | 1 día | ⬜ pendiente |
-| 8 | Perfil/preset de modelo (implícito en `Candil.chat/2`) | incluido en #1 | ⬜ pendiente |
+| 5 | `Candil.Agent.new/1` de alto nivel (oculta Backend/Model/Engine) | 2-3 días | ✅ hecho (PR E2) |
+| 6 | Streaming en agentes (`:on_token` callback en `Agent.run/3`) | 1-2 días | ✅ hecho (PR E4) |
+| 7 | `Candil.serve/0` con cero config (usa el primer modelo disponible) | 1 día | ✅ hecho (PR E1) |
+| 8 | Perfil/preset de modelo (implícito en `Candil.chat/2`) | incluido en #1 | ✅ hecho (PR E1) |
 
 ### Tier 3 — Medio impacto, alto esfuerzo (después)
 
 | # | Propuesta | Esfuerzo | Estado |
 |---|---|---|---|
 | 9 | Configuración simplificada (opcional TOML, auto-detect) | 3-5 días | ⬜ pendiente |
-| 10 | `Model.vram_mb` cableado en hydrate/schema/template | 0.5 día | ⬜ pendiente |
+| 10 | `Model.vram_mb` cableado en hydrate/schema/template | 0.5 día | ✅ hecho (D-26) |
 | 11 | Agentes multi-modelo | depende de 8b Nivel 3 | ⬜ pendiente |
 
 ## 4 · Safeguards (para no perder el rumbo)
