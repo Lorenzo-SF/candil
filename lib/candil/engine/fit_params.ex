@@ -10,26 +10,35 @@ defmodule Candil.Engine.FitParams do
   @spec run(Engine.t(), Model.t(), non_neg_integer() | nil) ::
           {:ok, non_neg_integer(), [String.t()]} | :fallback
   def run(%Engine{} = engine, %Model{} = model, device) do
+    with {:ok, fit_binary} <- fetch_binary(engine),
+         {:ok, output} <- invoke(fit_binary, engine, model, device),
+         {:ok, weight, fitted} <- extract(output) do
+      {:ok, weight, fitted}
+    else
+      _ -> :fallback
+    end
+  end
+
+  defp fetch_binary(engine) do
     case fit_binary(engine) do
-      nil ->
-        :fallback
+      nil -> :fallback
+      path -> {:ok, path}
+    end
+  end
 
-      fit_binary ->
-        args = compatible_args(engine, model, device)
+  defp invoke(fit_binary, engine, model, device) do
+    args = compatible_args(engine, model, device)
 
-        case System.cmd(fit_binary, args ++ ["-v"], stderr_to_stdout: true) do
-          {output, 0} ->
-            case {parse_weight(output), parse_fitted(output)} do
-              {w, fitted} when is_integer(w) and fitted != [] ->
-                {:ok, w, fitted}
+    case System.cmd(fit_binary, args ++ ["-v"], stderr_to_stdout: true) do
+      {output, 0} -> {:ok, output}
+      _ -> :fallback
+    end
+  end
 
-              _ ->
-                :fallback
-            end
-
-          _ ->
-            :fallback
-        end
+  defp extract(output) do
+    case {parse_weight(output), parse_fitted(output)} do
+      {w, fitted} when is_integer(w) and fitted != [] -> {:ok, w, fitted}
+      _ -> :fallback
     end
   end
 
@@ -46,21 +55,24 @@ defmodule Candil.Engine.FitParams do
 
     base = ["--model", model_path, "--ctx-size", context]
 
-    device_args =
-      cond do
-        engine.cpu or model.gpu_layers == 0 ->
-          ["--device", "none"]
-
-        is_integer(device) and device >= 0 ->
-          ["--device", "CUDA#{device}", "--split-mode", "none", "--main-gpu", to_string(device)]
-
-        true ->
-          []
-      end
+    device_args = device_args_for(engine, model, device)
 
     cache_args = cache_args_from(model.model_args || [])
 
     base ++ device_args ++ cache_args ++ ["--n-gpu-layers", to_string(layers)]
+  end
+
+  defp device_args_for(%Engine{} = engine, %Model{} = model, device) do
+    cond do
+      engine.cpu or model.gpu_layers == 0 ->
+        ["--device", "none"]
+
+      is_integer(device) and device >= 0 ->
+        ["--device", "CUDA#{device}", "--split-mode", "none", "--main-gpu", to_string(device)]
+
+      true ->
+        []
+    end
   end
 
   defp cache_args_from(args) when is_list(args) do
