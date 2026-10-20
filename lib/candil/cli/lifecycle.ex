@@ -117,10 +117,16 @@ defmodule Candil.CLI.Lifecycle do
               started(model, port, opts)
 
             {:error, reason} ->
-              # Aqui se puede fallar de verdad —binario que no esta, engine que
-              # no arranca— y el mensaje lo dice. Que es lo que `started/3`
-              # hacia: decir que habia algo donde no habia nada.
-              Say.print_error("no se ha podido arrancar #{model.alias}: #{reason}")
+              # `reason` puede ser un binario o una tupla (p. ej. `{:exit_status, 0}`
+              # cuando el binario sale sin arrancar). Se convierte a texto para
+              # no romper la interpolacion.
+              reason_text =
+                case reason do
+                  r when is_binary(r) -> r
+                  r -> inspect(r)
+                end
+
+              Say.print_error("no se ha podido arrancar #{model.alias}: #{reason_text}")
               :error
           end
         end
@@ -237,7 +243,9 @@ defmodule Candil.CLI.Lifecycle do
       # "arrancado" era falso en el camino de `--force` igual que en el normal.
       case Engine.start(resolve_engine!(model, port, opts), model) do
         {:ok, _pid} -> Say.print_success("#{model.alias} arrancado en :#{port}")
-        {:error, reason} -> Say.print_error("no se ha podido arrancar #{model.alias}: #{reason}")
+        {:error, reason} ->
+          reason_text = if is_binary(reason), do: reason, else: inspect(reason)
+          Say.print_error("no se ha podido arrancar #{model.alias}: #{reason_text}")
       end
     else
       Say.print_error(":#{port} está ocupado por '#{holder}'.")
