@@ -44,6 +44,8 @@ defmodule Candil.Llm do
   """
   @spec start_engine(Engine.t(), Model.t(), non_neg_integer() | nil) ::
           {:ok, pid()} | {:error, binary()}
+  @spec start_engine(atom(), atom(), non_neg_integer() | nil) ::
+          {:ok, pid()} | {:error, binary()}
   # Convenience: start engine by alias + model alias
   # Convenience: start engine by alias + model alias
   def start_engine(engine_alias, model_alias)
