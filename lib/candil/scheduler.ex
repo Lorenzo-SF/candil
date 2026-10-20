@@ -49,7 +49,9 @@ defmodule Candil.Scheduler do
         }
 
   @type decision ::
-          {:ok, non_neg_integer()} | {:evict, [term()], non_neg_integer()} | {:error, :no_room}
+          {:ok, non_neg_integer() | :proceed}
+          | {:evict, [term()], non_neg_integer()}
+          | {:error, :no_room}
 
   @doc """
   Decide dónde colocar un modelo de `size_mb` megas.
@@ -103,7 +105,7 @@ defmodule Candil.Scheduler do
   Devuelve `{:ok, :proceed}` si no hay que hacer nada especial, o la
   decisión de `place/3`.
   """
-  @spec plan(Candil.Model.t()) :: decision() | {:ok, :proceed}
+  @spec plan(Candil.Model.t()) :: decision()
   def plan(%Candil.Model{} = model) do
     size_mb = model.vram_mb || estimate_model_size(model)
     devices = Candil.Scheduler.Devices.detect()
