@@ -117,16 +117,7 @@ defmodule Candil.CLI.Lifecycle do
               started(model, port, opts)
 
             {:error, reason} ->
-              # `reason` puede ser un binario o una tupla (p. ej. `{:exit_status, 0}`
-              # cuando el binario sale sin arrancar). Se convierte a texto para
-              # no romper la interpolacion.
-              reason_text =
-                case reason do
-                  r when is_binary(r) -> r
-                  r -> inspect(r)
-                end
-
-              Say.print_error("no se ha podido arrancar #{model.alias}: #{reason_text}")
+              Say.print_error("no se ha podido arrancar #{model.alias}: #{reason_text(reason)}")
               :error
           end
         end
@@ -155,6 +146,9 @@ defmodule Candil.CLI.Lifecycle do
         exit({:shutdown, 1})
     end
   end
+
+  defp reason_text(reason) when is_binary(reason), do: reason
+  defp reason_text(reason), do: inspect(reason)
 
   defp host_of(nil), do: "127.0.0.1"
 
@@ -246,8 +240,7 @@ defmodule Candil.CLI.Lifecycle do
           Say.print_success("#{model.alias} arrancado en :#{port}")
 
         {:error, reason} ->
-          reason_text = if is_binary(reason), do: reason, else: inspect(reason)
-          Say.print_error("no se ha podido arrancar #{model.alias}: #{reason_text}")
+          Say.print_error("no se ha podido arrancar #{model.alias}: #{reason_text(reason)}")
       end
     else
       Say.print_error(":#{port} está ocupado por '#{holder}'.")
