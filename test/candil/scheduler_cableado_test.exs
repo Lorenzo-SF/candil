@@ -53,9 +53,7 @@ defmodule Candil.Scheduler.EvictionTest do
     binary = "/home/lorenzo/.local/bin/llama-server"
     model_file = "/home/lorenzo/models/gguf/Qwen2.5-VL-7B-Instruct-UD-Q4_K_XL.gguf"
 
-    if not (File.exists?(binary) and File.exists?(model_file)) do
-      {:skip, "requiere binary local de llama-server y modelo Qwen2.5-VL-7B"}
-    else
+    if File.exists?(binary) and File.exists?(model_file) do
       previous_adapter = Application.get_env(:apero, :http_adapter)
       Application.put_env(:apero, :http_adapter, Apero.Http.Adapter.Finch)
 
@@ -84,6 +82,8 @@ defmodule Candil.Scheduler.EvictionTest do
       end)
 
       :ok
+    else
+      {:skip, "requiere binary local de llama-server y modelo Qwen2.5-VL-7B"}
     end
   end
 
