@@ -4,7 +4,7 @@
 > lo que se decidió *a mitad de una fase*, cuando el plan resultó estar
 > equivocado, y lo que se cambió *entre* fases.
 >
-> Decidido hasta 2026-10-16 · `main` `1aa1434`
+> Decidido hasta 2026-10-20 · `main` `949533e` · D-27 (device + peso calculado)
 
 ---
 
@@ -635,8 +635,153 @@ el schema (entero no negativo). El template del TOML lo documenta.
 
 ---
 
-**La frase que resume todo**:
+## D-27 · Quién elige el device y cómo se le dice al motor
+
+**Cuándo**: 2026-10-20, por el dueño (medición + corrección de la
+propuesta del agente).
+**Qué**: **Candil elige el device y se lo impone al motor.** La reserva
+(`Arrea.Resource`) se hace **antes** de arrancar, con un peso que sale de
+la configuración y no del catálogo. El motor arranca con `--device CUDA<N>
+--split-mode none --main-gpu N`, y el `--fit` se deja en `on` como red de
+seguridad, pero el número de capas que Candil le pasa es un **entero
+calculado**, no `-1`.
+
+### La medición que decide la pregunta
+
+El mismo modelo (`Qwen3-Coder-30B-IQ3_XXS`, 12,8 GB), la misma RTX 5080
+(16303 MiB), cuatro configuraciones:
+
+| Configuración | Resultado |
+|---|---|
+| `--n-gpu-layers 99`, caché f16 | **OOM** — pedía 12288 MiB de KV cache |
+| `--n-gpu-layers 99`, caché `q8_0` | **OOM** — pedía 6528 MiB de KV cache |
+| `--n-gpu-layers 99`, caché `q8_0`, ctx 32768 | carga, **15551 MiB** |
+| `--n-gpu-layers -1`, caché `q8_0`, ctx 131072 | carga, **14913 MiB** |
+| `--n-gpu-layers -1`, caché `q8_0`, ctx 131072, `--fit off` | **OOM — muere** |
+
+Dos hechos que la decisión depende:
+
+1. **`-1` depende de `--fit`.** Con `--fit off`, `-1` pide todo y hace OOM.
+   Con `--fit on`, `-1` se recorta y carga. El catálogo usa `-1` en casi
+   todos los modelos, así que «apagar `--fit` y dejar `-1`» es lo que
+   el consejero propuso primero y la medición muestra que **no carga**.
+
+2. **La huella no es del modelo, es de la configuración.** El mismo fichero
+   ocupa 15551 MiB con ctx 32768, 14913 con ctx 131072 y `-1`, y **no
+   cabe** con `99` en ningún contexto. Las tres variables —`ctx-size`, tipo
+   de caché, `n-gpu-layers`— viven en `model_args` o se derivan de ellas.
+
+**Conclusión**: `vram_mb` **no puede ser un número del modelo**. El mismo
+modelo con distinto `model_args` ocupa 15551 o 14913 MiB, o no cabe. Un
+número en el catálogo no puede ser la verdad porque la verdad depende de
+unos flags que el catálogo también tiene.
+
+### Las tres correcciones a la opción A
+
+**A.1 · Nada de `--fit off`.** Al revés: `--fit` **on** es lo que permite
+que el `-1` del catálogo funcione. Si Candil decide el device y quiere que
+el motor no recorte, la forma de decirlo no es apagar `--fit` — es **no
+poner `-1`** y poner el número de capas que Candil calcula. Si Candil
+decide, decide también las capas, y entonces `--fit` no tiene nada que
+recortar.
+
+**A.2 · `--device` no acepta índices.** El formato real es el nombre que da
+`--list-devices` —`CUDA0`, no `0`— (medido: `--device 0` → `invalid
+device: 0`). Hay que traducir `device_index` (entero) → `CUDA<N>`. Y
+`--main-gpu` **sí** es un índice. **Dos sistemas de coordenadas en la misma
+línea de comando.** `--split-mode none` para un solo device.
+
+**A.3 · El peso de la reserva se calcula, no se declara.** Ver abajo.
+
+### El peso de la reserva
+
+La huella que se reserva al cargar es **los pesos del modelo + el KV cache
+al `ctx-size` declarado**, porque el KV cache se reserva entera al cargar:
+no depende del contexto que se use, sino del máximo que se declara. Eso es
+un dato que se puede calcular **antes** de arrancar.
+
+El catálogo da la configuración (`context_size`, `model_args` con el tipo
+de caché), y el peso es una función de ella. `vram_mb` **no es la verdad**:
+es una estimación que el usuario escribe a mano, en un campo que el
+cargador avisa cuando está vacío pero no cuando está equivocado (D-26). Es
+el mismo patrón por tercera vez.
+
+**De dónde sale el peso**: de la configuración y del tamaño del fichero
+GGUF (los pesos). La fórmula del KV cache necesita los parámetros de la
+arquitectura (capas, cabezas KV, dimensión de cabeza), que están en los
+metadatos del GGUF. El mecanismo concreto —parser de GGUF en Elixir vs.
+llamar a `llama-fit-params` vs. un fichero de medición aprendida— se decide
+en la implementación; la decisión es que **el peso no puede ser un número
+del catálogo**, y que debe ser calculable antes de arrancar. `vram_mb`
+queda como fallback/estimación, no como verdad.
+
+### La reserva tiene tres estados
+
+La medición muestra que el OOM **mata el proceso**: no es un error suave,
+es llama-server saliendo con «exiting due to model loading error». Por eso
+la reserva necesita **tres estados, no dos**:
+
+1. **`reservada`** — Candil ha adquirido capacidad en `Arrea.Resource`
+   antes de arrancar, con el peso calculado.
+2. **`arrancada`** — el motor ha cargado y Candil ha medido la VRAM real
+   por PID (D-16). Si la medición es mayor que la reserva, se corrige
+   (`release` + `acquire` con la medición, opción (ii) de D-27). Si es
+   menor, la reserva se queda como está (conservador).
+3. **`liberada`** — el motor se para o muere. La reserva se libera.
+
+El paso de `reservada` a `arrancada` **falla** cuando el motor muere (OOM).
+En ese caso la reserva se libera y el caller recibe el error. Sin este
+paso, un OOM deja una reserva fantasma y el planificador cree que ese
+device está ocupado.
+
+### Reintento
+
+Con **varios devices**, si el motor falla al cargar en uno, se libera la
+reserva y se reintenta en otro (opción C). Con **una sola GPU**, un OOM es
+un OOM: no hay a dónde reintentar, y la respuesta honesta es «no cabe», no
+«reintenta». El reintento es un beneficio de tener varios devices, no un
+requisito de la reserva.
+
+### Lo que esto NO hace
+
+- **Multi-GPU con split** (`--split-mode layer`, `--tensor-split`): es otro
+  problema (P-6), no se toca ahora. Cada motor va a un solo device.
+- **Cablear `Arrea.Resource`**: es el paso siguiente (después de esta
+  decisión y de la medición del peso).
+- **Medición fuera de NVIDIA**: el peso se calcula de la configuración y de
+  la medición por PID (`nvidia-smi`). En Metal/ROCm no hay `nvidia-smi`;
+  ahí la reserva queda como estimación hasta que exista su equivalente.
+
+### Consecuencias
+
+- **D-16 se hace real**: Candil consume la medida (por PID) y decide el
+  device. La columna `SLOT` del `candil status` ya no usa el puerto (T-6).
+- **El `-1` del catálogo deja de pasarse tal cual**: `build_args` pasa un
+  entero que Candil calcula, o `0` cuando `--cpu`. El `--fit` se queda
+  encendido como red de seguridad, pero no tiene nada que recortar si el
+  número es correcto.
+- **`vram_mb` se degrada a fallback**: la verdad es el peso calculado +
+  la medición. `vram_mb` sigue sirviendo cuando no hay otra cosa (CPU, o
+  sin GPU).
+- **P-4 queda desbloqueado**: la reserva se hace antes de arrancar, en el
+  device que el plan eligió, con un peso que sale de la configuración.
+
+### Cómo se revisa
+
+- Si el peso calculado resulta sistemáticamente mayor o menor que la
+  medición, la fórmula (o el parser de GGUF) se ajusta, no el contrato.
+- Si un modelo con split multi-GPU resulta necesario, se abre P-6 con
+  `--split-mode layer` + `--tensor-split`, y la reserva pasa a ser por
+  device, no por motor.
+- Si alguien quiere apagar `--fit` (para tener control total), primero hay
+  que medir que el entero calculado cabe en el device elegido. Eso es un
+  gate de máquina, no de CI.
+
+---
+
+**La frase que resume todo** (ampliada):
 > Las decisiones abiertas se cierran registrando la respuesta y el porqué, no
 > implementando lo que aún no tiene caso. El código llega cuando la decisión
 > tiene un consumidor que lo pida. Y un campo que nadie rellena no es un
-> campo: es una mentira con nombre.
+> campo: es una mentira con nombre. **Y un `-1` que depende de un `--fit`
+> que nadie controla no es una decisión: es una delegación.**
