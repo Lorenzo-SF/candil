@@ -28,7 +28,7 @@ defmodule Candil.Engine.ServerTest do
 
   describe "args_for/3" do
     test "GPU con device entero pasa --device CUDA<N> --split-mode none --main-gpu N" do
-      args = Candil.Engine.Server.args_for(engine(), model(), 0)
+      args = Candil.Engine.Server.args_for(engine(), model(), 0, nil)
       assert "--device" in args
       assert "CUDA0" in args
       assert "--split-mode" in args
@@ -38,26 +38,26 @@ defmodule Candil.Engine.ServerTest do
     end
 
     test "GPU con device 1 traduce a CUDA1" do
-      args = Candil.Engine.Server.args_for(engine(), model(), 1)
+      args = Candil.Engine.Server.args_for(engine(), model(), 1, nil)
       assert "CUDA1" in args
       assert "1" in args
     end
 
     test "CPU (--cpu) pasa --device none y no pasa --main-gpu" do
-      args = Candil.Engine.Server.args_for(engine(true), model(), 0)
+      args = Candil.Engine.Server.args_for(engine(true), model(), 0, nil)
       assert "none" in args
       refute "--main-gpu" in args
       refute "--split-mode" in args
     end
 
     test "gpu_layers 0 pasa --device none aunque no sea --cpu" do
-      args = Candil.Engine.Server.args_for(engine(), model(0), 0)
+      args = Candil.Engine.Server.args_for(engine(), model(0), 0, nil)
       assert "none" in args
       refute "--main-gpu" in args
     end
 
     test "sin device (nil) no pasa flags de device" do
-      args = Candil.Engine.Server.args_for(engine(), model(), nil)
+      args = Candil.Engine.Server.args_for(engine(), model(), nil, nil)
       refute "--device" in args
       refute "--split-mode" in args
       refute "--main-gpu" in args
@@ -67,7 +67,7 @@ defmodule Candil.Engine.ServerTest do
       bad = %{model() | model_dir: "/tmp/../etc"}
 
       assert_raise ArgumentError, fn ->
-        Candil.Engine.Server.args_for(engine(), bad, 0)
+        Candil.Engine.Server.args_for(engine(), bad, 0, nil)
       end
     end
   end

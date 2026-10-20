@@ -44,9 +44,13 @@ defmodule Candil.Engine.Server do
 
   alias Candil.Engine.HealthPoller
 
+  alias Candil.Model
+
   @doc false
-  @spec args_for(Candil.Engine.t(), Candil.Model.t(), non_neg_integer() | nil) :: [binary()]
-  def args_for(engine, model, device \\ nil), do: build_args(engine, model, device)
+  @spec args_for(Candil.Engine.t(), Candil.Model.t(), non_neg_integer() | nil, [String.t()] | nil) ::
+          [binary()]
+  def args_for(engine, model, device, fitted_args),
+    do: build_args(engine, model, device, fitted_args)
 
   @type state :: %{
           engine: Engine.t(),
@@ -66,18 +70,17 @@ defmodule Candil.Engine.Server do
   @impl GenServer
   def init(%{engine: engine, model: model} = init_arg) do
     device = Map.get(init_arg, :device)
-    args = build_args(engine, model, device)
+    fitted_args = Map.get(init_arg, :fitted_args)
+    cd = model_dir_safe(model)
+    args = build_args(engine, model, device, fitted_args)
     binary = Engine.binary_path(engine)
     base_url = "http://#{engine.host}:#{engine.port}"
 
     case LongRunning.start_link(
-           # El puerto va dentro del id a proposito: `Arrea.LongRunning`
-           # emite la salida del engine por telemetria con solo el `id`, y sin
-           # el puerto quien la escucha no sabe en que log escribirla.
            id: id_for(model, engine),
            binary: binary,
            args: args,
-           cd: model_dir_safe(model),
+           cd: cd,
            env: [],
            health: fn ->
              case HealthPoller.probe_health(base_url) do
@@ -186,7 +189,8 @@ defmodule Candil.Engine.Server do
   defp build_args(
          %Engine{start_args: engine_args, host: host, port: port} = engine,
          model,
-         device
+         device,
+         fitted_args
        ) do
     # `--n-gpu-layers` sale SIEMPRE del campo `gpu_layers` del modelo, nunca
     # de `model_args`: `Hydrate` ya ha sacado el flag de ahi, asi que hay una
@@ -220,19 +224,11 @@ defmodule Candil.Engine.Server do
     # `--split-mode`). Si hay device, se fuerza un solo device con split
     # desactivado: `--fit` se queda en `on` y el `-1` (si lo hay) se recorta
     # dentro de ese device.
-    device_args =
-      cond do
-        engine.cpu or model.gpu_layers == 0 ->
-          ["--device", "none"]
+    device_args = device_args_for(engine, model, device)
 
-        is_integer(device) and device >= 0 ->
-          ["--device", "CUDA#{device}", "--split-mode", "none", "--main-gpu", to_string(device)]
+    fitted = if is_list(fitted_args) and fitted_args != [], do: fitted_args, else: []
 
-        true ->
-          []
-      end
-
-    base ++ device_args ++ model_args ++ threads_args(engine) ++ engine_args
+    base ++ device_args ++ model_args ++ threads_args(engine) ++ engine_args ++ fitted
   end
 
   # ── `--cpu`: lo que de verdad significa ir a CPU ──────────────────────────
@@ -284,6 +280,19 @@ defmodule Candil.Engine.Server do
     case Engine.api_key(engine) do
       nil -> []
       key -> ["--api-key", key]
+    end
+  end
+
+  defp device_args_for(%Engine{} = engine, %Model{} = model, device) do
+    cond do
+      engine.cpu or model.gpu_layers == 0 ->
+        ["--device", "none"]
+
+      is_integer(device) and device >= 0 ->
+        ["--device", "CUDA#{device}", "--split-mode", "none", "--main-gpu", to_string(device)]
+
+      true ->
+        []
     end
   end
 

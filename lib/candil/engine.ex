@@ -372,7 +372,16 @@ defmodule Candil.Engine do
   """
   @spec start(t(), Candil.Model.t(), non_neg_integer() | nil) :: {:ok, pid()} | {:error, binary()}
   def start(%__MODULE__{} = engine, %Candil.Model{} = model, device \\ nil) do
-    do_start(engine, model, device)
+    # D-27 sub-paso 2: llama-fit-params calcula el peso y los args ajustados
+    # antes de arrancar. Si no está disponible (instalación antigua, strategy
+    # :none), se cae a build_args con la estimación (vram_mb).
+    {fitted_args, _weight} =
+      case Candil.Engine.FitParams.run(engine, model, device) do
+        {:ok, w, args} -> {args, w}
+        :fallback -> {nil, nil}
+      end
+
+    do_start(engine, model, device, fitted_args)
   end
 
   @doc """
@@ -390,17 +399,17 @@ defmodule Candil.Engine do
     :exit, _reason -> nil
   end
 
-  defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model, device) do
+  defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model, device, fitted_args) do
     cond do
       engine.launcher != nil ->
         register_start_result(start_via_launcher(engine, model), engine, model)
 
       binary_exists?(engine) ->
-        register_start_result(start_via_server(engine, model, device), engine, model)
+        register_start_result(start_via_server(engine, model, device, fitted_args), engine, model)
 
       installable?(engine) ->
         case Installer.download_engine(engine) do
-          :ok -> do_start(engine, model, device)
+          :ok -> do_start(engine, model, device, fitted_args)
           {:error, reason} -> {:error, reason}
         end
 
@@ -440,8 +449,8 @@ defmodule Candil.Engine do
   defp instance_port(%Candil.Model{port: port}, %__MODULE__{}) when is_integer(port), do: port
   defp instance_port(_model, %__MODULE__{port: port}), do: port
 
-  defp start_via_server(%__MODULE__{} = engine, %Candil.Model{} = model, device) do
-    Server.start_link(%{engine: engine, model: model, device: device})
+  defp start_via_server(%__MODULE__{} = engine, %Candil.Model{} = model, device, fitted_args) do
+    Server.start_link(%{engine: engine, model: model, device: device, fitted_args: fitted_args})
   end
 
   defp start_via_launcher(%__MODULE__{} = engine, %Candil.Model{} = model) do
