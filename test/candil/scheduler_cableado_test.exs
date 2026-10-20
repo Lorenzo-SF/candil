@@ -50,34 +50,41 @@ defmodule Candil.Scheduler.EvictionTest do
   alias Candil.{Model, Store}
 
   setup do
-    previous_adapter = Application.get_env(:apero, :http_adapter)
-    Application.put_env(:apero, :http_adapter, Apero.Http.Adapter.Finch)
+    binary = "/home/lorenzo/.local/bin/llama-server"
+    model_file = "/home/lorenzo/models/gguf/Qwen2.5-VL-7B-Instruct-UD-Q4_K_XL.gguf"
 
-    on_exit(fn ->
-      Application.put_env(:apero, :http_adapter, previous_adapter)
-      # Limpieza defensiva: parar engines y vaciar store.
-      try do
-        Candil.Llm.stop_engine(:vision)
-      rescue
-        _ -> :ok
-      end
+    if not (File.exists?(binary) and File.exists?(model_file)) do
+      {:skip, "requiere binary local de llama-server y modelo Qwen2.5-VL-7B"}
+    else
+      previous_adapter = Application.get_env(:apero, :http_adapter)
+      Application.put_env(:apero, :http_adapter, Apero.Http.Adapter.Finch)
 
-      try do
-        Candil.Llm.stop_engine(:huge_evict_test)
-      rescue
-        _ -> :ok
-      end
+      on_exit(fn ->
+        Application.put_env(:apero, :http_adapter, previous_adapter)
+        # Limpieza defensiva: parar engines y vaciar store.
+        try do
+          Candil.Llm.stop_engine(:vision)
+        rescue
+          _ -> :ok
+        end
 
-      try do
-        Store.deregister_model(:vision)
-        Store.deregister_model(:huge_evict_test)
-        Store.deregister_engine(:llama_cpp)
-      rescue
-        _ -> :ok
-      end
-    end)
+        try do
+          Candil.Llm.stop_engine(:huge_evict_test)
+        rescue
+          _ -> :ok
+        end
 
-    :ok
+        try do
+          Store.deregister_model(:vision)
+          Store.deregister_model(:huge_evict_test)
+          Store.deregister_engine(:llama_cpp)
+        rescue
+          _ -> :ok
+        end
+      end)
+
+      :ok
+    end
   end
 
   test "la expulsion ejecuta: {:evict, victims, _} para a las victimas" do
