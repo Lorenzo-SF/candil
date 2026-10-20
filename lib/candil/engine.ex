@@ -370,7 +370,7 @@ defmodule Candil.Engine do
   Registers the running server in `Candil.Registry` under the model alias.
   Returns `{:ok, pid}` or `{:error, reason}`.
   """
-  @spec start(t(), Candil.Model.t(), non_neg_integer() | nil) :: {:ok, pid()} | {:error, binary()}
+  @spec start(t(), Candil.Model.t(), non_neg_integer() | nil) :: {:ok, pid()} | {:error, term()}
   def start(%__MODULE__{} = engine, %Candil.Model{} = model, device \\ nil) do
     # D-27 sub-paso 2: llama-fit-params calcula el peso y los args ajustados
     # antes de arrancar. Si no está disponible (instalación antigua, strategy
