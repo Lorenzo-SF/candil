@@ -29,7 +29,7 @@ defmodule Candil.Installer do
     1. Resolve the release tag (`:latest` → real tag via GitHub API).
     2. Detect OS/arch/GPU and select the matching asset URL.
     3. Download the `.zip` archive to a temp file.
-    4. Extract `llama-server` (and `llama-cli`) from the archive.
+    4. Extract `llama-server` (and `llama-cli`, `llama-fit-params`) from the archive.
     5. Make the binary executable.
 
   """
@@ -105,12 +105,28 @@ defmodule Candil.Installer do
             "dest_dir must not contain path traversal (..): #{inspect(dest_dir)}"
     end
 
-    case System.cmd("unzip", ["-o", "-j", zip_path, "llama-server", "llama-cli", "-d", dest_dir],
+    case System.cmd(
+           "unzip",
+           [
+             "-o",
+             "-j",
+             zip_path,
+             "llama-server",
+             "llama-cli",
+             "llama-fit-params",
+             "-d",
+             dest_dir
+           ],
            stderr_to_stdout: true
          ) do
       {_out, 0} ->
         System.cmd("chmod", ["+x", Path.join(dest_dir, "llama-server")], stderr_to_stdout: true)
         System.cmd("chmod", ["+x", Path.join(dest_dir, "llama-cli")], stderr_to_stdout: true)
+
+        System.cmd("chmod", ["+x", Path.join(dest_dir, "llama-fit-params")],
+          stderr_to_stdout: true
+        )
+
         :ok
 
       {err, _} ->

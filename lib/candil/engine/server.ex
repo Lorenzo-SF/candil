@@ -45,8 +45,10 @@ defmodule Candil.Engine.Server do
   alias Candil.Engine.HealthPoller
 
   @doc false
-  @spec args_for(Candil.Engine.t(), Candil.Model.t(), non_neg_integer() | nil) :: [binary()]
-  def args_for(engine, model, device \\ nil), do: build_args(engine, model, device)
+  @spec args_for(Candil.Engine.t(), Candil.Model.t(), non_neg_integer() | nil, [String.t()] | nil) ::
+          [binary()]
+  def args_for(engine, model, device, fitted_args),
+    do: build_args(engine, model, device, fitted_args)
 
   @type state :: %{
           engine: Engine.t(),
@@ -66,7 +68,8 @@ defmodule Candil.Engine.Server do
   @impl GenServer
   def init(%{engine: engine, model: model} = init_arg) do
     device = Map.get(init_arg, :device)
-    args = build_args(engine, model, device)
+    fitted_args = Map.get(init_arg, :fitted_args)
+    args = build_args(engine, model, device, fitted_args)
     binary = Engine.binary_path(engine)
     base_url = "http://#{engine.host}:#{engine.port}"
 
@@ -186,7 +189,8 @@ defmodule Candil.Engine.Server do
   defp build_args(
          %Engine{start_args: engine_args, host: host, port: port} = engine,
          model,
-         device
+         device,
+         fitted_args
        ) do
     # `--n-gpu-layers` sale SIEMPRE del campo `gpu_layers` del modelo, nunca
     # de `model_args`: `Hydrate` ya ha sacado el flag de ahi, asi que hay una
@@ -232,7 +236,9 @@ defmodule Candil.Engine.Server do
           []
       end
 
-    base ++ device_args ++ model_args ++ threads_args(engine) ++ engine_args
+    fitted = if is_list(fitted_args) and fitted_args != [], do: fitted_args, else: []
+
+    base ++ device_args ++ model_args ++ threads_args(engine) ++ engine_args ++ fitted
   end
 
   # ── `--cpu`: lo que de verdad significa ir a CPU ──────────────────────────
