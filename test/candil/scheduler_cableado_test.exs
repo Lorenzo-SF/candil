@@ -10,7 +10,13 @@ defmodule Candil.Scheduler.CableadoTest do
   end
 
   test "un modelo que no cabe devuelve :no_room (cableado)" do
-    engine = %Candil.Engine{alias: :llama_cpp, binary: "/home/lorenzo/.local/bin/llama-server", host: "127.0.0.1", port: 9991}
+    engine = %Candil.Engine{
+      alias: :llama_cpp,
+      binary: "/home/lorenzo/.local/bin/llama-server",
+      host: "127.0.0.1",
+      port: 9991
+    }
+
     Candil.Store.register_engine(engine)
 
     model = %Model{
@@ -55,11 +61,13 @@ defmodule Candil.Scheduler.EvictionTest do
       rescue
         _ -> :ok
       end
+
       try do
         Candil.Llm.stop_engine(:huge_evict_test)
       rescue
         _ -> :ok
       end
+
       try do
         Store.deregister_model(:vision)
         Store.deregister_model(:huge_evict_test)
@@ -73,7 +81,13 @@ defmodule Candil.Scheduler.EvictionTest do
   end
 
   test "la expulsion ejecuta: {:evict, victims, _} para a las victimas" do
-    engine = %Candil.Engine{alias: :llama_cpp, binary: "/home/lorenzo/.local/bin/llama-server", host: "127.0.0.1", port: 9991}
+    engine = %Candil.Engine{
+      alias: :llama_cpp,
+      binary: "/home/lorenzo/.local/bin/llama-server",
+      host: "127.0.0.1",
+      port: 9991
+    }
+
     :ok = Store.register_engine(engine)
 
     vision = %Model{
@@ -86,6 +100,7 @@ defmodule Candil.Scheduler.EvictionTest do
       model_dir: "/home/lorenzo/models/gguf",
       filename: "Qwen2.5-VL-7B-Instruct-UD-Q4_K_XL.gguf"
     }
+
     :ok = Store.register_model(vision)
 
     # Arrancar vision (la victima).
@@ -104,6 +119,7 @@ defmodule Candil.Scheduler.EvictionTest do
       model_dir: "/tmp",
       filename: "huge_evict.gguf"
     }
+
     :ok = Store.register_model(huge)
 
     # Intentar arrancar huge_evict: el scheduler dice evict (vision).
