@@ -41,7 +41,9 @@ defmodule Candil.Scheduler do
 
   @type instance :: %{
           model_alias: term(),
-          device_index: non_neg_integer(),
+          # `nil` = no se sabe en qué dispositivo está (modelo de CPU, o
+          # `nvidia-smi` no lo lista). No es «device 0»: es un hecho distinto.
+          device_index: non_neg_integer() | nil,
           size_mb: non_neg_integer(),
           in_use: boolean(),
           pinned: boolean(),
@@ -114,6 +116,28 @@ defmodule Candil.Scheduler do
     place(size_mb, devices, instances)
   end
 
+  @doc false
+  @spec instances() :: [instance()]
+  def instances, do: build_instances()
+
+  @doc """
+  El dispositivo en el que `nvidia-smi` dice que está `os_pid`.
+
+  `usage_by_pid` es el mapa que devuelve `Candil.Detector.Devices.processes/0`
+  indexado por PID. Un PID que no está en el mapa —un modelo en CPU, o una
+  máquina sin `nvidia-smi`— devuelve `nil`: no se sabe, y no se inventa un 0.
+  """
+  @spec device_index(pos_integer() | nil, %{optional(pos_integer()) => map()}) ::
+          non_neg_integer() | nil
+  def device_index(os_pid, usage_by_pid) when is_integer(os_pid) do
+    case Map.get(usage_by_pid, os_pid) do
+      %{device_index: index} when is_integer(index) -> index
+      _ -> nil
+    end
+  end
+
+  def device_index(_os_pid, _usage_by_pid), do: nil
+
   defp estimate_model_size(%Candil.Model{context_size: ctx}) when is_integer(ctx) and ctx > 0 do
     div(ctx, 1024) * 4
   end
@@ -121,6 +145,8 @@ defmodule Candil.Scheduler do
   defp estimate_model_size(_), do: 0
 
   defp build_instances do
+    usage_by_pid = process_usage_by_pid()
+
     Candil.EnginePool.list()
     |> Enum.map(fn entry ->
       model = entry.model
@@ -128,7 +154,7 @@ defmodule Candil.Scheduler do
 
       %{
         model_alias: entry.alias,
-        device_index: device_index_from_port(entry.port),
+        device_index: device_index_for(entry, usage_by_pid),
         size_mb: size_mb,
         in_use: false,
         pinned: (model && model.exclusive == true) || false,
@@ -137,14 +163,33 @@ defmodule Candil.Scheduler do
     end)
   end
 
-  # Heurística vieja: puerto acabado en 9x = dGPU. Se mantiene como fallback
-  # hasta que la colocación use el PID y nvidia-smi (D-16). Es la misma que
-  # tenia `candil status` antes de medir de verdad.
-  defp device_index_from_port(port) when is_integer(port) do
-    if rem(port, 100) >= 90, do: 0, else: 1
+  # La VRAM y la tarjeta de cada proceso, por PID del sistema operativo.
+  # `EnginePool` guarda el PID del GenServer; `Engine.os_pid/1` lo traduce al
+  # PID del SO, que es el que `nvidia-smi` conoce.
+  defp process_usage_by_pid do
+    case Candil.Detector.Devices.processes() do
+      {:ok, procesos} -> Map.new(procesos, &{&1.pid, &1})
+      {:error, _reason} -> %{}
+    end
   end
 
-  defp device_index_from_port(_), do: 0
+  # En qué GPU está un motor: lo dice `nvidia-smi` por PID, no el puerto. Un
+  # puerto no es hardware; la heurística vieja (`rem(port, 100) >= 90`) acertaba
+  # en una máquina de una sola GPU por casualidad y mandaba todo al device 0 en
+  # una de dos.
+  #
+  # `nil` cuando no se puede saber: un modelo en CPU no aparece en
+  # `nvidia-smi`, y sin `nvidia-smi` no hay medición. `nil` no expulsa, que es
+  # lo correcto cuando no se sabe qué ocupa la GPU.
+  defp device_index_for(entry, usage_by_pid) do
+    case entry.pid do
+      beam_pid when is_pid(beam_pid) ->
+        device_index(Candil.Engine.os_pid(beam_pid), usage_by_pid)
+
+      _ ->
+        nil
+    end
+  end
 
   defp evict(_size_mb, [], _instances), do: {:error, :no_room}
 

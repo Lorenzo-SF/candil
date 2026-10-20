@@ -77,20 +77,39 @@ defmodule Candil.Detector.Devices do
   # «cuanto hay libre en total», que con dos instancias no dice cuanto gasta
   # cada una. Esta responde a «cuanto gasta ESTE», que es lo que necesita una
   # tabla con una fila por instancia.
+  #
+  # `gpu_uuid` y no `pid` a secas: `--query-compute-apps` no acepta
+  # `gpu_index` (lo dice `nvidia-smi --help-query-compute-apps`), asi que la
+  # unica forma de saber en QUE tarjeta esta un proceso es su UUID y el mapa
+  # UUID -> index que da `--query-gpu=index,uuid`.
   @processes_query [
-    "--query-compute-apps=pid,used_gpu_memory",
+    "--query-compute-apps=gpu_uuid,pid,used_gpu_memory",
     "--format=csv,noheader,nounits"
   ]
 
-  @type process_usage :: %{pid: pos_integer(), used_mb: non_neg_integer()}
+  @gpu_uuid_query [
+    "--query-gpu=index,uuid",
+    "--format=csv,noheader,nounits"
+  ]
+
+  @type process_usage :: %{
+          pid: pos_integer(),
+          device_index: non_neg_integer() | nil,
+          used_mb: non_neg_integer()
+        }
 
   @doc """
-  La VRAM que usa cada proceso de la GPU, por PID.
+  La VRAM que usa cada proceso de la GPU, por PID, y en qué dispositivo.
 
   Separado de `detect_cuda/0` porque son dos preguntas: cuanto hay libre en
   total, y cuanto gasta este proceso. Con dos modelos cargados la primera no
   alcanza para la tabla de `candil status`, que tiene una fila por instancia y
   ya tiene el PID en una columna.
+
+  `device_index` sale del UUID de la tarjeta, no del puerto del modelo: un
+  puerto no dice nada del hardware. Es `nil` cuando el proceso no aparece en
+  `nvidia-smi` (un modelo de CPU) o cuando el mapa UUID -> index no se pudo
+  leer. `nil` es «no lo sé», no «device 0».
 
   Devuelve `{:ok, []}` cuando nada usa la GPU —que no es un fallo— y
   `{:error, :no_smi}` cuando la pregunta no se puede hacer.
@@ -104,26 +123,66 @@ defmodule Candil.Detector.Devices do
   end
 
   defp run_processes do
+    uuid_to_index = gpu_uuid_to_index()
+
     case System.cmd("nvidia-smi", @processes_query, stderr_to_stdout: true) do
-      {out, 0} -> parse_processes(out)
+      {out, 0} -> parse_processes(out, uuid_to_index)
       {_out, _rc} -> {:error, :smi_failed}
     end
   end
 
-  @doc """
-  Parsea `--query-compute-apps=pid,used_gpu_memory`.
+  # UUID -> index de cada tarjeta. Si la consulta falla se devuelve un mapa
+  # vacio: los procesos saldran con `device_index: nil`, que es lo honesto.
+  defp gpu_uuid_to_index do
+    case System.cmd("nvidia-smi", @gpu_uuid_query, stderr_to_stdout: true) do
+      {out, 0} -> parse_gpu_uuid(out)
+      _ -> %{}
+    end
+  end
 
-  Una linea que no se entiende es `{:error, :bad_line}`, no una linea saltada:
-  un parser que se come lo raro devuelve una lista mas corta, el `candil
-  status` pone un guion donde deberia haber un numero, y nadie sabe si ese
-  guion es «no usa GPU» o «no lo he entendido».
+  @doc """
+  Parsea `--query-gpu=index,uuid` en un mapa `uuid => index`.
+
+  Una linea que no se entiende se salta: perder un UUID del mapa solo hace
+  que sus procesos salgan con `device_index: nil`, que es un hecho, no una
+  invencion.
   """
-  @spec parse_processes(binary()) :: {:ok, [process_usage()]} | {:error, term()}
-  def parse_processes(output) when is_binary(output) do
+  @spec parse_gpu_uuid(binary()) :: %{optional(String.t()) => non_neg_integer()}
+  def parse_gpu_uuid(output) when is_binary(output) do
+    output
+    |> String.split("\n", trim: true)
+    |> Enum.reduce(%{}, fn linea, acc ->
+      case linea |> String.split(",", parts: 2) |> Enum.map(&String.trim/1) do
+        [index, uuid] ->
+          case Integer.parse(index) do
+            {i, ""} when i >= 0 and uuid != "" -> Map.put(acc, uuid, i)
+            _ -> acc
+          end
+
+        _ ->
+          acc
+      end
+    end)
+  end
+
+  @doc """
+  Parsea `--query-compute-apps=gpu_uuid,pid,used_gpu_memory`.
+
+  `uuid_to_index` es el mapa que devuelve `parse_gpu_uuid/1`. Si un UUID no
+  está en el mapa, el proceso sale con `device_index: nil` —el proceso se
+  midió, pero no se sabe en qué tarjeta—; una línea entera que no se entiende
+  sí es `{:error, :bad_line}`, para no devolver una lista más corta sin que
+  nadie se entere. Un parser que se come lo raro deja el `candil status` con
+  un guion donde debería haber un número, y nadie sabe si ese guion es «no usa
+  GPU» o «no lo he entendido».
+  """
+  @spec parse_processes(binary(), %{optional(String.t()) => non_neg_integer()}) ::
+          {:ok, [process_usage()]} | {:error, term()}
+  def parse_processes(output, uuid_to_index \\ %{}) when is_binary(output) do
     output
     |> String.split("\n", trim: true)
     |> Enum.reduce_while({:ok, []}, fn linea, {:ok, acc} ->
-      case parse_process_line(linea) do
+      case parse_process_line(linea, uuid_to_index) do
         {:ok, uso} -> {:cont, {:ok, [uso | acc]}}
         :error -> {:halt, {:error, :bad_line}}
       end
@@ -136,14 +195,14 @@ defmodule Candil.Detector.Devices do
 
   # `nounits` quita el "MiB", pero el flag no es de fiar como contrato y una
   # linea con unidades es una linea real. Se quitan en vez de no aceptarlas.
-  defp parse_process_line(linea) do
+  defp parse_process_line(linea, uuid_to_index) do
     case linea |> String.split(",", trim: true) |> Enum.map(&String.trim/1) do
-      [pid, used] ->
+      [uuid, pid, used] ->
         with {p, ""} <- Integer.parse(pid),
              {m, u} <- Integer.parse(used),
              true <- p > 0 and m >= 0,
              true <- String.trim(u) in ["", "MiB"] do
-          {:ok, %{pid: p, used_mb: m}}
+          {:ok, %{pid: p, device_index: Map.get(uuid_to_index, uuid), used_mb: m}}
         else
           _ -> :error
         end

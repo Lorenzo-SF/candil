@@ -1,12 +1,13 @@
 defmodule Candil.Detector.ProcessesTest do
   @moduledoc """
-  Cuanta VRAM gasta **cada proceso**, no cada GPU.
+  Cuanta VRAM gasta **cada proceso**, no cada GPU, y en qué tarjeta.
 
   `Devices.parse_nvidia/1` dice cuanto hay libre en total, y eso no sirve para
   una tabla con varios modelos: con dos instances corriendo no hay forma de
   saber cuanto gasta cada una. `nvidia-smi --query-compute-apps` si lo dice,
   y lo dice por PID —que es justo lo que `candil status` ya tiene en una
-  columna.
+  columna—. Y `gpu_uuid` dice en qué tarjeta, que es lo que el scheduler
+  necesita para no adivinar por el puerto (D-16).
 
   Medido el 2026-10-15 con un `llama-server` de verdad cargado:
 
@@ -24,35 +25,63 @@ defmodule Candil.Detector.ProcessesTest do
 
   alias Candil.Detector.Devices
 
-  # La salida real, con el compositor de por medio. Es la de la consulta de dos
-  # columnas, `pid,used_gpu_memory`, que es la que usa el modulo; con unidades
-  # sale igual pero el numero viene con "MiB" pegado.
+  @uuid "GPU-bd325fc5-c501-a2bb-86e2-a2aeb5017114"
+
+  @uuid_to_index %{@uuid => 0}
+
+  # La salida real, con el UUID delante. Es la de la consulta de tres
+  # columnas, `gpu_uuid,pid,used_gpu_memory`, que es la que usa el modulo; con
+  # unidades sale igual pero el numero viene con "MiB" pegado.
   @real """
-  660483, 12
-  4063979, 12674
+  #{@uuid}, 660483, 12
+  #{@uuid}, 4063979, 12674
   """
 
   @con_unidades """
-  660483, 12 MiB
-  4063979, 12674 MiB
+  #{@uuid}, 660483, 12 MiB
+  #{@uuid}, 4063979, 12674 MiB
   """
 
   # Sin nada corriendo: la consulta devuelve una linea vacia, no un error.
   @vacia "\n"
 
   describe "la salida real" do
-    test "se parte en pid y MiB" do
-      assert {:ok, procesos} = Devices.parse_processes(@real)
+    test "se parte en pid, MiB y dispositivo" do
+      assert {:ok, procesos} = Devices.parse_processes(@real, @uuid_to_index)
       assert length(procesos) == 2
 
-      assert Enum.find(procesos, &(&1.pid == 4_063_979)).used_mb == 12_674
-      assert Enum.find(procesos, &(&1.pid == 660_483)).used_mb == 12
+      llama = Enum.find(procesos, &(&1.pid == 4_063_979))
+      assert llama.used_mb == 12_674
+      assert llama.device_index == 0
+
+      assert Enum.find(procesos, &(&1.pid == 660_483)).device_index == 0
     end
 
     test "con las unidades pegadas tambien" do
       # `nounits` las quita, pero el modulo no debe depender de un flag para
       # entender un numero. Un cambio en la llamada no puede cambiar el parser.
-      assert Devices.parse_processes(@con_unidades) == Devices.parse_processes(@real)
+      assert Devices.parse_processes(@con_unidades, @uuid_to_index) ==
+               Devices.parse_processes(@real, @uuid_to_index)
+    end
+
+    test "un UUID que no esta en el mapa es device_index nil, no 0" do
+      # El proceso se midio; lo que no se sabe es en que tarjeta. `nil` es el
+      # hecho, y el scheduler no lo trata como «device 0».
+      assert {:ok, [proceso]} = Devices.parse_processes("#{@uuid}, 123, 42\n", %{})
+      assert proceso.device_index == nil
+    end
+  end
+
+  describe "parse_gpu_uuid/1" do
+    test "mapea UUID a index" do
+      output = "0, #{@uuid}\n1, GPU-otra\n"
+      assert Devices.parse_gpu_uuid(output) == %{@uuid => 0, "GPU-otra" => 1}
+    end
+
+    test "una linea que no se entiende se salta, no revienta" do
+      # Perder un UUID solo deja sus procesos con `device_index: nil`, que es
+      # un hecho; reventar la deteccion entera seria peor que no saber uno.
+      assert Devices.parse_gpu_uuid("basura\n0, #{@uuid}\n") == %{@uuid => 0}
     end
   end
 
@@ -75,11 +104,12 @@ defmodule Candil.Detector.ProcessesTest do
     test "un MiB que no es un numero es un fallo, no un 0" do
       # Un `0` aqui significa «este proceso no usa GPU», que es una verdad que
       # se puede usar. Un `-1` seria lo mismo con distinta forma.
-      assert {:error, :bad_line} = Devices.parse_processes("1234, proceso, muchisima\n")
+      assert {:error, :bad_line} =
+               Devices.parse_processes("#{@uuid}, 1234, muchisima\n")
     end
 
     test "y un pid que no lo es tambien" do
-      assert {:error, :bad_line} = Devices.parse_processes("mucho, proceso, 12 MiB\n")
+      assert {:error, :bad_line} = Devices.parse_processes("#{@uuid}, mucho, 12 MiB\n")
     end
   end
 end
