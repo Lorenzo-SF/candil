@@ -236,7 +236,8 @@ defmodule Candil.CLI.Lifecycle do
       # Tambien aqui: `EnginePool.put/5` no arranca nada, asi que el mensaje de
       # "arrancado" era falso en el camino de `--force` igual que en el normal.
       case Engine.start(resolve_engine!(model, port, opts), model) do
-        {:ok, _pid} -> Say.print_success("#{model.alias} arrancado en :#{port}")
+        {:ok, _pid} ->
+          Say.print_success("#{model.alias} arrancado en :#{port}")
 
         {:error, reason} ->
           Say.print_error("no se ha podido arrancar #{model.alias}: #{reason_text(reason)}")
