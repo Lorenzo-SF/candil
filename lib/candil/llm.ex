@@ -42,18 +42,29 @@ defmodule Candil.Llm do
   The server process is registered under the model alias in
   `Candil.Registry`.
   """
-  @spec start_engine(Engine.t(), Model.t()) :: {:ok, pid()} | {:error, binary()}
-  def start_engine(%Engine{} = engine, %Model{type: :local} = model) do
-    Engine.start(engine, model)
-  end
-
+  @spec start_engine(Engine.t(), Model.t(), non_neg_integer() | nil) ::
+          {:ok, pid()} | {:error, binary()}
+  # Convenience: start engine by alias + model alias
   # Convenience: start engine by alias + model alias
   def start_engine(engine_alias, model_alias)
       when is_atom(engine_alias) and is_atom(model_alias) do
+    start_engine(engine_alias, model_alias, nil)
+  end
+
+  def start_engine(%Engine{} = engine, %Model{type: :local} = model) do
+    Engine.start(engine, model, nil)
+  end
+
+  def start_engine(engine_alias, model_alias, device)
+      when is_atom(engine_alias) and is_atom(model_alias) do
     with {:ok, engine} <- Store.get_engine(engine_alias),
          {:ok, model} <- Store.get_model(model_alias) do
-      Engine.start(engine, model)
+      Engine.start(engine, model, device)
     end
+  end
+
+  def start_engine(%Engine{} = engine, %Model{type: :local} = model, device) do
+    Engine.start(engine, model, device)
   end
 
   @doc """

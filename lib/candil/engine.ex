@@ -370,9 +370,9 @@ defmodule Candil.Engine do
   Registers the running server in `Candil.Registry` under the model alias.
   Returns `{:ok, pid}` or `{:error, reason}`.
   """
-  @spec start(t(), Candil.Model.t()) :: {:ok, pid()} | {:error, binary()}
-  def start(%__MODULE__{} = engine, %Candil.Model{} = model) do
-    do_start(engine, model)
+  @spec start(t(), Candil.Model.t(), non_neg_integer() | nil) :: {:ok, pid()} | {:error, binary()}
+  def start(%__MODULE__{} = engine, %Candil.Model{} = model, device \\ nil) do
+    do_start(engine, model, device)
   end
 
   @doc """
@@ -390,17 +390,17 @@ defmodule Candil.Engine do
     :exit, _reason -> nil
   end
 
-  defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model) do
+  defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model, device) do
     cond do
       engine.launcher != nil ->
         register_start_result(start_via_launcher(engine, model), engine, model)
 
       binary_exists?(engine) ->
-        register_start_result(start_via_server(engine, model), engine, model)
+        register_start_result(start_via_server(engine, model, device), engine, model)
 
       installable?(engine) ->
         case Installer.download_engine(engine) do
-          :ok -> do_start(engine, model)
+          :ok -> do_start(engine, model, device)
           {:error, reason} -> {:error, reason}
         end
 
@@ -440,8 +440,8 @@ defmodule Candil.Engine do
   defp instance_port(%Candil.Model{port: port}, %__MODULE__{}) when is_integer(port), do: port
   defp instance_port(_model, %__MODULE__{port: port}), do: port
 
-  defp start_via_server(%__MODULE__{} = engine, %Candil.Model{} = model) do
-    Server.start_link(%{engine: engine, model: model})
+  defp start_via_server(%__MODULE__{} = engine, %Candil.Model{} = model, device) do
+    Server.start_link(%{engine: engine, model: model, device: device})
   end
 
   defp start_via_launcher(%__MODULE__{} = engine, %Candil.Model{} = model) do

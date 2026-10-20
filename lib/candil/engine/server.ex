@@ -44,6 +44,10 @@ defmodule Candil.Engine.Server do
 
   alias Candil.Engine.HealthPoller
 
+  @doc false
+  @spec args_for(Candil.Engine.t(), Candil.Model.t(), non_neg_integer() | nil) :: [binary()]
+  def args_for(engine, model, device \\ nil), do: build_args(engine, model, device)
+
   @type state :: %{
           engine: Engine.t(),
           model: Candil.Model.t(),
@@ -60,8 +64,9 @@ defmodule Candil.Engine.Server do
   end
 
   @impl GenServer
-  def init(%{engine: engine, model: model}) do
-    args = build_args(engine, model)
+  def init(%{engine: engine, model: model} = init_arg) do
+    device = Map.get(init_arg, :device)
+    args = build_args(engine, model, device)
     binary = Engine.binary_path(engine)
     base_url = "http://#{engine.host}:#{engine.port}"
 
@@ -178,7 +183,11 @@ defmodule Candil.Engine.Server do
     :ok
   end
 
-  defp build_args(%Engine{start_args: engine_args, host: host, port: port} = engine, model) do
+  defp build_args(
+         %Engine{start_args: engine_args, host: host, port: port} = engine,
+         model,
+         device
+       ) do
     # `--n-gpu-layers` sale SIEMPRE del campo `gpu_layers` del modelo, nunca
     # de `model_args`: `Hydrate` ya ha sacado el flag de ahi, asi que hay una
     # sola fuente de verdad y `--cpu` no tiene nada que reescribir.
@@ -206,7 +215,24 @@ defmodule Candil.Engine.Server do
         to_string(model.alias)
       ] ++ api_key_args(engine)
 
-    base ++ model_args ++ threads_args(engine) ++ engine_args
+    # D-27: Candil elige el device y se lo dice al motor. Con `gpu_layers: 0`
+    # o `--cpu` no hay GPU, asi que `--device none` (sin `--main-gpu` ni
+    # `--split-mode`). Si hay device, se fuerza un solo device con split
+    # desactivado: `--fit` se queda en `on` y el `-1` (si lo hay) se recorta
+    # dentro de ese device.
+    device_args =
+      cond do
+        engine.cpu or model.gpu_layers == 0 ->
+          ["--device", "none"]
+
+        is_integer(device) and device >= 0 ->
+          ["--device", "CUDA#{device}", "--split-mode", "none", "--main-gpu", to_string(device)]
+
+        true ->
+          []
+      end
+
+    base ++ device_args ++ model_args ++ threads_args(engine) ++ engine_args
   end
 
   # ── `--cpu`: lo que de verdad significa ir a CPU ──────────────────────────

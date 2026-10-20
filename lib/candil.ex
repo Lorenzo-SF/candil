@@ -243,12 +243,12 @@ defmodule Candil do
         # que expulsar a otro modelo. El scheduler solo decide; quien ejecuta
         # es este modulo (Engine.stop + start).
         case Candil.Scheduler.plan(model) do
-          {:ok, _device} ->
-            start_engine(engine, model, opts)
+          {:ok, device} ->
+            start_engine(engine, model, opts, device)
 
-          {:evict, victims, _device} ->
+          {:evict, victims, device} ->
             Enum.each(victims, &Candil.Llm.stop_engine/1)
-            start_engine(engine, model, opts)
+            start_engine(engine, model, opts, device)
 
           {:error, :no_room} ->
             {:error, :no_room}
@@ -259,8 +259,8 @@ defmodule Candil do
     end
   end
 
-  defp start_engine(engine, model, opts) do
-    case Candil.Llm.start_engine(engine, model) do
+  defp start_engine(engine, model, opts, device) do
+    case Candil.Llm.start_engine(engine, model, device) do
       {:ok, _pid} ->
         Process.sleep(Keyword.get(opts, :start_wait_ms, 3_000))
         :ok
