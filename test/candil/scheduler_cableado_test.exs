@@ -49,42 +49,44 @@ defmodule Candil.Scheduler.EvictionTest do
 
   alias Candil.{Model, Store}
 
+  @skip_unless_local File.exists?("/home/lorenzo/.local/bin/llama-server") and
+                       File.exists?(
+                         "/home/lorenzo/models/gguf/Qwen2.5-VL-7B-Instruct-UD-Q4_K_XL.gguf"
+                       )
+
+  if not @skip_unless_local do
+    @moduletag :skip
+  end
+
   setup do
-    binary = "/home/lorenzo/.local/bin/llama-server"
-    model_file = "/home/lorenzo/models/gguf/Qwen2.5-VL-7B-Instruct-UD-Q4_K_XL.gguf"
+    previous_adapter = Application.get_env(:apero, :http_adapter)
+    Application.put_env(:apero, :http_adapter, Apero.Http.Adapter.Finch)
 
-    if File.exists?(binary) and File.exists?(model_file) do
-      previous_adapter = Application.get_env(:apero, :http_adapter)
-      Application.put_env(:apero, :http_adapter, Apero.Http.Adapter.Finch)
+    on_exit(fn ->
+      Application.put_env(:apero, :http_adapter, previous_adapter)
+      # Limpieza defensiva: parar engines y vaciar store.
+      try do
+        Candil.Llm.stop_engine(:vision)
+      rescue
+        _ -> :ok
+      end
 
-      on_exit(fn ->
-        Application.put_env(:apero, :http_adapter, previous_adapter)
-        # Limpieza defensiva: parar engines y vaciar store.
-        try do
-          Candil.Llm.stop_engine(:vision)
-        rescue
-          _ -> :ok
-        end
+      try do
+        Candil.Llm.stop_engine(:huge_evict_test)
+      rescue
+        _ -> :ok
+      end
 
-        try do
-          Candil.Llm.stop_engine(:huge_evict_test)
-        rescue
-          _ -> :ok
-        end
+      try do
+        Store.deregister_model(:vision)
+        Store.deregister_model(:huge_evict_test)
+        Store.deregister_engine(:llama_cpp)
+      rescue
+        _ -> :ok
+      end
+    end)
 
-        try do
-          Store.deregister_model(:vision)
-          Store.deregister_model(:huge_evict_test)
-          Store.deregister_engine(:llama_cpp)
-        rescue
-          _ -> :ok
-        end
-      end)
-
-      :ok
-    else
-      {:skip, "requiere binary local de llama-server y modelo Qwen2.5-VL-7B"}
-    end
+    :ok
   end
 
   test "la expulsion ejecuta: {:evict, victims, _} para a las victimas" do
