@@ -103,3 +103,4 @@ end
 # que a veces dicen verde sin comprobar nada.
 Code.require_file("support/store_case.ex", __DIR__)
 Code.require_file("support/test_config.ex", __DIR__)
+Code.require_file("support/fake_gpu.ex", __DIR__)

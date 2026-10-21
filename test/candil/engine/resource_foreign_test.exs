@@ -17,18 +17,38 @@ defmodule Candil.Engine.ResourceForeignTest do
   que es exactamente la memoria que un motor nuevo puede usar. El criterio va
   en fórmula y no en cifra: la memoria ajena de otra sesión cambia mientras
   se mide, y un número fijo de un instante no sirve de criterio.
+
+  ## La GPU de este test es de mentira
+
+  Las cifras vienen de un `nvidia-smi` falso (`Candil.FakeGPU`), no de la
+  máquina. Sin eso el test dependía del hardware de quien lo corría: en CI
+  fallaba con `{:error, :capacity_unknown}` porque el runner no tiene GPU, y
+  en local fallaba cuando otra sesión tenía la tarjeta llena. Y el caso
+  interesante —**la GPU llena**, que es donde el titular `:foreign` no cabe
+  en el ledger— solo se podía ver por suerte. Con la GPU falsa se ve siempre.
   """
 
   use ExUnit.Case, async: false
 
   alias Candil.Engine.Resource
+  alias Candil.FakeGPU
 
-  setup do
+  @moduletag :tmp_dir
+
+  @total 16_303
+  @free 16_000
+  @overhead 370
+
+  setup %{tmp_dir: tmp_dir} do
     # El resource vive en un registro global, asi que cada test necesita
     # empezar limpio: se para el del device y se vuelve a registrar.
     device = 0
     Resource.stop_device(device)
     on_exit(fn -> Resource.stop_device(device) end)
+
+    FakeGPU.install(tmp_dir, total_mb: @total, free_mb: @free)
+    on_exit(&FakeGPU.uninstall/0)
+
     %{device: device}
   end
 
@@ -44,20 +64,17 @@ defmodule Candil.Engine.ResourceForeignTest do
       :ok = Resource.ensure_registered(device)
 
       # Sin memoria ajena, la disponible es la del motor: total − overhead.
-      total = total_of(device)
-
-      assert Resource.available(device) == total - 370
+      assert Resource.available(device) == @total - @overhead
     end
 
     test "un titular ajeno baja la disponible", %{device: device} do
       :ok = Resource.ensure_registered(device)
       name = device_name(device)
-      total = total_of(device)
 
       # 4216 MiB de un proceso que Candil no gestiona, como titular `:foreign`.
       {:ok, _receipt} = Arrea.Resource.acquire(name, :foreign, 4216, 0)
 
-      assert Resource.available(device) == total - 370 - 4216
+      assert Resource.available(device) == @total - @overhead - 4216
     end
 
     test "el reajuste deja la disponible en la memoria real menos el overhead", %{
@@ -74,40 +91,26 @@ defmodule Candil.Engine.ResourceForeignTest do
       # del motor, la verdad es «no cabe nada», y un 0 es honesto. Un número
       # negativo en un contador de megas no lo es.
       free_real = free_of(device)
-      total = total_of(device)
 
       :ok = Resource.sync_foreign(device)
 
-      assert Resource.available(device) == max(free_real - 370, 0)
-
-      # Y el hueco que setapaba era el de la memoria ajena. Si no hay nada
-      # ajeno, la disponible es el total menos el overhead.
-      if total - free_real <= 64 do
-        assert Resource.available(device) == total - 370
-      end
+      assert Resource.available(device) == max(free_real - @overhead, 0)
     end
 
-    test "con la GPU llena la disponible es 0, no la cifra que no existe", %{
-      device: device
-    } do
-      # El caso que salió al medir con otra sesión occupying la GPU: la
-      # memoria ajena es MAYOR que el hueco que queda tras `:system`, así que
-      # no cabe en el ledger. Lo que pasó sin el recorte es que el `acquire`
-      # fallaba en silencio y la disponible se quedaba en 15933 — la del
-      # total del device, que no existía.
-      #
-      # Aquí no se puede dejar la GPU llena a propósito, pero sí se puede
-      # comprobar la regla: la disponible nunca es mayor que la memoria real
-      # menos el overhead, y nunca es negativa.
-      free_real = free_of(device)
+    test "la memoria que usa otra sesion se descuenta sola", %{device: device} do
+      :ok = Resource.ensure_registered(device)
 
+      # La memoria ajena son 16303 − 16000 = 303 MiB: lo que usa un proceso que
+      # Candil no gestiona. Sin el `:foreign`, la disponible sería la del
+      # total (15933) y contaría una memoria que ya no está.
       :ok = Resource.sync_foreign(device)
 
-      available = Resource.available(device)
+      assert Resource.available(device) == @free - @overhead
 
-      assert available <= max(free_real - 370, 0) + 64
-      assert available >= 0
-      assert available <= total_of(device) - 370
+      # Y el ledger lo sabe: el titular ajeno está, y es el que lo sostiene.
+      status = Arrea.Resource.status(device_name(device))
+
+      assert :foreign in Enum.map(status.holders, &elem(&1, 0))
     end
 
     test "la memoria ajena se reajusta sola", %{device: device} do
@@ -125,6 +128,40 @@ defmodule Candil.Engine.ResourceForeignTest do
       # puede haber dejado el resource en un estado imposible.
       assert after_sync <= before
       assert after_sync >= 0
+    end
+  end
+
+  describe "con la GPU llena" do
+    setup %{tmp_dir: tmp_dir} do
+      # La GPU de verdad, casi llena: 42 MiB libres. Es el caso que en la
+      # maquina real solo se ve por casualidad, cuando otra sesion tiene la
+      # tarjeta ocupada.
+      FakeGPU.install(tmp_dir, total_mb: @total, free_mb: 42)
+      :ok
+    end
+
+    test "la disponible es 0, no la cifra que no existe", %{device: device} do
+      # El hueco que queda tras `:system` son 15933 MiB, y la memoria ajena son
+      # 16261: **no cabe**. Sin el recorte, el `acquire` del titular fallaba,
+      # el error se tragaba, y la disponible se quedaba en 15933 — la del
+      # total del device, que no existía. Justo la mentira que este módulo
+      # viene a quitar.
+      :ok = Resource.ensure_registered(device)
+
+      :ok = Resource.sync_foreign(device)
+
+      assert Resource.available(device) == 0
+    end
+
+    test "y ningun motor puede arrancar con la GPU llena", %{device: device} do
+      # La consecuencia de lo de arriba: con la GPU llena, no hay sitio. Un
+      # modelo que pida VRAM no puede arrancar, y el error tiene que decirlo.
+      :ok = Resource.ensure_registered(device)
+      :ok = Resource.sync_foreign(device)
+
+      name = device_name(device)
+
+      assert {:error, _reason} = Arrea.Resource.acquire(name, {:coder, 9999}, 512, 0)
     end
   end
 
@@ -151,10 +188,5 @@ defmodule Candil.Engine.ResourceForeignTest do
   defp free_of(device) do
     [d] = Candil.Scheduler.Devices.detect() |> Enum.filter(&(&1.index == device))
     d.free_mb
-  end
-
-  defp total_of(device) do
-    [d] = Candil.Scheduler.Devices.detect() |> Enum.filter(&(&1.index == device))
-    d.total_mb
   end
 end

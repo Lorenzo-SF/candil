@@ -4,8 +4,10 @@
 > verificar porque no había con qué — y que desde el 2026-10-12 sí se puede,
 > porque hay una máquina con una RTX 5080 delante.**
 >
-> 2026-10-21 · `main` `398a1b9` · **1327 tests + 33 doctests, 0 fallos** (6
-> skipped) · la reserva de VRAM medida con una GPU de verdad (D-27).
+> 2026-10-21 · `main` `398a1b9` · **1329 tests + 33 doctests, 0 fallos** (6
+> skipped) · la reserva de VRAM medida con una GPU de verdad (D-27) · la suite
+> pasa **con GPU y sin GPU** (los tests que miden hardware usan un
+> `nvidia-smi` de mentira).
 >
 > ⚠️ **Corregido el 2026-10-21**: la cabecera de abajo decía 1159 tests y
 > «la verdad de la VRAM sin reservar». Las dos cosas ya no son ciertas —la
@@ -366,7 +368,7 @@ servidor local real y las rutas `etiquetado` / `etiquetado-malo`.
 
 ## 6 · El resumen, en una frase
 
-> **1326 tests + 33 doctests en verde** y **dos preguntas sin responder** — y
+> **1329 tests + 33 doctests en verde** y **dos preguntas sin responder** — y
 > ninguna es técnica: la colocación en varias GPUs, y la política de señales a
 > la vista del 16.7%. Las dos necesitan una decisión, no código.
 >

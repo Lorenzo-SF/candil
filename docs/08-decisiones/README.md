@@ -919,10 +919,18 @@ Y de ahí salió lo más caro de esta ronda: **un test que dependía de la
 máquina**. `cpu_args_test.exs` arrancaba un motor de mentira por el CLI, y el
 CLI ahora pasa por el scheduler: en CI (sin GPU) no había dónde colocarlo, y
 en local la GPU podía estar ocupada por otra sesión. El test fallaba —o
-pasaba— según la máquina, y **el fallo no era del código**. Ahora el test
-pone delante un `nvidia-smi` de mentira que dice que hay una GPU con sitio, y
-el resultado es el mismo en todas partes. Un test que depende del hardware de
-quien lo corre no es un test: es una lotería.
+pasaba— según la máquina, y **el fallo no era del código**.
+
+Lo destapó el propio CI: en el runner **sin GPU** fallaron 8 tests, y ninguno
+por un fallo del código —todos por `{:error, :capacity_unknown}` («no hay
+capacidad») o por no haber sitio donde colocar el motor. La solución no es
+saltarse el test (`@tag :skip`), que dejaría el caso sin cubrir: es **poner
+delante un `nvidia-smi` de mentira** (`Candil.FakeGPU`) que diga lo que el
+test necesita. El código de producción no cambia, y el test además puede
+reproducir un caso que en la máquina real es difícil: **la GPU llena**, que es
+donde el titular `:foreign` no cabe en el ledger y la disponible tenía que
+caer a 0. Un test que depende del hardware de quien lo corre no es un test: es
+una lotería.
 
 ### Verificación de la implementación (2026-10-21)
 
@@ -990,6 +998,10 @@ no reserva nada, así que que haya reserva prueba que alguien decidió un
 device, y el único que decide es el scheduler. Medido el 2026-10-21 con
 `Qwen3-Coder-30B-A3B-Instruct-UD-IQ3_XXS`: 3/3 en verde, el motor sano y la
 reserva igual al peso ajustado.
+
+Y la suite se pasa **con GPU y sin GPU**: los tests que miden hardware usan
+el `nvidia-smi` de mentira, así que el resultado es el mismo en el runner de
+CI (que no tiene GPU) y en la máquina con la RTX 5080 delante.
 
 ### Cómo se revisa
 
