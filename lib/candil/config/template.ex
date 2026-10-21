@@ -184,10 +184,20 @@ defmodule Candil.Config.Template do
     #   # como llama-server se queja de "already set by user".
     #   gpu_layers   = -1
     #
-    #   # VRAM que ocupa el modelo en MB (opcional). Si no se pone, el scheduler
-    #   # la estima del context_size. Ponla si la conoces: la estimacion es un
-    #   # orden de magnitud, y una decision de eviction con un numero malo
-    #   # expulsa al modelo equivocado.
+    #   # VRAM que ocupa el modelo en MB (opcional, y casi nunca hace falta).
+    #   #
+    #   # La reserva que Candil lleva es SIEMPRE el peso MEDIDO con
+    #   # `llama-fit-params` en el momento de arrancar, no este numero. Asi que
+    #   # esto no dice cuanto ocupa el modelo: dice cuanto ocupaba la ultima
+    #   # vez que se arranco, y solo sirve como estimacion previa para que un
+    #   # segundo arranque que no cabe falle pronto en vez de a los 4 s.
+    #   #
+    #   # Y el numero no es estable: el MISMO modelo medido el 2026-10-21 dio
+    #   # 795 MiB con la GPU ocupada, 7978 MiB con la GPU medio libre y 10452
+    #   # MiB con la GPU libre. Lo que cambia es quantas capas cabe recorta
+    #   # llama.cpp, que depende de la memoria libre del instante. Por eso
+    #   # dejarlo a mano es una forma de quedarse con un numero viejo, y la
+    #   # reserva lo corrige igual.
     #   vram_mb      = 13000
     #
     #   # Tokens de respuesta que se piden como maximo (opcional). El default

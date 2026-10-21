@@ -1,0 +1,160 @@
+defmodule Candil.Engine.ResourceForeignTest do
+  @moduledoc """
+  El ledger tiene que ver la **memoria real**, incluida la que usan procesos
+  que Candil no gestiona.
+
+  Medido el 2026-10-21: con un modelo de otra sesión ocupando 4216 MiB, el
+  ledger decía **15933 MiB libres** y los reales eran **11518**. La reserva se
+  tomaba sobre una memoria que ya no estaba, y el OOM pasaba con la cuenta
+  «correcta».
+
+  La solución no es cambiar la capacidad del resource —`Arrea.Resource` no
+  tiene API para eso, y re-registrarlo perdería el ledger entero—, sino meter
+  la memoria ajena como **otro titular**, al lado de `:system`. Con eso:
+
+      available = free_real − overhead
+
+  que es exactamente la memoria que un motor nuevo puede usar. El criterio va
+  en fórmula y no en cifra: la memoria ajena de otra sesión cambia mientras
+  se mide, y un número fijo de un instante no sirve de criterio.
+  """
+
+  use ExUnit.Case, async: false
+
+  alias Candil.Engine.Resource
+
+  setup do
+    # El resource vive en un registro global, asi que cada test necesita
+    # empezar limpio: se para el del device y se vuelve a registrar.
+    device = 0
+    Resource.stop_device(device)
+    on_exit(fn -> Resource.stop_device(device) end)
+    %{device: device}
+  end
+
+  # El nombre con el que `Arrea.Resource` registra el device. Lo da el propio
+  # módulo (`device_name/1`), que los precalcula en compilación: aquí no se
+  # crea ningún átomo en runtime.
+  defp device_name(device), do: Resource.device_name(device)
+
+  describe "la memoria ajena" do
+    test "el ledger descuenta lo que no es de Candil", %{device: device} do
+      # Se registra el device con la capacidad de `nvidia-smi` y se reserva el
+      # overhead como `:system`, que es lo que hace `ensure_registered/1`.
+      :ok = Resource.ensure_registered(device)
+
+      # Sin memoria ajena, la disponible es la del motor: total − overhead.
+      total = total_of(device)
+
+      assert Resource.available(device) == total - 370
+    end
+
+    test "un titular ajeno baja la disponible", %{device: device} do
+      :ok = Resource.ensure_registered(device)
+      name = device_name(device)
+      total = total_of(device)
+
+      # 4216 MiB de un proceso que Candil no gestiona, como titular `:foreign`.
+      {:ok, _receipt} = Arrea.Resource.acquire(name, :foreign, 4216, 0)
+
+      assert Resource.available(device) == total - 370 - 4216
+    end
+
+    test "el reajuste deja la disponible en la memoria real menos el overhead", %{
+      device: device
+    } do
+      :ok = Resource.ensure_registered(device)
+
+      # El criterio de aceptacion del plan, con los numeros de AHORA: la
+      # disponible tiene que ser la memoria libre REAL menos el contexto CUDA
+      # del motor. Antes de este reajuste era el total del device, y por eso
+      # contaba memoria que ya no estaba.
+      #
+      # Con un tope en 0: si la GPU está tan llena que no queda ni el overhead
+      # del motor, la verdad es «no cabe nada», y un 0 es honesto. Un número
+      # negativo en un contador de megas no lo es.
+      free_real = free_of(device)
+      total = total_of(device)
+
+      :ok = Resource.sync_foreign(device)
+
+      assert Resource.available(device) == max(free_real - 370, 0)
+
+      # Y el hueco que setapaba era el de la memoria ajena. Si no hay nada
+      # ajeno, la disponible es el total menos el overhead.
+      if total - free_real <= 64 do
+        assert Resource.available(device) == total - 370
+      end
+    end
+
+    test "con la GPU llena la disponible es 0, no la cifra que no existe", %{
+      device: device
+    } do
+      # El caso que salió al medir con otra sesión occupying la GPU: la
+      # memoria ajena es MAYOR que el hueco que queda tras `:system`, así que
+      # no cabe en el ledger. Lo que pasó sin el recorte es que el `acquire`
+      # fallaba en silencio y la disponible se quedaba en 15933 — la del
+      # total del device, que no existía.
+      #
+      # Aquí no se puede dejar la GPU llena a propósito, pero sí se puede
+      # comprobar la regla: la disponible nunca es mayor que la memoria real
+      # menos el overhead, y nunca es negativa.
+      free_real = free_of(device)
+
+      :ok = Resource.sync_foreign(device)
+
+      available = Resource.available(device)
+
+      assert available <= max(free_real - 370, 0) + 64
+      assert available >= 0
+      assert available <= total_of(device) - 370
+    end
+
+    test "la memoria ajena se reajusta sola", %{device: device} do
+      # `sync_foreign/1` es lo que llama el scheduler antes de decidir. Aqui se
+      # comprueba con lo que hay: sin `nvidia-smi` que diga otra cosa, el
+      # reajuste deja el ledger como estaba.
+      :ok = Resource.ensure_registered(device)
+      before = Resource.available(device)
+
+      :ok = Resource.sync_foreign(device)
+
+      after_sync = Resource.available(device)
+
+      # No puede ser mas grande que antes (el ledger solo resta memoria), y no
+      # puede haber dejado el resource en un estado imposible.
+      assert after_sync <= before
+      assert after_sync >= 0
+    end
+  end
+
+  describe "el estado de la reserva" do
+    test "un modelo de Candil se distingue del ajeno", %{device: device} do
+      :ok = Resource.ensure_registered(device)
+      name = device_name(device)
+
+      {:ok, _} = Resource.acquire(device, {:coder, 9999}, 5000)
+
+      status = Arrea.Resource.status(name)
+
+      # El titular de un modelo es un tuple, y el ajeno es un atomo: la
+      # identidad es exacta y `release` no se confunde.
+      holders = Enum.map(status.holders, &elem(&1, 0))
+
+      assert {:coder, 9999} in holders
+      assert :system in holders
+    end
+  end
+
+  # El total que ve `nvidia-smi`. El test no lo inventa: lo lee del mismo sitio
+  # que lo lee el codigo.
+  defp free_of(device) do
+    [d] = Candil.Scheduler.Devices.detect() |> Enum.filter(&(&1.index == device))
+    d.free_mb
+  end
+
+  defp total_of(device) do
+    [d] = Candil.Scheduler.Devices.detect() |> Enum.filter(&(&1.index == device))
+    d.total_mb
+  end
+end

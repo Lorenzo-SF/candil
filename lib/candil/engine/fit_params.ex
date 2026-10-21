@@ -11,13 +11,35 @@ defmodule Candil.Engine.FitParams do
           {:ok, non_neg_integer(), [String.t()]} | :fallback
   def run(%Engine{} = engine, %Model{} = model, device) do
     with {:ok, fit_binary} <- fetch_binary(engine),
-         {:ok, output} <- invoke(fit_binary, engine, model, device),
-         {:ok, weight, fitted} <- extract(output) do
-      {:ok, weight, fitted}
+         {:ok, output} <- invoke(fit_binary, engine, model, device) do
+      run_with_output(output)
     else
       _ -> :fallback
     end
   end
+
+  @doc """
+  Lo que se puede leer de la salida de `llama-fit-params`, sin el binario.
+
+  Es la parte pura del módulo, y está separada por la misma razón que
+  `Devices.parse_nvidia/1`: **se prueba contra la salida real, capturada**, que
+  es lo único que demuestra que el parser entiende a llama.cpp. Un test con
+  una salida inventada prueba que el parser entiende al test.
+
+  Devuelve `{:ok, peso, args}` o `:fallback`.
+  """
+  @spec run_with_output(binary()) :: {:ok, non_neg_integer(), [String.t()]} | :fallback
+  def run_with_output(output) when is_binary(output) do
+    args = parse_fitted(output)
+
+    case parse_weight(output, args) do
+      nil -> :fallback
+      weight when args != [] -> {:ok, weight, args}
+      _ -> :fallback
+    end
+  end
+
+  def run_with_output(_), do: :fallback
 
   defp fetch_binary(engine) do
     case fit_binary(engine) do
@@ -31,13 +53,6 @@ defmodule Candil.Engine.FitParams do
 
     case System.cmd(fit_binary, args ++ ["-v"], stderr_to_stdout: true) do
       {output, 0} -> {:ok, output}
-      _ -> :fallback
-    end
-  end
-
-  defp extract(output) do
-    case {parse_weight(output), parse_fitted(output)} do
-      {w, fitted} when is_integer(w) and fitted != [] -> {:ok, w, fitted}
       _ -> :fallback
     end
   end
@@ -89,26 +104,107 @@ defmodule Candil.Engine.FitParams do
 
   defp cache_args_from(_), do: []
 
-  defp parse_weight(output) when is_binary(output) do
-    case Regex.run(~r/projected to use (\d+) MiB/, output) do
-      [_, n] ->
-        case Integer.parse(n) do
-          {v, ""} when v > 0 -> v
-          _ -> nil
-        end
+  # El peso es el de la línea `mem=`, que es **lo que el modelo va a ocupar**:
+  # pesos + KV cache + compute. Medido el 2026-10-21 con
+  # `Qwen3-Coder-30B` y 11518 MiB libres:
+  #
+  #     | - CUDA0 | 15933 = 11518 + (10452 = 3479 + 6528 + 444) + -6037 |
+  #     id=0, n_layer=49, n_part=38, overflow_type=3, mem= 10452 MiB
+  #
+  # Y el `projected to use` de otra línea es **lo que haría falta si TODO el
+  # modelo cupiera en GPU** (19053 MiB en la misma medición). Reservar eso es
+  # reservar más que la memoria libre, así que la reserva se rechaza y **el
+  # modelo que necesita recorte es justo el que no puede arrancar**. El
+  # recorte es lo que permite que un modelo grande quepa en una GPU pequeña.
+  #
+  # llama.cpp puede escribir VARIAS líneas `mem=` —prueba varias configuraciones
+  # y escribe todas—, así que gana la última, y se comprueba contra el `-ngl`
+  # de los args ajustados: si hay una línea cuyo `n_layer` coincide con el
+  # `-ngl` que va a usar el motor, esa es la buena.
+  defp parse_weight(output, fitted) when is_binary(output) do
+    candidates =
+      Regex.scan(
+        ~r/common_params_fit_impl:.*?n_layer=\s*(\d+).*?mem=\s*(\d+)\s*MiB/,
+        output
+      )
+      |> Enum.map(fn [_, layers, mem] ->
+        {String.to_integer(layers), String.to_integer(mem)}
+      end)
 
-      _ ->
-        nil
+    case candidates do
+      [] -> nil
+      _ -> pick_weight(candidates, ngl_of(fitted))
     end
   end
 
+  defp pick_weight(candidates, nil), do: candidates |> List.last() |> elem(1)
+
+  defp pick_weight(candidates, ngl) do
+    case Enum.find(candidates, fn {layers, _mem} -> layers == ngl end) do
+      nil -> candidates |> List.last() |> elem(1)
+      {_layers, mem} -> mem
+    end
+  end
+
+  defp ngl_of([]), do: nil
+
+  defp ngl_of(args) do
+    case Enum.find_index(args, &(&1 == "-ngl" or &1 == "--n-gpu-layers")) do
+      nil ->
+        nil
+
+      index ->
+        case Enum.at(args, index + 1) do
+          nil ->
+            nil
+
+          value ->
+            Integer.parse(value)
+            |> case do
+              {n, ""} -> n
+              _ -> nil
+            end
+        end
+    end
+  end
+
+  # La última línea de la salida son los args ajustados, y el `-ot` va
+  # **entrecomillado**:
+  #
+  #     -c 131072 -ngl 49 -ot "blk\.11\.ffn_down.*=CPU,…,CPU"
+  #
+  # Partir esa línea por espacios deja el valor del `-ot` con las comillas
+  # DENTRO, y llama-server lo lee como un patrón que empieza por `"` y un
+  # buffer type que acaba en `CPU"`:
+  #
+  #     error while handling argument "-ot": unknown buffer type
+  #
+  # y el servidor no arranca. Medido el 2026-10-21 en las dos formas: con las
+  # comillas no arranca; sin ellas carga y responde.
+  #
+  # El tokenizador trata el valor entrecomillado como **una unidad**, para que
+  # un patrón con espacios dentro no se parta en dos.
   defp parse_fitted(output) when is_binary(output) do
     output
     |> String.split("\n", trim: true)
     |> List.last()
     |> case do
       nil -> []
-      line -> String.split(line, ~r/\s+/, trim: true)
+      line -> tokenize(line)
+    end
+  end
+
+  defp tokenize(line) do
+    Regex.scan(~r/"[^"]*"|\S+/, line)
+    |> Enum.map(fn [token] -> unquote_token(token) end)
+  end
+
+  defp unquote_token(token) do
+    if String.starts_with?(token, "\"") and String.ends_with?(token, "\"") and
+         byte_size(token) >= 2 do
+      String.slice(token, 1, byte_size(token) - 2)
+    else
+      token
     end
   end
 end

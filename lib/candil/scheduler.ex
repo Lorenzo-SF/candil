@@ -109,9 +109,44 @@ defmodule Candil.Scheduler do
   """
   @spec plan(Candil.Model.t()) :: decision()
   def plan(%Candil.Model{} = model) do
+    # Un modelo de CPU no pide VRAM: no hay nada que colocar. Sin esto, con la
+    # GPU llena, un modelo de CPU se rechazaba con `:no_room` — y un modelo que
+    # corre en CPU no puede quedarse sin arrancar por falta de GPU.
+    if model.gpu_layers == 0 do
+      {:ok, nil}
+    else
+      plan_on_gpu(model)
+    end
+  end
+
+  defp plan_on_gpu(model) do
     size_mb = model.vram_mb || estimate_model_size(model)
-    devices = Candil.Scheduler.Devices.detect()
     instances = build_instances()
+
+    # El ledger tiene que estar al día ANTES de decidir, o la decisión se toma
+    # sobre una memoria que ya no existe. La memoria ajena —la que usan
+    # procesos que Candil no gestiona— se ajusta aquí.
+    #
+    # Y la decisión se toma con la cifra **del ledger**, no con la de
+    # `nvidia-smi`. No es un detalle: `free_mb` de `nvidia-smi` es lo que hay
+    # libre ahora mismo, y el ledger descuenta además el overhead del
+    # contexto CUDA (370 MiB) que el motor **nuevo** va a crear. Si uno
+    # decidiera con `free_mb` y el otro reservara con `available`, los dos
+    # podrían decir cosas distintas: el scheduler «cabe» y la reserva «no
+    # cabe», y el modelo no arrancaría con un error que nadie entiende.
+    #
+    # Con la misma cifra en los dos lados, la respuesta es la misma por
+    # construcción: `available` es exactamente lo que le cabe a un motor
+    # nuevo, contexto CUDA incluido.
+    devices =
+      Enum.map(Candil.Scheduler.Devices.detect(), fn device ->
+        if device.usable do
+          :ok = Candil.Engine.Resource.sync_foreign(device.index)
+          %{device | free_mb: Candil.Engine.Resource.available(device.index)}
+        else
+          device
+        end
+      end)
 
     place(size_mb, devices, instances)
   end

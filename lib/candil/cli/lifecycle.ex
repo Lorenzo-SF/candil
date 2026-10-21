@@ -94,24 +94,22 @@ defmodule Candil.CLI.Lifecycle do
           # vivo, y este se va a terminar en cuanto imprima.
           detach(model, port)
         else
-          # `Candil.Engine.start/2` y no `EnginePool.put/5`.
+          # `Candil.Engine.start_placed/2` y no `Engine.start/2`.
           #
-          # `EnginePool.put/5` NO ARRANCA NADA: su `handle_call` guarda un mapa
-          # en el estado del pool y contesta `:ok`. La funcion que de verdad
-          # levanta el `Candil.Engine.Server` bajo `Candil.EngineSupervisor`
-          # es `Engine.start/2`, y hasta ahora solo la llamaban
-          # `Candil.Engine.Launcher` y `Candil.LLM`. La CLI no.
+          # `start_placed/2` es el camino UNICO de arranque: el scheduler
+          # decide donde va el modelo, se reserva la VRAM, y si hay que
+          # expulsar a alguien, se expulsa. Es el mismo que usa
+          # `Candil.chat/2` y `Candil.Agent`.
           #
-          # O sea que `candil run` no ha arrancado un modelo NUNCA, en
-          # NINGUN camino, y no fallaba: imprimia "arrancado en :9999" y
-          # salia con 0 sin haberlaunchado nada. Ni VRAM, ni log del engine,
-          # ni crash report — porque no habia proceso que se casara, ni
-          # proceso que muriera, ni proceso que imprimiera. Todo lo que se ha
-          # diagnosticado esta noche era el sintoma de esto.
+          # Antes esta linea llamaba a `Engine.start/2` con `device = nil`:
+          # sin scheduler, sin reserva y sin `--device`, o sea que el CLI
+          # arrancaba un modelo por un camino DISTINTO del de la API. Dos
+          # caminos con dos comportamientos, y el que no reservaba era el que
+          # usa una persona. Con uno solo, no pueden divergir.
           #
           # `Engine.start/2` tambien registra la instancia en el pool por su
           # cuenta, asi que esta llamada sustituye a la de antes, no se suma.
-          case Engine.start(resolve_engine!(model, port, opts), model) do
+          case Engine.start_placed(resolve_engine!(model, port, opts), model) do
             {:ok, beam_pid} ->
               record(model, port, opts, beam_pid)
               started(model, port, opts)
@@ -317,6 +315,23 @@ defmodule Candil.CLI.Lifecycle do
   defp stopped_remote(instances) do
     Enum.each(instances, fn %{owner: %{kind: :pid, pid: pid}} ->
       if pid > 0, do: signal(pid, "TERM")
+    end)
+
+    # Y el MOTOR, que es un proceso del sistema operativo aparte.
+    #
+    # Matar al dueño —el escript que sostiene la instancia— **no** se lleva por
+    # delante al `llama-server`: es un nieto, en otra VM, y su muerte deja al
+    # proceso del SO vivo. Medido el 2026-10-21: `candil stop` decia «1
+    # instancia parada», el registro quedaba vacío, `candil status` decia «no
+    # hay instancias»… y el `llama-server` seguía ahí con **8116 MiB de VRAM
+    # cogidos**. Dos herramientas diciendo verdad sobre cosas distintas, y la
+    # que decia «parado» mintiendo.
+    #
+    # El `engine_pid` del registro es precisamente el pid del motor, y existe
+    # desde el PR #86. Sin él, esto no se puede arreglar: el dueño es un BEAM
+    # y el motor es un proceso del sistema operativo.
+    Enum.each(instances, fn %{engine_pid: engine_pid} ->
+      if is_integer(engine_pid) and engine_pid > 0, do: signal(engine_pid, "TERM")
     end)
 
     Enum.each(instances, fn %{model: model, port: port} ->

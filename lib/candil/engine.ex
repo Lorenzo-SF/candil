@@ -377,28 +377,55 @@ defmodule Candil.Engine do
     is_cpu = engine.cpu or model.gpu_layers == 0
 
     # D-27: la reserva va ANTES de `fit-params` para serializar arranques
-    # concurrentes. Solo reserva un modelo de GPU que declare `vram_mb`: una
-    # estimación por contexto no es una medición (daba 512 MiB para un modelo
-    # de 14707) y reservar de menos es peor que no reservar, porque el
-    # knapsack acaba afirmando capacidad que no tiene. Sin `vram_mb` el
-    # modelo arranca igual —falta planificación, no arranque— y se avisa.
+    # concurrentes.
     case acquire(engine, model, is_cpu, device) do
       :skip ->
         start_unreserved(engine, model, device)
 
-      :skip_no_vram ->
-        Logger.warning(
-          "modelo #{inspect(model.alias)} sin vram_mb: arranca en " <>
-            "#{inspect(device)} sin reserva de VRAM"
-        )
-
-        start_unreserved(engine, model, device)
+      {:ok, :estimated} ->
+        start_reserved(engine, model, device)
 
       {:ok, _receipt} ->
         start_reserved(engine, model, device)
 
       {:error, reason} ->
         {:error, reason}
+    end
+  end
+
+  @doc """
+  Coloca el modelo donde el scheduler diga y lo arranca.
+
+  Es **el** camino de arranque: lo usan la API (`Candil.chat/2`,
+  `Candil.serve/0`, `Candil.Agent`) y el CLI (`candil run`). Que sea uno solo es
+  lo que evita que uno arranque **sin reservar** y sin consultar al scheduler:
+  dos caminos con dos comportamientos, que es como se llega a que «el CLI hace
+  una cosa y la API otra» sin que nadie lo decida.
+
+  El scheduler **solo decide**; quien expulsa a las víctimas es esta función.
+  """
+  @spec start_placed(t(), Candil.Model.t()) :: {:ok, pid()} | {:error, term()}
+  def start_placed(%__MODULE__{} = engine, %Candil.Model{} = model) do
+    if engine.cpu or model.gpu_layers == 0 do
+      # Un motor de CPU no pide VRAM: ni el scheduler ni el ledger tienen nada
+      # que decir. Sin esta comprobación, `candil run --cpu` se rechazaba con
+      # `:no_room` en una máquina sin GPU —el scheduler miraba un modelo que
+      # pide GPU (`gpu_layers: 99`) sin saber que el motor lo va a correr en
+      # CPU. Un modelo que corre en CPU no puede quedarse sin arrancar por
+      # falta de GPU.
+      start(engine, model, nil)
+    else
+      case Candil.Scheduler.plan(model) do
+        {:ok, device} ->
+          start(engine, model, device)
+
+        {:evict, victims, device} ->
+          Enum.each(victims, &Candil.Llm.stop_engine/1)
+          start(engine, model, device)
+
+        {:error, :no_room} ->
+          {:error, :no_room}
+      end
     end
   end
 
@@ -419,12 +446,36 @@ defmodule Candil.Engine do
       is_cpu -> :skip
       # Sin device resuelto no se sabe dónde reservar.
       not is_integer(device) or device < 0 -> :skip
-      # `vram_mb` es una declaración, no una estimación: si falta, no se
-      # reserva. El modelo arranca; lo que falta es planificación.
-      is_nil(model.vram_mb) -> :skip_no_vram
       # `vram_mb: 0` es «este modelo no pide VRAM», no «no lo sé».
-      model.vram_mb <= 0 -> :skip
+      model.vram_mb && model.vram_mb <= 0 -> :skip
+      # Sin `vram_mb` se reserva una ESTIMACIÓN, que es un marcador de
+      # posición: `fit-params` mide el peso real enseguida y la corrección lo
+      # sustituye. Reservar de menos durante esos segundos es peor que no
+      # reservar, porque el knapsack acabaría afirmando capacidad que no
+      # tiene.
+      is_nil(model.vram_mb) -> acquire_estimated(engine, model, device)
       true -> Candil.Engine.Resource.acquire(device, holder(model, engine), model.vram_mb)
+    end
+  end
+
+  # La estimación por contexto es una estimación MUY mala —`div(ctx, 1024) * 4`
+  # da 512 MiB para un modelo que ocupa 7978—, y por eso no puede ser la
+  # reserva final. Solo es el marcador de posición de los segundos que tarda
+  # `fit-params` en medir. Lo que se reserve al final es **el peso real**.
+  defp acquire_estimated(engine, model, device) do
+    cost = max(div(model.context_size || 4096, 1024) * 4, 1)
+
+    case Candil.Engine.Resource.acquire(device, holder(model, engine), cost) do
+      {:ok, _receipt} ->
+        Logger.warning(
+          "modelo #{inspect(model.alias)} sin vram_mb: se reserva una " <>
+            "estimación de #{cost} MiB hasta medir la real"
+        )
+
+        {:ok, :estimated}
+
+      error ->
+        error
     end
   end
 
@@ -454,10 +505,24 @@ defmodule Candil.Engine do
   # `vram_mb` es un techo declarado, no una medición: la reserva solo sube.
   # Corregir a la baja devolvería capacidad que el motor sigue ocupando; al
   # alza evita el OOM cuando `llama-fit-params` mide más de lo declarado.
-  defp correct_reservation(_device, _holder, _declared, weight) when not is_integer(weight),
-    do: :ok
+  # La reserva es **el peso real**, y no `max(declarado, real)`.
+  #
+  # El `vram_mb` del catálogo es una **cota inferior declarada**: el mínimo que
+  # el modelo va a ocupar. Cuando el peso medido es MAYOR, la reserva sube; y
+  # cuando es MENOR, **también baja**, porque quedarse con la cota inferior
+  # reservaría memoria de más.
+  #
+  # Y esa bajada importa: con el mismo modelo y la misma GPU, el `vram_mb` de
+  # `coder` (12744, el pie footprint completo) es MAYOR que el peso ajustado que
+  # de verdad ocupa cuando llama.cpp recorta las capas que no caben (7978 con
+  # la memoria que había). Si la reserva se quedase en 12744, no cabría en el
+  # device y **el modelo no arrancaría** —el `vram_mb` medido impediría que el
+  # modelo arrancase recortado.
+  defp correct_reservation(_device, _holder, _declared, weight)
+       when not is_integer(weight),
+       do: :ok
 
-  defp correct_reservation(_device, _holder, declared, weight) when weight <= declared, do: :ok
+  defp correct_reservation(_device, _holder, declared, weight) when weight == declared, do: :ok
 
   defp correct_reservation(device, holder, _declared, weight) do
     _ = release_reservation(device, holder)

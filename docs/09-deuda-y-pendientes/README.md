@@ -4,8 +4,13 @@
 > verificar porque no había con qué — y que desde el 2026-10-12 sí se puede,
 > porque hay una máquina con una RTX 5080 delante.**
 >
-> 2026-10-16 · `main` `4d8d3e5` · **1159 tests + 27 doctests, 0 fallos** · los
-> cinco gates en verde.
+> 2026-10-21 · `main` `398a1b9` · **1327 tests + 33 doctests, 0 fallos** (6
+> skipped) · la reserva de VRAM medida con una GPU de verdad (D-27).
+>
+> ⚠️ **Corregido el 2026-10-21**: la cabecera de abajo decía 1159 tests y
+> «la verdad de la VRAM sin reservar». Las dos cosas ya no son ciertas —la
+> reserva está cableada y medida—; los números de arriba son los de hoy, y
+> §5 (P-4, P-10) y §6 dicen en qué punto está cada cosa.
 >
 > ⚠️ **Corregido el 2026-10-15/16**: tres cosas de este documento eran viejas y se
 > contradecían con el código (§5: P-1, P-4, P-7, P-8). Están marcadas con lo
@@ -232,8 +237,8 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 | **P-1** | `:degrade`, el tercero de los tres tipos | ✅ **decidido** (D-09) y **`fail`/`wait` entregados** — fase 5 cerrada el 2026-10-17: el gateway pinta el refusal como **503 + `Retry-After`**, probado por HTTP de punta a punta (§1). **`:degrade` sigue sin ser alcanzable**, y así se queda hasta que exista el enrutado por cobertura — saber **qué pide la pregunta**, cuya materia prima es la capa `:classifier` (hoy apagada) o el RAG (fase 6). Configurarlo revienta con un `ArgumentError` que lo dice con esas palabras. **Cómo retomarlo**: cuando la cobertura exista, la pregunta ya no es «¿se puede?» sino «¿hace falta?» — y si nadie la echa de menos, la relectura honesta es que el caso que la pedía (varios candidatos y la espera no cabe) ya lo resuelve elegir otro candidato **antes** de rechazar, que es lo que hace la escalera del `Scorer`; entonces D-09 se revisa, no se amplía |
 | ~~P-2~~ | La métrica del tribunal | ✅ **cerrado** (A-1). Ya existe, y ha sentenciado: 16.7% |
 | **P-3** | `rest_for_one` sin implementar | **a propósito**: no tiene caso hasta que exista un destino que ceda el turno (D-02) |
-| **P-4** | Quién escribe la verdad de la VRAM | ✅ **la escribe `Candil.Engine.Resource`** (D-27, 2026-10-21): registra `Arrea.Resource` por device con la capacidad del motor (16303 − 370 MiB de overhead `:system` = 15933), reserva antes de arrancar con el `vram_mb` declarado, corrige al alza con el peso que mide `llama-fit-params`, y libera si el motor muere o se para. Lo que sigue: multi-GPU real (P-6) y `vram_mb` en el catálogo (P-10) |
-| **P-10** | La 8b está construida y parcialmente conectada | 🟡 **la reserva ya está cableada** (D-27, 2026-10-21): `Candil.Engine.Resource` reserva antes de `fit-params`, corrige al alza con el peso medido y libera en `Server.terminate/2`; la capacidad es la del motor (15933, no 16303). **Sigue fuera**: (a) reintento en otro device (D-27 opción C; solo con >1 GPU); (b) `vram_mb` en el catálogo: hoy ningún modelo lo declara, así que los arranques de GPU no reservan, avisan y siguen; (c) `estimate_model_size/1` sigue siendo `div(ctx,1024)*4` (512 MiB para ctx 131072) y solo sirve de suelo al scheduler; (d) el CLI (`lifecycle.ex`) llama `Engine.start/2` con `device = nil` y no reserva: solo `ensure_engine_running/2` pasa por el scheduler. La capa de señales y el multi-dispositivo real siguen pendientes |
+| **P-4** | Quién escribe la verdad de la VRAM | ✅ **la escribe `Candil.Engine.Resource`** (D-27, 2026-10-21): registra `Arrea.Resource` por device con la capacidad del motor (16303 MiB del total, 370 reservados como `:system`), reserva antes de arrancar, **corrige al peso real medido en los dos sentidos**, y libera si el motor muere o se para. **Y el ledger ve la memoria real**: la que usan procesos que Candil no gestiona entra como un titular más, `:foreign`, y se reajusta antes de cada colocación —medido: la disponible pasó de 15933 (el total, que no existía) a **11348** (= 11718 libres de verdad − 370)—. Con la GPU **llena**, la disponible cae a **0** en vez de mentir con el total: la memoria ajena no cabe en el ledger y el titular se recorta a lo representable. Lo que sigue: multi-GPU real (P-6) |
+| **P-10** | La 8b está construida y parcialmente conectada | 🟡 **la reserva está cableada y el CLI ya no se sale del scheduler** (D-27, 2026-10-21): `Candil.Engine.start_placed/2` es **el** camino de arranque, lo usan igual la API (`Candil.chat/2`, `Candil.serve/0`) y el CLI (`candil run`), así que ya no hay dos comportamientos; la reserva se hace antes de `fit-params`, se corrige al peso medido **en los dos sentidos** y se libera en `Server.terminate/2`; y el ledger descuenta la memoria ajena (titular `:foreign`). El scheduler decide con la **cifra del ledger**, la misma que usa la reserva, para que los dos no puedan discrepar. Un motor de CPU **no consulta el scheduler**: `candil run --cpu` no se rechaza por falta de GPU. **Sigue fuera**: (a) reintento en otro device (D-27 opción C; solo con >1 GPU); (b) **`vram_mb` en el catálogo: no se rellena, y es una decisión** —el mismo modelo mide **795, 7978 o 10452 MiB** según la memoria libre del instante (medido 3 veces), así que un número del catálogo sería la cifra de un momento; queda como **pista opcional** y la reserva la sustituye con la medición; (c) `estimate_model_size/1` sigue siendo `div(ctx,1024)*4` (512 MiB para ctx 131072) y solo sirve de suelo al scheduler; (d) el reintento en otro device y la capa de señales. La capa de señales y el multi-dispositivo real siguen pendientes |
 | **P-11** | La carrera del circuito en `simple_reflex_test.exs` | ✅ **arreglada**: el circuito se comprobaba en `init/1`, que corre DESPUÉS de que `GenServer.start_link` registre el nombre; si el nombre seguía tomado, contestaba `{:already_started, pid}` y el circuito ni se miraba. Ahora se comprueba en `start_link/1`, antes de registrar. El test verde dependía de que el nombre se liberara a tiempo; ahora no depende de timing |
 | ~~P-5~~ | La fase 4 sin mergear | ✅ **cerrado** — mergeada y medida (§2.1) |
 | **P-6** | La colocación de modelos en varias GPUs | es la parte de la 8b que falta, y **depende de P-4** |
@@ -361,10 +366,17 @@ servidor local real y las rutas `etiquetado` / `etiquetado-malo`.
 
 ## 6 · El resumen, en una frase
 
-> **1159 tests en verde** y **tres preguntas sin responder** — y ninguna es
-> técnica: quién *escribe* la verdad de la VRAM (se mide y se enseña, pero no se
-> reserva), la colocación en varias GPUs, y la política de señales a la vista
-> del 16.7%. Las tres necesitan una decisión, no código.
+> **1326 tests + 33 doctests en verde** y **dos preguntas sin responder** — y
+> ninguna es técnica: la colocación en varias GPUs, y la política de señales a
+> la vista del 16.7%. Las dos necesitan una decisión, no código.
+>
+> La tercera ya no es una pregunta: **la VRAM se reserva** (D-27, 2026-10-21).
+> La reserva va antes del arranque, se corrige al peso medido, ve la memoria
+> que usa la gente de fuera de Candil, y el CLI y la API arrancan por el mismo
+> camino. Lo que **no** se rellena es el `vram_mb` del catálogo, y es una
+> decisión con medición detrás: el mismo modelo ocupa 795, 7978 o 10452 MiB
+> según la memoria libre del instante, así que un número escrito a mano sería
+> la cifra de un momento y no la verdad.
 >
 > El defecto del refusal ya no es una de ellas: D-09 lo decidió el 2026-10-11 y
 > `fail` es el defecto, con `Retry-After` y todo.
@@ -376,13 +388,14 @@ servidor local real y las rutas `etiquetado` / `etiquetado-malo`.
 La regla: una pieza interna sin llamador en `lib/` es trabajo sin empezar, no
 una fase cerrada. Una API pública sin llamador interno es lo normal y no cuenta.
 
-Medido el 2026-10-19 sobre `main`:
+Medido el 2026-10-21 sobre la rama `fix/d27-resource-reservation` (base `main` `398a1b9`):
 
 | Módulo | Llamadores en `lib/` | Estado |
 |---|---|---|
-| `Candil.Scheduler` | 1 (`Candil.ensure_engine_running/2`) | Parcialmente conectado (P-10) |
+| `Candil.Scheduler` | 1 (`Candil.Engine.start_placed/2`) | **Cableado (P-10)**: `start_placed/2` es el camino **único** de arranque, y lo usan igual la API (`Candil.chat/2`, `Candil.serve/0`) y el CLI (`candil run`) — el scheduler decide dónde va el modelo y quien expulsa a las víctimas es `start_placed/2` |
 | `Candil.Scheduler.Signal` | 0 | Construido y desconectado |
-| `Candil.Scheduler.Devices` | 0 | Construido y desconectado |
+| `Candil.Scheduler.Devices` | 2 (`Candil.Scheduler`, `Candil.Engine.Resource`) | Cableado: además de la detección del scheduler, `Resource.sync_foreign/1` lo usa para leer la memoria real del device y descontar la ajena |
+| `Candil.Engine.Resource` | 2 (`Candil.Engine`, `Candil.Scheduler`) | Cableado (D-27): reserva antes de arrancar, corrige al peso medido, libera al parar o morir el motor, y **descuento la memoria ajena** (titular `:foreign`) antes de cada colocación |
 | `Candil.RAG.Store` | 1 (`Candil.RAG`) | Cableado (fase 6) |
 | `Candil.MCP.Server` | 1 (`Candil.MCP.serve/1`) | Cableado (fase 7 Nivel 1) |
 | `Candil.Storage.Store` | 1 (`Candil.Context`) | Cableado (F2.3) |

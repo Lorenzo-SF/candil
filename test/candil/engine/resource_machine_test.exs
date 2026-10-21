@@ -24,7 +24,7 @@ defmodule Candil.Engine.Resource.MachineTest do
     on_exit(fn ->
       Application.put_env(:apero, :http_adapter, previous_adapter)
 
-      for model_alias <- [:oom_test_model, :missing_binary_model] do
+      for model_alias <- [:oom_test_model, :missing_binary_model, :recorte_test_model] do
         try do
           Candil.Llm.stop_engine(model_alias)
         rescue
@@ -56,6 +56,17 @@ defmodule Candil.Engine.Resource.MachineTest do
 
     :ok = Store.register_engine(engine)
     :ok
+  end
+
+  # La sonda de salud del motor: `Engine.healthy?/1` consulta al server por
+  # HTTP, y el server no responde hasta que ha cargado el modelo. Es la
+  # prueba de que los args sirvieron.
+  defp eventually_healthy(alias_, tries \\ 120) do
+    cond do
+      Candil.Llm.engine_healthy?(alias_) -> true
+      tries == 0 -> false
+      true -> Process.sleep(1_000) && eventually_healthy(alias_, tries - 1)
+    end
   end
 
   test "un arranque fallido antes de crear el server libera la reserva" do
@@ -90,6 +101,80 @@ defmodule Candil.Engine.Resource.MachineTest do
     assert Candil.Engine.Resource.available(0) == available_before,
            "la reserva no se liberó: antes=#{available_before}, después=" <>
              "#{Candil.Engine.Resource.available(0)}"
+  end
+
+  @tag timeout: 300_000
+  test "un modelo real que NECESITA RECORTE arranca, y su peso es el ajustado" do
+    # La puerta que faltaba. Los dos fallos de `FitParams` —el peso
+    # proyectado en vez del ajustado, y el `-ot` entrecomillado— SOLO se ven
+    # con un modelo que necesita recorte, porque son los únicos casos en los
+    # que `fit-params` escribe un `-ot` y en los que el peso ajustado es
+    # menor que el proyectado.
+    #
+    # Con un modelo que cabe entero no hay recorte, no hay `-ot`, y el peso
+    # proyectado y el ajustado coinciden. Por eso el gate anterior, con un
+    # modelo de 4 GB, no cazó nada.
+    model = %Model{
+      alias: :recorte_test_model,
+      type: :local,
+      engine: :llama_cpp,
+      context_size: 131_072,
+      usage: [:chat],
+      model_dir: Path.dirname(@model),
+      filename: Path.basename(@model),
+      gpu_layers: -1,
+      model_args: ["--cache-type-k", "q8_0", "--cache-type-v", "q8_0", "--kv-unified"]
+    }
+
+    :ok = Store.register_model(model)
+
+    # 1 · El peso ajustado cabe en la memoria libre REAL, y es el ajustado.
+    [device] = Candil.Scheduler.Devices.detect()
+
+    assert {:ok, weight, args} =
+             Candil.Engine.FitParams.run(elem(Store.get_engine(:llama_cpp), 1), model, 0)
+
+    assert weight > 0, "el peso ajustado es 0"
+
+    assert weight <= device.free_mb,
+           "el peso ajustado (#{weight}) no cabe en los #{device.free_mb} MiB libres"
+
+    # Y los args no llevan comillas: con ellas, llama-server responde
+    # `unknown buffer type` y NO ARRANCA.
+    refute Enum.any?(args, &String.contains?(&1, "\""))
+
+    # 2 · El motor arranca de verdad, y por el camino **ÚNICO**: el scheduler
+    # decide el device y la reserva va antes de arrancar.
+    #
+    # Esto es, a la vez, la prueba de que `place/3` **se ejecutó**. `Engine.start/3`
+    # con `device = nil` no reserva nada —sin device no hay dónde reservar—, así
+    # que **que haya reserva** prueba que alguien decidió un device. Y el único
+    # que decide es `Scheduler.plan/1`. Un test que solo comprueba que la
+    # función tiene tests no prueba nada de esto.
+    #
+    # El ledger se reajusta antes de medir, porque `start_placed` sincroniza la
+    # memoria ajena y eso cambia la disponible.
+    :ok = Candil.Engine.Resource.sync_foreign(0)
+    available_before = Candil.Engine.Resource.available(0)
+    engine = elem(Store.get_engine(:llama_cpp), 1)
+
+    assert {:ok, _pid} = Candil.Engine.start_placed(engine, model)
+
+    # 3 · La reserva es el peso real, no el declarado.
+    assert Candil.Engine.Resource.available(0) == available_before - weight
+
+    # 3-bis · Y el motor CARGA de verdad. Con los args rotos —el `-ot` entrecomillado—
+    # llama-server responde `unknown buffer type` y sale; con el peso
+    # proyectado en vez del ajustado, hace OOM. Los dos fallos.medidos pasaban
+    # el `{:ok, pid}` y morian despues, asi que sin esta espera el test pasa
+    # con el motor muerto.
+    assert eventually_healthy(:recorte_test_model),
+           "el motor no llegó a estar sano: el log dice lo que pasó"
+
+    # 4 · Y al parar, la memoria vuelve.
+    :ok = Candil.Llm.stop_engine(:recorte_test_model)
+
+    assert Candil.Engine.Resource.available(0) == available_before
   end
 
   test "un motor que muere después de arrancar libera la reserva" do

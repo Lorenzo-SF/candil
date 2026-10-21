@@ -20,10 +20,59 @@ defmodule Candil.CLITest.CpuArgsTest do
 
   @moduletag :tmp_dir
 
+  # Un `nvidia-smi` de mentira. Cuatro preguntas, cuatro respuestas:
+  #
+  #   -L                                        → hay NVIDIA
+  #   --query-gpu=index,name,memory.total,memory.free → una GPU con sitio
+  #   --query-gpu=index,uuid                   → el mapa UUID -> índice
+  #   --query-compute-apps=...                 → ningún proceso en la GPU
+  #
+  # Sin esto, el test depende de la máquina: en CI no hay GPU (el scheduler no
+  # tiene donde colocar y el motor no arranca) y en local puede estar ocupada
+  # por otra sesión (igual). Un test que depende del hardware de quien lo
+  # corre no es un test: es una lottery. Medido el 2026-10-21: con la GPU al
+  # 99 % de otra sesión, este test fallaba —y el fallo no era del código.
+  @fake_nvidia_smi ~s"""
+  #!/bin/sh
+  case "$*" in
+    *"-L"*)
+      echo "GPU 0: NVIDIA GeForce RTX 5080 (UUID: GPU-00000000-0000-0000-0000-000000000000)"
+      ;;
+    *"--query-gpu=index,name,memory.total,memory.free"*)
+      echo "0, NVIDIA GeForce RTX 5080, 16303, 16000"
+      ;;
+    *"--query-gpu=index,uuid"*)
+      echo "0, GPU-00000000-0000-0000-0000-000000000000"
+      ;;
+    *)
+      # `--query-compute-apps`: no hay ningún proceso usando la GPU.
+      ;;
+  esac
+  exit 0
+  """
+
   setup %{tmp_dir: tmp_dir} do
     previous = System.get_env("CANDIL_DATA_DIR")
     System.put_env("CANDIL_DATA_DIR", Path.join(tmp_dir, "data"))
     on_exit(fn -> if previous, do: System.put_env("CANDIL_DATA_DIR", previous) end)
+
+    # El `nvidia-smi` falso va **delante** en el PATH: `System.find_executable/1`
+    # y `System.cmd/3` lo encuentran ahí. Vive en el `tmp_dir` del test, así que
+    # ExUnit lo borra solo.
+    fake_bin = Path.join(tmp_dir, "fake-bin")
+    File.mkdir_p!(fake_bin)
+    fake_smi = Path.join(fake_bin, "nvidia-smi")
+    File.write!(fake_smi, @fake_nvidia_smi)
+    File.chmod!(fake_smi, 0o755)
+
+    previous_path = System.get_env("PATH")
+    System.put_env("PATH", fake_bin <> ":" <> previous_path)
+    on_exit(fn -> if previous_path, do: System.put_env("PATH", previous_path) end)
+
+    # El ledger del device 0 es global: este test lo crea (con la capacidad
+    # que dice el `nvidia-smi` falso) y se lo lleva por delante, para no dejar
+    # un titular `:foreign` de 303 MiB en el resto de la suite.
+    on_exit(fn -> Candil.Engine.Resource.stop_device(0) end)
 
     Process.flag(:trap_exit, true)
     :ok
