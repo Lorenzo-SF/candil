@@ -746,8 +746,8 @@ requisito de la reserva.
 
 - **Multi-GPU con split** (`--split-mode layer`, `--tensor-split`): es otro
   problema (P-6), no se toca ahora. Cada motor va a un solo device.
-- **Cablear `Arrea.Resource`**: es el paso siguiente (después de esta
-  decisión y de la medición del peso).
+- **Cablear `Arrea.Resource`**: hecho en la implementación (2026-10-21).
+  Queda el reintento multi-device (P-6) y llevar `vram_mb` al catálogo (P-10).
 - **Medición fuera de NVIDIA**: el peso se calcula de la configuración y de
   la medición por PID (`nvidia-smi`). En Metal/ROCm no hay `nvidia-smi`;
   ahí la reserva queda como estimación hasta que exista su equivalente.
@@ -765,6 +765,60 @@ requisito de la reserva.
   sin GPU).
 - **P-4 queda desbloqueado**: la reserva se hace antes de arrancar, en el
   device que el plan eligió, con un peso que sale de la configuración.
+
+### Lo que se decidió al implementarlo (2026-10-21)
+
+La implementación encontró tres cosas que la decisión no había fijado, y una
+que estaba mal en el primer intento:
+
+- **La cuota de `Arrea.Resource.acquire/4` es `0`, no `:infinity`.** El eje
+  blando de `acquire/4` valida `is_number/1` en los dos importes; `:infinity`
+  solo vale como opción `:quota` del resource. Pasar el átomo devolvía
+  `:unknown_cost` y **abortaba todos los arranques de GPU**. El wrapper
+  `Candil.Engine.Resource.acquire/3` ya no acepta cuota: siempre `0`.
+- **`vram_mb` no es obligatorio.** Si falta, el modelo **arranca** y no se
+  reserva; se avisa por `Logger.warning`. La reserva es planificación, no
+  arranque: un modelo sin `vram_mb` no puede planificarse bien, pero no puede
+  dejar de funcionar por eso. Si está, es un **techo declarado**: la reserva
+  inicial usa ese número y solo sube con el peso medido por
+  `llama-fit-params`; nunca baja, porque bajar devolvería capacidad que el
+  motor sigue ocupando.
+- **La reserva inicial no puede ser una estimación por contexto.**
+  `div(ctx, 1024) * 4` daba 512 MiB para un modelo de 14707: reservar de menos
+  es peor que no reservar, porque el knapsack afirma capacidad que no tiene.
+  Por eso el acquire solo ocurre con `vram_mb` declarado.
+- **La capacidad es la del motor.** Se registra el total de `nvidia-smi`
+  (16303 MiB en la RTX 5080) y se reservan 370 MiB como titular `:system`;
+  `available/1` devuelve 15933. La cuota de ese acquire también es `0`.
+- **El titular es `{alias, port}` y se construye en un solo sitio**
+  (`Candil.Engine.holder/2`). `Engine.start/3` reserva; `Server.terminate/2`
+  libera. Si `init/1` falla, `terminate/2` no se llama y libera `Engine.start/3`.
+- **`Server` atrapa salidas (`trap_exit`).** Sin eso, la salida de `LongRunning`
+  —el motor murió— mataba el GenServer por el link **sin pasar por
+  `terminate/2`**, y la reserva se quedaba puesta para siempre. El
+  `handle_info` de `{:EXIT, lr_pid, reason}` para el server por la misma razón y
+  así `terminate/2` corre. `Engine.stop/1` tolera la carrera con una parada en
+  curso.
+
+### Verificación de la implementación (2026-10-21)
+
+Medido con `Agents-A1-4B-Q8_0.gguf` (4,48 GB), ctx 32768, caché `q8_0`,
+device 0, y un `vram_mb` declarado de 1000:
+
+| Paso | Medida |
+|---|---|
+| `available` antes | 15933 MiB (16303 − 370 de overhead) |
+| `llama-fit-params` | 5395 MiB, `-c 32768 -ngl -1` |
+| `available` con el motor cargado | 10538 MiB (reserva corregida de 1000 a 5395) |
+| `available` tras parar | 15933 MiB |
+| motor cargado | `healthy: true`, 5458 MiB en `nvidia-smi` por PID |
+
+Los tests de máquina `resource_machine_test.exs` (arranque fallido y motor que
+muere), `fit_params_machine_test.exs` y `scheduler_machine_test.exs` pasan con
+la GPU real. **No se pudo arrancar un modelo del catálogo**: los GGUF de
+`~/models/gguf/` desaparecieron durante la sesión y ningún modelo
+del catálogo declara `vram_mb`. Eso queda como gate pendiente para cuando los
+ficheros vuelvan.
 
 ### Cómo se revisa
 

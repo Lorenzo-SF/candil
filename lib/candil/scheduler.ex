@@ -138,6 +138,9 @@ defmodule Candil.Scheduler do
 
   def device_index(_os_pid, _usage_by_pid), do: nil
 
+  # No es una estimacion de VRAM: es un cuarto de MiB por cada 1024 tokens de
+  # contexto. Se queda como suelo para planificar cuando el modelo no declara
+  # `vram_mb`; la verdad la da `llama-fit-params` al arrancar. Ver P-10.
   defp estimate_model_size(%Candil.Model{context_size: ctx}) when is_integer(ctx) and ctx > 0 do
     div(ctx, 1024) * 4
   end

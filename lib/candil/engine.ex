@@ -36,6 +36,8 @@ defmodule Candil.Engine do
   alias Candil.Engine.Server
   alias Candil.{EnginePool, Installer}
 
+  require Logger
+
   @enforce_keys [:alias]
 
   defstruct alias: nil,
@@ -372,16 +374,110 @@ defmodule Candil.Engine do
   """
   @spec start(t(), Candil.Model.t(), non_neg_integer() | nil) :: {:ok, pid()} | {:error, term()}
   def start(%__MODULE__{} = engine, %Candil.Model{} = model, device \\ nil) do
-    # D-27 sub-paso 2: llama-fit-params calcula el peso y los args ajustados
-    # antes de arrancar. Si no está disponible (instalación antigua, strategy
-    # :none), se cae a build_args con la estimación (vram_mb).
-    {fitted_args, _weight} =
-      case Candil.Engine.FitParams.run(engine, model, device) do
-        {:ok, w, args} -> {args, w}
-        :fallback -> {nil, nil}
-      end
+    is_cpu = engine.cpu or model.gpu_layers == 0
 
+    # D-27: la reserva va ANTES de `fit-params` para serializar arranques
+    # concurrentes. Solo reserva un modelo de GPU que declare `vram_mb`: una
+    # estimación por contexto no es una medición (daba 512 MiB para un modelo
+    # de 14707) y reservar de menos es peor que no reservar, porque el
+    # knapsack acaba afirmando capacidad que no tiene. Sin `vram_mb` el
+    # modelo arranca igual —falta planificación, no arranque— y se avisa.
+    case acquire(engine, model, is_cpu, device) do
+      :skip ->
+        start_unreserved(engine, model, device)
+
+      :skip_no_vram ->
+        Logger.warning(
+          "modelo #{inspect(model.alias)} sin vram_mb: arranca en " <>
+            "#{inspect(device)} sin reserva de VRAM"
+        )
+
+        start_unreserved(engine, model, device)
+
+      {:ok, _receipt} ->
+        start_reserved(engine, model, device)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc false
+  # El titular de la reserva, en UN sitio. `Engine.start/3` lo usa para
+  # reservar y `Server.terminate/2` para liberar; si cada uno lo construyera
+  # por su cuenta, un cambio en uno dejaría la reserva de la otra instancia.
+  @spec holder(Candil.Model.t(), t()) :: {atom(), non_neg_integer() | nil}
+  def holder(%Candil.Model{} = model, %__MODULE__{} = engine) do
+    {model.alias, model.port || engine.port}
+  end
+
+  defp acquire(engine, model, is_cpu, device) do
+    cond do
+      # Un motor externo no ocupa esta GPU: no hay nada que reservar.
+      engine.launcher != nil -> :skip
+      # Un modelo de CPU no pide VRAM.
+      is_cpu -> :skip
+      # Sin device resuelto no se sabe dónde reservar.
+      not is_integer(device) or device < 0 -> :skip
+      # `vram_mb` es una declaración, no una estimación: si falta, no se
+      # reserva. El modelo arranca; lo que falta es planificación.
+      is_nil(model.vram_mb) -> :skip_no_vram
+      # `vram_mb: 0` es «este modelo no pide VRAM», no «no lo sé».
+      model.vram_mb <= 0 -> :skip
+      true -> Candil.Engine.Resource.acquire(device, holder(model, engine), model.vram_mb)
+    end
+  end
+
+  defp start_unreserved(engine, model, device) do
+    {fitted_args, _weight} = fit_params_or_fallback(engine, model, device)
     do_start(engine, model, device, fitted_args)
+  end
+
+  defp start_reserved(engine, model, device) do
+    holder = holder(model, engine)
+    {fitted_args, weight} = fit_params_or_fallback(engine, model, device)
+
+    with :ok <- correct_reservation(device, holder, model.vram_mb, weight) do
+      case do_start(engine, model, device, fitted_args) do
+        {:ok, pid} ->
+          {:ok, pid}
+
+        {:error, reason} ->
+          # `init/1` fallido no pasa por `terminate/2`: la reserva se libera
+          # aquí, que es el único punto donde sigue en vuelo.
+          _ = release_reservation(device, holder)
+          {:error, reason}
+      end
+    end
+  end
+
+  # `vram_mb` es un techo declarado, no una medición: la reserva solo sube.
+  # Corregir a la baja devolvería capacidad que el motor sigue ocupando; al
+  # alza evita el OOM cuando `llama-fit-params` mide más de lo declarado.
+  defp correct_reservation(_device, _holder, _declared, weight) when not is_integer(weight),
+    do: :ok
+
+  defp correct_reservation(_device, _holder, declared, weight) when weight <= declared, do: :ok
+
+  defp correct_reservation(device, holder, _declared, weight) do
+    _ = release_reservation(device, holder)
+
+    case Candil.Engine.Resource.acquire(device, holder, weight) do
+      {:ok, _receipt} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Un solo dueño para cada reserva: `Engine.start/3` la sostiene mientras el
+  # server no existe (un `init/1` fallido no pasa por `terminate/2`); en
+  # cuanto `Server.start_link/1` devuelve `{:ok, pid}`, la libera
+  # `Server.terminate/2`. Nunca las dos para la misma reserva.
+  defp release_reservation(device, holder) do
+    if is_integer(device) and device >= 0 do
+      Candil.Engine.Resource.release(device, holder)
+    else
+      :ok
+    end
   end
 
   @doc """
@@ -437,6 +533,13 @@ defmodule Candil.Engine do
     end
   end
 
+  defp fit_params_or_fallback(engine, model, device) do
+    case Candil.Engine.FitParams.run(engine, model, device) do
+      {:ok, w, args} -> {args, w}
+      :fallback -> {nil, nil}
+    end
+  end
+
   defp register_instance(pid, engine, model) do
     EnginePool.put(model.alias, instance_port(model, engine), pid, model, engine)
   end
@@ -486,7 +589,19 @@ defmodule Candil.Engine do
   def stop(model_alias) when is_atom(model_alias) do
     case Registry.lookup(registry(), model_alias) do
       [{pid, _}] ->
-        GenServer.stop(pid, :normal)
+        # El server atrapa salidas desde D-27 para poder liberar la reserva en
+        # `terminate/2`. Eso abre una carrera con una parada en curso: si el
+        # motor ya esta cayendo, `GenServer.stop/3` sale con `:shutdown`/
+        # `:noproc` y el engine esta, igualmente, parado. No es un error.
+        try do
+          GenServer.stop(pid, :normal)
+        catch
+          # `:noproc` si ya no esta; el `:shutdown` anidado que `:sys.terminate`
+          # devuelve cuando otra salida lo esta parando. En los dos casos el
+          # engine acaba parado, que es lo que pide `stop/1`.
+          :exit, _reason -> :ok
+        end
+
         forget(model_alias)
         :ok
 
