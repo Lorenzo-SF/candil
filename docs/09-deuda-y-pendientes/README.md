@@ -249,6 +249,29 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 | **P-9** | La otra mitad del §8.3 de los agentes: un agente que **revienta** en bucle | 🟡 **a medias, y las dos primeras mitades cerradas el 2026-10-17**: el breaker cubre el **cuelgue** (5 seguidos abren, la puerta contesta sin pagar el plazo) y ahora **sobrevive al reinicio** — el circuito vive en `Candil.Agents.Breakers` (ETS en el árbol, por nombre, como los snapshots), así que un agente nombrado que revienta y vuelve encuentra su circuito como lo dejó y se niega a trabajar en vez de volver a colgarse. La mitad que sigue fuera: un agente **sin nombre** (no tiene identidad que sobrevivir) y un crash que no es un cuelgue —un `raise` en bucle—, que el breaker no cuenta (solo el plazo es fallo) y que el supervisor solo frena con su intensidad 10/5 s global. Y ahora tiene **presupuesto de crashes por agente** (`Candil.Agents.Crashes`: 5 crashes en 60 s y el agente se niega a arrancar con `:crash_budget_exceeded`). Lo que sigue fuera: un agente **sin nombre**. D-25 abre la tercera opción —darle identidad derivada (`{módulo, hash de las opciones}` o el `goal`) para que caiga en la misma puerta que los nombrados—. Si se prefiere que sigan sin protección, queda escrito como decisión explícita. Relectura si al llegar ahí no hay señal: quizá no hace falta un breaker, sino no reiniciar |
 
 
+### Y Candil reventaba en toda máquina con GPU pero sin el toolkit de CUDA
+
+Medido el 2026-10-21, y **no es un problema de tests: es un crash de
+producción**.
+
+`Candil.Detector.GPU` pregunta la versión de CUDA con
+`System.cmd("nvcc", ["--version"])`, y **`System.cmd/3` no devuelve un error
+cuando el binario no existe: lanza una `ErlangError` con `:enoent`**. El
+driver de NVIDIA se instala sin el toolkit de CUDA, así que `nvcc` no está en
+muchísimas máquinas que sí tienen GPU —y en todas ellas Candil reventaba al
+detectar el hardware.
+
+Lo destapó el `nvidia-smi` de mentira de los tests (D-27): el runner de CI
+tiene `nvidia-smi` y no tiene `nvcc`, y el CI se puso rojo con cinco
+`ErlangError` que no tenían nada que ver con lo que se estaba probando. El
+arreglo es `Candil.Detector.GPU.cmd/2`, que pregunta antes de ejecutar y
+devuelve `:not_found`; con test de regresión (`gpu_test.exs`).
+
+La moraleja está escrita en el mismo sitio: **un test que depende de la
+máquina no solo da falsos negativos, también enseña cosas**. Un test frágil
+que se salta para que el CI sea verde se lleva por delante el crash que
+había debajo.
+
 ### Lo que se midió el 2026-10-15, y que arregló un 500 vacío
 
 Buscando por qué la suite dependía de la máquina salió un fallo de verdad, y

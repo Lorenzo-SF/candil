@@ -932,6 +932,21 @@ donde el titular `:foreign` no cabe en el ledger y la disponible tenía que
 caer a 0. Un test que depende del hardware de quien lo corre no es un test: es
 una lotería.
 
+**12 · Y debajo de eso había un crash de producción.** El `nvidia-smi` de
+mentira destapó un bug que no era de tests: `Candil.Detector.GPU` pregunta la
+versión de CUDA con `System.cmd("nvcc", ...)`, y **`System.cmd/3` no devuelve
+un error cuando el binario no existe: lanza una `ErlangError` con `:enoent`**.
+El driver de NVIDIA se puede instalar **sin el toolkit de CUDA**, así que
+`nvcc` no está en muchísimas máquinas que sí tienen GPU —y en todas ellas
+Candil reventaba al detectar el hardware. En el CI se ve porque el runner
+tiene `nvidia-smi` (el de mentira) y no tiene `nvcc`.
+
+El arreglo es preguntar antes de ejecutar (`Candil.Detector.GPU.cmd/2`), que
+además cubre el caso de un binario que existe pero no se puede arrancar. Es
+un crash de producción que llevaba años ahí, y lo ha destapado un test que
+dependía de la máquina: **un test frágil no solo da falsos negativos, también
+enseña cosas**.
+
 ### Verificación de la implementación (2026-10-21)
 
 Medido con `Agents-A1-4B-Q8_0.gguf` (4,48 GB), ctx 32768, caché `q8_0`,
