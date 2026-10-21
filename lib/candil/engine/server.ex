@@ -59,6 +59,7 @@ defmodule Candil.Engine.Server do
           lr_pid: pid(),
           healthy: boolean(),
           device: non_neg_integer() | nil,
+          holder: term() | nil,
           parent: pid() | nil
         }
 
@@ -79,6 +80,7 @@ defmodule Candil.Engine.Server do
 
     parent = Map.get(init_arg, :parent)
     device = Map.get(init_arg, :device)
+    holder = Map.get(init_arg, :holder)
     fitted_args = Map.get(init_arg, :fitted_args)
     cd = model_dir_safe(model)
     args = build_args(engine, model, device, fitted_args)
@@ -106,6 +108,7 @@ defmodule Candil.Engine.Server do
           lr_pid: lr_pid,
           healthy: false,
           device: device,
+          holder: holder,
           parent: parent
         }
 
@@ -201,12 +204,19 @@ defmodule Candil.Engine.Server do
   def id_for(%{alias: model_alias}, %{port: port}), do: {:candil_engine, model_alias, port}
 
   @impl GenServer
-  def terminate(_reason, %{model: model, engine: engine, device: device}) do
+  def terminate(_reason, %{model: model, engine: engine, device: device, holder: holder}) do
     _ = LongRunning.stop(id_for(model, engine))
 
     # D-27 sub-paso 3: liberar la reserva del resource si es GPU.
-    if is_integer(device) and device >= 0 and not (engine.cpu or model.gpu_layers == 0) do
-      Candil.Engine.Resource.release(device, Engine.holder(model, engine))
+    #
+    # Se libera **el titular que llegó con el server**, no uno recalculado
+    # aquí: el titular lleva una generación (`make_ref/0`) y `{alias, port}`
+    # no es único en el tiempo. Si el puerto se reutiliza y este `terminate/2`
+    # llega tarde, un titular recalculado podría soltar la reserva **del
+    # modelo nuevo**, que la estaba usando.
+    if is_integer(device) and device >= 0 and not (engine.cpu or model.gpu_layers == 0) and
+         holder != nil do
+      Candil.Engine.Resource.release(device, holder)
     end
 
     :ok

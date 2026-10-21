@@ -113,6 +113,33 @@ defmodule Candil.Engine.ResourceForeignTest do
       assert :foreign in Enum.map(status.holders, &elem(&1, 0))
     end
 
+    test "la memoria de Candil no se cuenta como ajena", %{device: device} do
+      :ok = Resource.ensure_registered(device)
+
+      # Un modelo de Candil ocupando 5000 MiB. La memoria AJENA es la que
+      # queda de la real menos lo que ocupa Candil:
+      #
+      #     foreign = (total − free_real) − modelos_de_Candil
+      #
+      # Sin la resta de los modelos, los 5000 se descontarían **dos veces**
+      # (una como modelo y otra como ajenos), y el ledger afirmaría menos
+      # memoria de la que hay.
+      {:ok, _receipt} = Resource.acquire(device, {:coder, 9999}, 5000)
+
+      :ok = Resource.sync_foreign(device)
+
+      # La disponible es el total menos el overhead y menos el modelo, y el
+      # titular `:foreign` no está (aquí no hay nada ajeno: 16303 − 16000 son
+      # 303 MiB, y menos los 5000 del modelo, el resto es 0).
+      assert Resource.available(device) == @total - @overhead - 5000
+
+      status = Arrea.Resource.status(device_name(device))
+      holders = Enum.map(status.holders, &elem(&1, 0))
+
+      assert {:coder, 9999} in holders
+      assert :system in holders
+    end
+
     test "la memoria ajena se reajusta sola", %{device: device} do
       # `sync_foreign/1` es lo que llama el scheduler antes de decidir. Aqui se
       # comprueba con lo que hay: sin `nvidia-smi` que diga otra cosa, el

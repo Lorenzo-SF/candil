@@ -136,8 +136,20 @@ defmodule Candil.Engine.Resource.MachineTest do
 
     assert weight > 0, "el peso ajustado es 0"
 
-    assert weight <= device.free_mb,
-           "el peso ajustado (#{weight}) no cabe en los #{device.free_mb} MiB libres"
+    # El peso ajustado tiene que caber en la GPU **entera**, y no en la
+    # memoria libre del instante: esa la mide otra sesión y cambia mientras
+    # se mide (el 2026-10-21, con otra sesión moviéndose, el peso medido fue
+    # de 556 MiB con 441 MiB libres — porque la memoria libre cayó entre la
+    # lectura y la medición).
+    #
+    # Y lo que esta aserción caza es el bug de verdad: el peso **proyectado**
+    # (19053 MiB) no cabe en 16303 MiB de GPU, así que con el parser viejo
+    # —que leía el proyectado— esta puerta se ponía roja. Y con el peso
+    # proyectado, además, la reserva de 19053 contra una capacidad de 16303
+    # no habría cabido: el modelo no habría arrancado.
+    assert weight < device.total_mb,
+           "el peso (#{weight}) no cabe en los #{device.total_mb} MiB de la GPU: " <>
+             "eso es el peso PROYECTADO, no el ajustado"
 
     # Y los args no llevan comillas: con ellas, llama-server responde
     # `unknown buffer type` y NO ARRANCA.

@@ -145,6 +145,17 @@ defmodule Candil.CLI.Lifecycle do
     end
   end
 
+  # `reason_text/1` es lo que ve la persona, y por eso distingue dos hechos
+  # que antes salían como el mismo: **«esta máquina no tiene GPU»** y **«no
+  # cabe»**. El primero tiene salida —`--cpu`— y el segundo no.
+  defp reason_text(:no_gpu) do
+    "esta máquina no tiene GPU; usa --cpu para ejecutarlo en CPU"
+  end
+
+  defp reason_text(:no_room) do
+    "no cabe en la GPU: no hay VRAM libre para el modelo"
+  end
+
   defp reason_text(reason) when is_binary(reason), do: reason
   defp reason_text(reason), do: inspect(reason)
 

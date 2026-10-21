@@ -947,6 +947,51 @@ un crash de producción que llevaba años ahí, y lo ha destapado un test que
 dependía de la máquina: **un test frágil no solo da falsos negativos, también
 enseña cosas**.
 
+### La tercera ronda (2026-10-21): la revisión del consejero
+
+El consejero revisó el PR y retiró tres cosas: **la semántica de
+`vram_mb`**, **el error de «no hay GPU»** y **la identidad del titular**. Las
+tres están cambiadas, y una de ellas ha encontrado un bug de verdad.
+
+**`vram_mb` es una cota inferior, no una foto.** Es el **mínimo** que el
+modelo ocupa con seguridad —el peso *después* de que llama.cpp recorte las
+capas que no caben—, no el footprint completo y no «cuánto ocupaba la última
+vez». Con esa semántica, el acquire inicial es seguro (si la cota no cabe, el
+peso real, que es >= la cota, tampoco cabe) y el scheduler no rechaza un
+modelo recortable por un número alto. **El catálogo no lleva ninguno**, y el
+`template.ex` lo dice con esas palabras.
+
+**El mutex no es una reserva.** Sin `vram_mb`, lo que se toma es un **mutex**
+—una estimación provisional para serializar los arranques concurrentes
+mientras `fit-params` mide—, y un mutex **no puede rechazar**: si no cabe,
+el modelo sigue y **la medición** decide, que es lo único que sabe cuánto va
+a ocupar de verdad. La honestidad del ledger la da el titular `:foreign`, no
+la estimación.
+
+**`:no_gpu` no es `:no_room`.** «Esta máquina no tiene GPU» y «no cabe» son
+hechos distintos, y el primero tiene salida (`--cpu`) mientras el segundo no.
+Ahora el scheduler devuelve `{:error, :no_gpu}` cuando no hay devices
+usables, y la API y el CLI devuelven **el mismo** error. Unificar el
+comportamiento sin unificar el error no arregla nada.
+
+**El titular lleva una generación.** `{alias, port}` no es único en el
+tiempo: si el puerto se reutiliza y el `terminate/2` del server viejo llega
+tarde, su `release/2` —que quita la primera entrada de ese titular— podía
+soltar la reserva **del modelo nuevo**. Ahora el titular es
+`{alias, port, make_ref()}`, se crea **una vez** en `Engine.start/3` y lo
+usan el acquire, la corrección y el `terminate/2`.
+
+> Medido: con el titular sin generación, el test nuevo falla con «un release de
+> un titular viejo soltó la reserva del nuevo». Con ella, verde.
+
+Y una limitación que se ha **documentado** en vez de resuelta: el ajuste de
+`:foreign` son dos llamadas (`release` + `acquire`) y entre ellas hay un hueco
+—microsegundos— en el que otro arranque ve una disponible demasiado grande. El
+daño está acotado, porque la corrección al peso **medido** es la que sí es
+atómica y el modelo que no quepa se para. Con un solo usuario es despreciable;
+si algún día el scheduler coloca dos modelos a la vez, hay que serializarlo
+por device.
+
 ### Verificación de la implementación (2026-10-21)
 
 Medido con `Agents-A1-4B-Q8_0.gguf` (4,48 GB), ctx 32768, caché `q8_0`,

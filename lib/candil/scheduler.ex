@@ -53,6 +53,7 @@ defmodule Candil.Scheduler do
   @type decision ::
           {:ok, non_neg_integer() | :proceed}
           | {:evict, [term()], non_neg_integer()}
+          | {:error, :no_gpu}
           | {:error, :no_room}
 
   @doc """
@@ -101,8 +102,12 @@ defmodule Candil.Scheduler do
 
   Si el modelo no pide VRAM (`size_mb == 0`, típicamente un modelo de CPU
   puro), devuelve `{:ok, :proceed}` sin mirar dispositivos: no hay nada que
-  colocar ni que expulsar. Si pide VRAM y no hay dispositivos (sin GPU o sin
-  nvidia-smi), devuelve `{:error, :no_room}`.
+  colocar ni que expulsar.
+
+  Si pide VRAM y **no hay GPU** (sin devices usables, o sin `nvidia-smi`),
+  devuelve `{:error, :no_gpu}`. Y si hay GPU pero no cabe,
+  `{:error, :no_room}`. Son hechos distintos: el primero se resuelve con
+  `--cpu`, el segundo no.
 
   Devuelve `{:ok, :proceed}` si no hay que hacer nada especial, o la
   decisión de `place/3`.
@@ -121,7 +126,6 @@ defmodule Candil.Scheduler do
 
   defp plan_on_gpu(model) do
     size_mb = model.vram_mb || estimate_model_size(model)
-    instances = build_instances()
 
     # El ledger tiene que estar al día ANTES de decidir, o la decisión se toma
     # sobre una memoria que ya no existe. La memoria ajena —la que usan
@@ -148,7 +152,17 @@ defmodule Candil.Scheduler do
         end
       end)
 
-    place(size_mb, devices, instances)
+    # «No hay GPU» y «no cabe» son **hechos distintos**, y el mensaje tiene
+    # que distinguirlos: `--cpu` es la salida del primero, y del segundo no
+    # hay salida que no sea liberar memoria.
+    #
+    # Antes los dos salían como `:no_room`, que en una máquina sin GPU decía
+    # «la GPU está llena» cuando la verdad es «aquí no hay GPU».
+    if Enum.any?(devices, & &1.usable) do
+      place(size_mb, devices, build_instances())
+    else
+      {:error, :no_gpu}
+    end
   end
 
   @doc false
@@ -173,14 +187,25 @@ defmodule Candil.Scheduler do
 
   def device_index(_os_pid, _usage_by_pid), do: nil
 
-  # No es una estimacion de VRAM: es un cuarto de MiB por cada 1024 tokens de
-  # contexto. Se queda como suelo para planificar cuando el modelo no declara
-  # `vram_mb`; la verdad la da `llama-fit-params` al arrancar. Ver P-10.
-  defp estimate_model_size(%Candil.Model{context_size: ctx}) when is_integer(ctx) and ctx > 0 do
+  @doc """
+  La estimación de VRAM de un modelo: un cuarto de MiB por cada 1024 tokens de
+  contexto.
+
+  No es una estimación de VRAM: es un **suelo** (y un **mutex**) para cuando
+  el modelo no declara `vram_mb`. La verdad la da `llama-fit-params` al
+  arrancar, y por eso el número que se usa de verdad se recalcula en cada
+  arranque. Ver P-10.
+
+  Vive aquí y no en dos sitios: el scheduler la usa para decidir y
+  `Candil.Engine` la usa como mutex, y dos copias de la misma fórmula son dos
+  cifras que acabarán discrepando.
+  """
+  @spec estimate_model_size(Candil.Model.t()) :: non_neg_integer()
+  def estimate_model_size(%Candil.Model{context_size: ctx}) when is_integer(ctx) and ctx > 0 do
     div(ctx, 1024) * 4
   end
 
-  defp estimate_model_size(_), do: 0
+  def estimate_model_size(_), do: 0
 
   defp build_instances do
     usage_by_pid = process_usage_by_pid()

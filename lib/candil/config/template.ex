@@ -186,19 +186,24 @@ defmodule Candil.Config.Template do
     #
     #   # VRAM que ocupa el modelo en MB (opcional, y casi nunca hace falta).
     #   #
-    #   # La reserva que Candil lleva es SIEMPRE el peso MEDIDO con
-    #   # `llama-fit-params` en el momento de arrancar, no este numero. Asi que
-    #   # esto no dice cuanto ocupa el modelo: dice cuanto ocupaba la ultima
-    #   # vez que se arranco, y solo sirve como estimacion previa para que un
-    #   # segundo arranque que no cabe falle pronto en vez de a los 4 s.
+    #   # Es una COTA INFERIOR: el MINIMO que el modelo ocupa con seguridad.
+    #   # O sea, lo que ocupa DESPUES de que llama.cpp recorta las capas que no
+    #   # caben. Si no lo sabes, dejalo vacio: la reserva que Candil lleva es
+    #   # SIEMPRE el peso MEDIDO con `llama-fit-params` en el momento de
+    #   # arrancar, y este numero solo sirve como estimacion previa para que un
+    #   # arranque que no cabe falle pronto en vez de a los 4 s.
     #   #
-    #   # Y el numero no es estable: el MISMO modelo medido el 2026-10-21 dio
-    #   # 795 MiB con la GPU ocupada, 7978 MiB con la GPU medio libre y 10452
-    #   # MiB con la GPU libre. Lo que cambia es quantas capas cabe recorta
-    #   # llama.cpp, que depende de la memoria libre del instante. Por eso
-    #   # dejarlo a mano es una forma de quedarse con un numero viejo, y la
-    #   # reserva lo corrige igual.
-    #   vram_mb      = 13000
+    #   # NO pongas aqui el "footprint completo" del modelo. El mismo modelo
+    #   # medido el 2026-10-21 dio 795 MiB con la GPU ocupada, 7978 MiB con la
+    #   # GPU medio libre y 10452 MiB con la GPU libre: lo que cambia es quantas
+    #   # capas cabe recortar, que depende de la memoria libre del instante. Un
+    #   # numero alto aqui no es "lo que ocupa": es "lo que ocupaba con la GPU
+    #   # libre", y pone un techo que IMPIDE arrancar al modelo recortado, que
+    #   # es justo el que tiene que arrancar.
+    #   #
+    #   # Y si lo pones, que sea el minimo: la cota se reserva tal cual, y si
+    #   # la cota no cabe, el peso real (que es >= la cota) tampoco cabe.
+    #   vram_mb      = 8000
     #
     #   # Tokens de respuesta que se piden como maximo (opcional). El default
     #   # global son 4096, y con eso casi todo modelo contesta de sobra.

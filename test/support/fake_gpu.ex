@@ -43,6 +43,9 @@ defmodule Candil.FakeGPU do
   @doc """
   Escribe un `nvidia-smi` de mentira en `dir` y lo pone delante en el `PATH`.
 
+  Con `no_gpu: true`, el binario **falla**, que es lo que ve una máquina sin
+  NVIDIA: `nvidia_available?/0` da falso y no hay devices que colocar.
+
   Devuelve el `PATH` anterior, por si quien llama quiere guardarlo.
   """
   @spec install(Path.t(), keyword()) :: String.t() | nil
@@ -54,7 +57,8 @@ defmodule Candil.FakeGPU do
     File.mkdir_p!(bin_dir)
 
     script = Path.join(bin_dir, "nvidia-smi")
-    File.write!(script, script(total, free))
+    content = if Keyword.get(opts, :no_gpu, false), do: no_gpu_script(), else: script(total, free)
+    File.write!(script, content)
     File.chmod!(script, 0o755)
 
     previous = System.get_env("PATH")
@@ -73,6 +77,15 @@ defmodule Candil.FakeGPU do
       nil -> :ok
       previous -> System.put_env("PATH", previous || "")
     end
+  end
+
+  # Una máquina sin NVIDIA: el binario existe pero falla, que es lo que ve
+  # `nvidia_available?/0` cuando `nvidia-smi -L` no lista tarjetas.
+  defp no_gpu_script do
+    """
+    #!/bin/sh
+    exit 1
+    """
   end
 
   # El script responde a las cuatro preguntas que le hace Candil:

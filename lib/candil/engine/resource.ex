@@ -104,6 +104,18 @@ defmodule Candil.Engine.Resource do
 
   @doc """
   VRAM disponible en un device (0 si no está registrado).
+
+  ## El 0 no es «quedan 0 MiB»
+
+  Es **«no cabe»**, y no una medida. Pasa cuando la memoria ajena es MAYOR que
+  el hueco que queda tras `:system`: la memoria que usa otra gente no se
+  puede representar en el ledger, y la verdad es que no cabe un motor ni de
+  pasillo. Por eso el titular `:foreign` se recorta a lo representable y la
+  disponible cae a 0.
+
+  Y por eso el scheduler decide con ESTA cifra y no con la de `nvidia-smi`:
+  los dos lados tienen que decir lo mismo, o el modelo no arranca con un
+  error que no explica nada.
   """
   @spec available(non_neg_integer()) :: non_neg_integer()
   def available(device_index) when is_integer(device_index) and device_index >= 0 do
@@ -206,6 +218,28 @@ defmodule Candil.Engine.Resource do
 
   El delta se ignora si es menor que el umbral, para no provocar un
   `release`+`acquire` en cada arranque por unos megas de diferencia.
+
+  ## Lo que este módulo NO atomiciza
+
+  El ajuste de `:foreign` son **dos** llamadas a `Arrea.Resource` —un `release`
+  y un `acquire`— y entre las dos hay un hueco: otro arranque que mire en ese
+  instante ve una disponible **demasiado grande** (la memoria ajena todavía no
+  está descontada).
+
+  No se serializa, y es una decisión con su porqué:
+
+  - `Arrea.Resource` no tiene API para ajustar un titular de una vez, y
+    re-registrar el resource perdería el ledger entero.
+  - El hueco dura lo que dura una llamada local a un GenServer: microsegundos.
+  - **Y el daño está acotado**: el modelo que se colaría con esa disponible
+    exagerada no se queda sin control, porque su reserva se corrige al peso
+    **medido** en cuanto `llama-fit-params` responde, y esa corrección es la
+    que sí es atómica (un `acquire` contra la capacidad real). El modelo que
+    no quepa, se para.
+
+  Con un solo usuario —el caso de Candil— la probabilidad de que otro arranque
+  caiga justo en ese hueco es despreciable. Si algún día el scheduler puede
+  colocar dos modelos a la vez, esto hay que serializarlo por device.
   """
   @spec sync_foreign(non_neg_integer()) :: :ok | {:error, term()}
   def sync_foreign(device_index) when is_integer(device_index) and device_index >= 0 do
