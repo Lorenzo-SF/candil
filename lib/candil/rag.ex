@@ -31,13 +31,18 @@ defmodule Candil.RAG do
   @moduledoc """
   Chunking, indexing, retrieval and reranking over documents.
 
-  ## Hybrid retrieval with RRF, not a sum of scores
+  ## Híbrido con RRF, no una suma de scores — **todavía no**
 
-  BM25 and cosine similarity produce numbers on different scales. Adding them
-  needs calibration that nothing here can do for you, and a miscalibrated sum
-  silently favours whichever system happens to score higher. Reciprocal Rank
-  Fusion uses only the **rank** of a document in each list, not its score, so
-  it needs no calibration and works on the first run.
+  BM25 y la similitud del coseno dan números en escalas distintas. Sumarlos
+  necesita una calibración que aquí no puede hacer nadie, y una suma mal
+  calibrada favorece en silencio al sistema que puntúa más alto. Reciprocal
+  Rank Fusion usa solo el **rango** de un documento en cada lista, no su
+  puntuación, así que no necesita calibración y funciona a la primera.
+
+  **Lo que hay hoy es solo la parte vectorial** (`search/3` puntúa por coseno
+  contra el embedding de la query). La parte léxica y la fusión RRF están
+  escritas (`rrf/2`) pero **no las llama nadie** ✓: son el trabajo que le
+  falta a la fase 6, no una capacidad que exista.
 
   ## Cosine over a linear scan, up to about 50k chunks
 
@@ -56,7 +61,10 @@ defmodule Candil.RAG do
   alias Candil.RAG.Chunk
 
   @type index_name :: binary()
-  @type backend :: :memory | :postgres
+  # Solo `:memory` existe. `:postgres` (con pgvector) es el sitio donde habría
+  # que ir para indexes grandes, y **aun no esta**: declararlo aqui era
+  # prometer un backend que no hay.
+  @type backend :: :memory
 
   @typedoc """
   Chunking strategies.
@@ -70,7 +78,10 @@ defmodule Candil.RAG do
   @doc """
   Creates an index.
 
-  Not implemented until phase 6; the options are the contract.
+  Esto **si** esta implementado: el indice vive en ETS (`Candil.RAG.Store`) y
+  las opciones del contrato son las que se pasan ahi. Lo que **no** esta
+  implementado es la parte de la fase 6 que va mas alla de un indice en
+  memoria: la busqueda lexica y la fusion RRF (ver el `@moduledoc`).
   """
   @spec create_index(index_name(), keyword()) :: :ok | {:error, term()}
   def create_index(name, opts \\ []) do
@@ -122,8 +133,13 @@ defmodule Candil.RAG do
   @doc """
   Searches an index.
 
-  Returns the chunks that cleared the score, best first. Not implemented
-  until phase 6.
+  Devuelve los chunks que superaron el umbral, del mejor al peor. **La parte
+  vectorial esta implementada** ✓; la lexica y la fusion RRF no ✓ (ver el
+  `@moduledoc`).
+
+  Ojo con el caso sin embeddings: si los chunks no tienen embedding, la
+  puntuacion es `nil` y **se devuelven igual**, ordenados por id. Es un
+  comportamiento provisional y esta documentado como tal, no es un acierto.
   """
   @spec search(index_name(), binary(), keyword()) :: {:ok, [Chunk.t()]} | {:error, term()}
   def search(name, query, opts \\ []) do

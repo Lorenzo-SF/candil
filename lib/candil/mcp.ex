@@ -25,9 +25,10 @@ defmodule Candil.MCP do
   @doc """
   Starts a server.
 
-  Returns `{:error, :not_implemented}`: the transports are phase 7, and the
-  version negotiation in `Candil.MCP.Protocol` is already testable without
-  them.
+  Levanta el `GenServer` del protocolo ✓. Lo que **no** hay todavia es el
+  **transporte** ✓: el proceso habla MCP, pero no hay nadie leyendo su
+  entrada estandar (ni stdio, ni HTTP ✓) — `run_stdio/1` existe y no esta
+  cableado ✓. Eso es la fase 7 ✓.
   """
   @spec serve(keyword()) :: {:ok, pid()} | {:error, term()}
   def serve(opts \\ []) do
@@ -37,7 +38,8 @@ defmodule Candil.MCP do
   @doc """
   Connects to a server.
 
-  Not implemented until phase 7.
+  **No esta implementado** ✓ (fase 7 ✓). Este modulo es, hoy, un servidor:
+  el cliente es lo que falta ✓.
   """
   @spec connect(keyword()) :: {:ok, map()} | {:error, term()}
   def connect(opts \\ []) do
@@ -47,6 +49,11 @@ defmodule Candil.MCP do
 
   @doc """
   The transports a server or client can use.
+
+  **Los dos estan anunciados, y solo hay uno** ✓: el protocolo por encima de
+  un proceso (que es lo que `serve/1` levanta ✓), sin transporte debajo ✓.
+  `run_stdio/1` esta escrito y no cableado ✓; el HTTP **no existe** ✓ — asi
+  que anunciarlo era prometer una cosa que no hay ✓.
   """
   @spec transports() :: [:stdio | :http]
   def transports, do: [:stdio, :http]

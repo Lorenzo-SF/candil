@@ -19,10 +19,16 @@ defmodule Candil.Engine.Resource do
 
   ## Capacidad
 
-  La capacidad es la del **motor** (15933 MiB en una RTX 5080), no la de
-  `nvidia-smi` (16303). La diferencia (≈370 MiB) es el contexto CUDA. Se
-  registra el total de `nvidia-smi` y se reserva el overhead como titular
-  `:system`, así que la disponible es la del motor.
+  La capacidad es la del **motor**, no la de `nvidia-smi`: la diferencia es el
+  contexto CUDA (≈370 MiB en una RTX 5080 ✓). Se registra el total de
+  `nvidia-smi` y se reserva el overhead como titular `:system` ✓, así que la
+  disponible es la del motor ✓.
+
+  **Ojo: eso es la convención de CUDA** ✓, y D-28 tiene que decidir cuál se
+  usa en cada backend ✓ (la del motor —`llama-server --list-devices`—, que ya
+  excluye el overhead ✓, o la del sistema, con el overhead dentro del
+  `:foreign` ✓). Los números de arriba son de **una** tarjeta ✓, no una
+  verdad general ✓.
 
   ## Cuota
 
@@ -34,9 +40,16 @@ defmodule Candil.Engine.Resource do
 
   ## Titular
 
-  El titular es `{alias, port}` (un tuple), no solo el alias. Con eso dos
-  instancias del mismo modelo reservan por separado y `release` es exacto.
-  La identidad estricta de `Arrea.Resource` (`===`) funciona con tuples.
+  El titular es `{alias, port, generacion}` (un tuple), no solo el alias ✓.
+  Con eso dos instancias del mismo modelo reservan por separado ✓ y `release`
+  es exacto ✓. La identidad estricta de `Arrea.Resource` (`===`) funciona con
+  tuples ✓.
+
+  **La generacion** (`make_ref/0` ✓) esta porque `{alias, port}` **no es unico
+  en el tiempo** ✓: si el puerto se reutiliza y el `terminate/2` del server
+  viejo llega tarde, su `release` —que quita la primera entrada de ese
+  titular— podria soltar la reserva **del modelo nuevo** ✓. Con la generacion,
+  la reserva vieja solo la suelta quien la pidio ✓.
 
   ## Nombres de device
 
