@@ -9,6 +9,21 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **`max_tokens` por modelo, y el default global pasa de 512 a 4096.** El
+  `reasoning_content` de un modelo que razona **cuenta dentro del máximo**, y
+  con 512 tokens el presupuesto se lo llevaba el razonamiento: la respuesta
+  volvía **vacía** con `finish_reason: "length"`, que es la forma de que un
+  fallo parezca un éxito. Medido el 2026-10-22 con `agenta1`: con 512 →
+  `content: ""`; con 2000 → «¡Hola! Espero que estés teniendo un excelente
+  día.» (752 tokens, `finish_reason: "stop"`).
+  - El default global de `max_tokens` es **4096** (en el cuerpo de OpenAI y en
+    el de Anthropic).
+  - Un modelo puede declarar el suyo: `max_tokens = 16384` en
+    `[model.<alias>]`. Para un modelo con un `--reasoning-budget` grande
+    (32768 en `ornith`) el suyo tiene que ser mayor.
+  - Una respuesta vacía con `finish_reason: "length"` **avisa** con un log que
+    dice qué hacer, en vez de devolver un 200 con contenido vacío.
+
 - **El presupuesto de crashes por agente: `Candil.Agents.Crashes`.** El breaker
   cubre el cuelgue; esto cubre el **crash** que se repite. 5 crashes en 60 s
   y el agente se niega a arrancar (`:crash_budget_exceeded`) en vez de agotar

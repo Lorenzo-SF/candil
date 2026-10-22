@@ -141,6 +141,18 @@ defmodule Candil.Model do
             # estima del `context_size`. Es la señal que el scheduler usa para
             # decidir si cabe en un dispositivo.
             vram_mb: nil,
+            # Cuantos tokens de respuesta se piden como maximo (opcional).
+            #
+            # El default global (4096) es un suelo razonable para una respuesta
+            # corta, pero **un modelo que razona se lo come entero**: su
+            # `reasoning_content` cuenta dentro del maximo, y con 512 el
+            # razonamiento se lleva el presupuesto y la respuesta sale VACIA.
+            # Medido el 2026-10-22 con `agenta1`: 512 -> `content: ""` con
+            # `finish_reason: "length"`; 2000 -> una respuesta de verdad.
+            #
+            # Un modelo que razona mucho (un presupuesto de pensamiento de
+            # 32768 tokens) necesita el suyo: de ahi el override por modelo.
+            max_tokens: nil,
             # The port belongs to the model, not to the engine. One engine
             # serves many models, and the same model can run twice at once on
             # a GPU slot and a CPU slot.
@@ -209,6 +221,7 @@ defmodule Candil.Model do
           model_args: [binary()],
           gpu_layers: integer(),
           vram_mb: non_neg_integer() | nil,
+          max_tokens: pos_integer() | nil,
           tags: [binary() | atom()],
           enabled: boolean()
         }

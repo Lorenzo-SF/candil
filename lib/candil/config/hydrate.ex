@@ -165,7 +165,7 @@ defmodule Candil.Config.Hydrate do
   # (`typical_latency_s`, `engine_pid`, `vram_mb`). Avisar aqui es lo que
   # evita la cuarta.
   @known_engine_keys ~w(binary host base_port port api_key start_args install auth checksum_sha256)
-  @known_model_keys ~w(type engine provider name base_url model_dir filename source draft context_size port usage capabilities model_args gpu_layers tags enabled exclusive typical_latency_s description vram_mb)
+  @known_model_keys ~w(type engine provider name base_url model_dir filename source draft context_size port usage capabilities model_args gpu_layers tags enabled exclusive typical_latency_s description vram_mb max_tokens)
   @known_provider_keys ~w(type base_url api_key)
 
   defp warn_unknown_keys(section, name, spec) when is_map(spec) do
@@ -237,6 +237,7 @@ defmodule Candil.Config.Hydrate do
       |> maybe_put(:enabled, spec["enabled"])
       |> maybe_put(:typical_latency_s, segundos_de(spec["typical_latency_s"], name))
       |> maybe_put(:vram_mb, spec["vram_mb"])
+      |> maybe_put(:max_tokens, spec["max_tokens"])
 
     validate(Model, struct(Model, attrs))
   end

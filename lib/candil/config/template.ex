@@ -190,6 +190,19 @@ defmodule Candil.Config.Template do
     #   # expulsa al modelo equivocado.
     #   vram_mb      = 13000
     #
+    #   # Tokens de respuesta que se piden como maximo (opcional). El default
+    #   # global son 4096, y con eso casi todo modelo contesta de sobra.
+    #   #
+    #   # **El razonamiento cuenta dentro del maximo.** Un modelo que razona
+    #   # (su `reasoning_content` va en la misma respuesta) se puede quedar sin
+    #   #(tokens para la RESPUESTA y devolver un `content: ""` que parece una
+    #   # respuesta. Medido el 2026-10-22 con un modelo que razona: con 512
+    #   #tokens la respuesta vino vacia; con 2000, vino de verdad.
+    #   #
+    #   # Ponlo cuando el modelo tenga un presupuesto de pensamiento grande (el
+    #   # `--reasoning-budget` de llama-server) o cuando writes codigo largo.
+    #   max_tokens  = 16384
+    #
     #   # Los flags que se pasan a llama-server.
     #   #
     #   # OJO: un flag y su valor son DOS elementos. Se pasa la lista al argv
