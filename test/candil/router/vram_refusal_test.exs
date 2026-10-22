@@ -15,7 +15,7 @@ defmodule Candil.Router.VramRefusalTest do
   solo» es una intención escrita en un `@moduledoc`, no un comportamiento.
 
   Cuando alguien escriba el refusal, **este test se tendra que poner ROJO**,
-  porque ahora affirmationsando el的行为 contrario. Ese es su trabajo:
+  porque ahora afirmando el comportamiento contrario. Ese es su trabajo:
   no certificar que está bien, sino certifica que **aun no lo esta**.
   """
 

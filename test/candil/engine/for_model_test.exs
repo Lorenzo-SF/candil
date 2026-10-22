@@ -27,7 +27,7 @@ defmodule Candil.Engine.ForModelTest do
     :ok
   end
 
-  test "devuelve el engine del catalogo con sus valores, no uno de默认值" do
+  test "devuelve el engine del catalogo con sus valores, no uno de valores por defecto" do
     store_engine(%Engine{
       alias: :llama_cpp,
       binary: "/opt/llm/bin/llama-server",

@@ -317,7 +317,7 @@ defmodule Candil.Router.DecisionEngine do
   # en UN SOLO elemento, que no es lo mismo: un consumidor con
   # `model_default = "coder"` en el toml tiene un unico candidato SIN tener
   # ningun pin, y se anunciaba como "pinned" con el motivo inventado de que
-  # ，有一个 pin que lo saca todo. Se vio en la maquina del usuario asi:
+  # había un pin que lo saca todo. Se vio en la maquina del usuario asi:
   #
   #     $ candil route ask "lo que sea"   ->  estrategia: pinned
   #     $ candil route pin                ->  pin de default: ninguno

@@ -55,7 +55,7 @@ defmodule Candil.Router.Fallback do
   # Un mapa literal y no un `Enum.find` sobre una lista de strings con
   # `to_atom`: las cuatro son las cuatro, estan escritas aqui, y un `to_atom`
   # sobre texto del toml es un `String.to_atom` disfrazado — se lleva el chequeo
-  # del长度 pero no el problema.
+  # del tamaño pero no el problema.
   @estrategias %{
     "last" => :last,
     "first" => :first,
