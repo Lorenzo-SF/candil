@@ -10,7 +10,7 @@ defmodule Candil.RequestBuilder do
   ## Options
 
     * `:temperature` — sampling temperature (default: `0.7`)
-    * `:max_tokens` — maximum tokens to generate (default: `512`)
+    * `:max_tokens` — maximum tokens to generate (default: `4096`)
     * `:stop` — list of stop sequences (OpenAI only, default: `[]`)
     * `:system` — system prompt string (prepended to messages)
     * `:stream` — enable SSE streaming (default: `false`)
@@ -56,7 +56,7 @@ defmodule Candil.RequestBuilder do
   @spec build_openai_body(binary(), [map()], keyword()) :: map()
   def build_openai_body(model_name, messages, opts) do
     temperature = Keyword.get(opts, :temperature, 0.7)
-    max_tokens = Keyword.get(opts, :max_tokens, 512)
+    max_tokens = Keyword.get(opts, :max_tokens, 4096)
     stop = Keyword.get(opts, :stop, [])
     stream = Keyword.get(opts, :stream, false)
     system = Keyword.get(opts, :system)
@@ -100,7 +100,7 @@ defmodule Candil.RequestBuilder do
   @spec build_anthropic_body(binary(), [map()], keyword()) :: map()
   def build_anthropic_body(model_name, messages, opts) do
     temperature = Keyword.get(opts, :temperature, 0.7)
-    max_tokens = Keyword.get(opts, :max_tokens, 512)
+    max_tokens = Keyword.get(opts, :max_tokens, 4096)
     stream = Keyword.get(opts, :stream, false)
     system = Keyword.get(opts, :system)
     tools = Keyword.get(opts, :tools, [])

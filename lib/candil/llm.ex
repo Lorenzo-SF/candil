@@ -94,7 +94,7 @@ defmodule Candil.Llm do
   ## Options
 
     * `:temperature` — sampling temperature (default: `0.7`)
-    * `:max_tokens` — maximum tokens to generate (default: `512`)
+    * `:max_tokens` — maximum tokens to generate (default: `4096`, or the model's own `max_tokens` when it declares one)
     * `:stop` — list of stop sequences
 
   """

@@ -79,7 +79,7 @@ defmodule Candil.Inference do
   ## Options
 
     * `:temperature` — sampling temperature 0.0–2.0 (default: `0.7`)
-    * `:max_tokens` — maximum tokens to generate (default: `512`)
+    * `:max_tokens` — maximum tokens to generate (default: `4096`, or the model's own `max_tokens` when it declares one)
     * `:stop` — list of stop sequences (default: `[]`)
     * `:system` — system prompt string (prepended to messages if set)
 
@@ -91,7 +91,9 @@ defmodule Candil.Inference do
          true <- :chat in model.usage || :completion in model.usage do
       # El turno envuelve **la llamada entera**, no el dispatch: lo que se
       # ordena es quien esta usando la GPU, y eso dura lo que dura la peticion.
-      con_turno(model_alias, fn -> Chat.do_chat_local(model_alias, messages, opts) end)
+      con_turno(model_alias, fn ->
+        Chat.do_chat_local(model_alias, messages, put_max_tokens(model, opts))
+      end)
     else
       {:error, :not_found} ->
         {:error, Error.model_not_found(model_alias)}
@@ -102,6 +104,22 @@ defmodule Candil.Inference do
       false ->
         {:error, Error.invalid_request("Model #{model_alias} does not support chat")}
     end
+  end
+
+  # El `max_tokens` del MODELO, si declara uno, es el que manda; lo que pase
+  # en la llamada explicita tiene prioridad sobre el (`put_new`).
+  #
+  # Existe por los modelos que **razonan**: su `reasoning_content` cuenta
+  # dentro del maximo, y con el default global (4096) un modelo con un
+  # presupuesto de pensamiento de 32768 tokens se queda sin respuesta.
+  # Medido el 2026-10-22 con `agenta1`: 512 -> `content: ""`; 2000 -> una
+  # respuesta de verdad.
+  @doc false
+  @spec put_max_tokens(Model.t(), keyword()) :: keyword()
+  def put_max_tokens(%Model{max_tokens: nil}, opts), do: opts
+
+  def put_max_tokens(%Model{max_tokens: max_tokens}, opts) do
+    Keyword.put_new(opts, :max_tokens, max_tokens)
   end
 
   # `Policy.run/3` devuelve `{:ok, fun.()}` y `fun` ya devuelve `{:ok, respuesta}`.
@@ -130,7 +148,9 @@ defmodule Candil.Inference do
   @spec chat_remote(Model.t(), Provider.t(), [message()], keyword()) ::
           {:ok, response()} | {:error, Error.t()}
   def chat_remote(%Model{} = model, %Provider{} = provider, messages, opts) do
-    con_turno(model.alias, fn -> Chat.do_chat_remote(model, provider, messages, opts) end)
+    con_turno(model.alias, fn ->
+      Chat.do_chat_remote(model, provider, messages, put_max_tokens(model, opts))
+    end)
   end
 
   @doc """

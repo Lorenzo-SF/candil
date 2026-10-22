@@ -250,7 +250,8 @@ defmodule Candil.Config.Schema do
       validate_model_capabilities(name, spec) ++
       validate_model_description(name, spec) ++
       validate_model_exclusive(name, spec) ++
-      validate_model_vram_mb(name, spec)
+      validate_model_vram_mb(name, spec) ++
+      validate_model_max_tokens(name, spec)
   end
 
   defp validate_model(name, spec), do: ["model '#{name}' must be a table, got: #{inspect(spec)}"]
@@ -286,6 +287,18 @@ defmodule Candil.Config.Schema do
       nil -> []
       value when is_integer(value) and value >= 0 -> []
       other -> ["model '#{name}'.vram_mb must be a non-negative integer, got: #{inspect(other)}"]
+    end
+  end
+
+  # `max_tokens` es un entero POSITIVO: 0 no genera nada, y un negativo no
+  # significa nada. Un 0 aqui seria una respuesta vacia que parece una
+  # respuesta —el mismo fallo que el `max_tokens: 512` con un modelo que
+  # razona, pero escrito por el usuario.
+  defp validate_model_max_tokens(name, spec) do
+    case Map.get(spec, "max_tokens") do
+      nil -> []
+      value when is_integer(value) and value > 0 -> []
+      other -> ["model '#{name}'.max_tokens must be a positive integer, got: #{inspect(other)}"]
     end
   end
 

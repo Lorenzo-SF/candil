@@ -9,7 +9,11 @@ defmodule Candil.RequestBuilderTest do
       assert body.model == "gpt-4o"
       assert is_list(body.messages)
       assert body.temperature == 0.7
-      assert body.max_tokens == 512
+      # 4096, no 512: el `reasoning_content` de un modelo que razona cuenta
+      # dentro del maximo, y con 512 la respuesta se quedaba vacia. Medido el
+      # 2026-10-22 con un modelo que razona: 512 -> `content: ""`; 2000 -> de
+      # verdad.
+      assert body.max_tokens == 4096
     end
 
     test "with system prompt" do

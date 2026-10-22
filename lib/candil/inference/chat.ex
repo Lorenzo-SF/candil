@@ -3,6 +3,8 @@ defmodule Candil.Inference.Chat do
 
   alias Candil.{Engine, Error, HTTP, Inference, Model, Provider, RequestBuilder, Store}
 
+  require Logger
+
   # This module had no `@spec` at all, so dialyzer had to infer the return type
   # from the body — and it inferred one that omitted `{:ok, _}`, which made
   # every caller's success branch look unreachable. `Candil.Context.chat/4`
@@ -42,8 +44,32 @@ defmodule Candil.Inference.Chat do
       prompt_hash: prompt_hash(messages)
     })
 
+    warn_truncated(result)
     result
   end
+
+  # Una respuesta **vacía** con `finish_reason: "length"` no es una respuesta:
+  # es el máximo de tokens agotado, y casi siempre es el razonamiento del
+  # modelo habiéndose carried el presupuesto entero.
+  #
+  # Medido el 2026-10-22 con `agenta1` y `max_tokens: 512`: `content: ""` con
+  # `finish_reason: "length"`. Devolver eso como un 200 con contenido vacío es
+  # la forma de que un fallo parezca un éxito: quien lo lee cree que el modelo
+  # no tenía nada que decir.
+  @doc false
+  @spec warn_truncated(term()) :: :ok
+  def warn_truncated({:ok, %{content: content, finish_reason: "length"}})
+      when content in [nil, ""] do
+    Logger.warning(
+      "la respuesta vino vacia con finish_reason \"length\": se agotaron los " <>
+        "tokens de la respuesta (el razonamiento del modelo cuenta dentro del " <>
+        "maximo). Sube max_tokens —el default son 4096— o ponle uno mayor al modelo."
+    )
+
+    :ok
+  end
+
+  def warn_truncated(_result), do: :ok
 
   @spec do_chat_remote(Model.t(), Provider.t(), [Inference.message()], keyword()) ::
           {:ok, Inference.response()} | {:error, term()}
@@ -69,6 +95,7 @@ defmodule Candil.Inference.Chat do
       prompt_hash: prompt_hash(messages)
     })
 
+    warn_truncated(result)
     result
   end
 
