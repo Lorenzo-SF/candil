@@ -76,6 +76,7 @@ Lo que un consumidor puede llamar y **no se rompe sin un cambio mayor** ✓.
 | `Candil.Router` | a qué modelo va cada prompt ✓ |
 | `Candil.Gateway` | servir la API a otros procesos ✓ |
 | `Candil.Scheduler` | la **decisión** de colocación ✓ |
+| `Candil.Detector.Devices` | **`processes/0`** sí ✓: la VRAM que usa cada proceso ✓. `detect/0` es interno ✓ |
 
 ### Observabilidad
 
@@ -99,10 +100,29 @@ Lo que un consumidor puede llamar y **no se rompe sin un cambio mayor** ✓.
 | `Candil.Scheduler.Devices` | la traducción de hardware a scheduler ✓ |
 | `Candil.CLI.*` | **no es núcleo**: se va a su proyecto ✓ |
 
-**Y los helpers `@doc false`** de `Candil`, `Candil.EnginePool` y
-`Candil.Store` ✓: hay que clasificarlos **uno a uno** antes de extraer ✓, no
-exponerlos por comodidad ✓. Hasta que estén clasificados, **el CLI nuevo no
-los llama** ✓.
+**Y los helpers `@doc false`**, clasificados uno a uno ✓ (segunda lectura
+del consejero ✓):
+
+| Helper | Decisión |
+|---|---|
+| `Candil.resolve_model_alias/1` | **interno** ✓ — lo usan la fachada y `Agent` ✓; el CLI no lo llama ✓ |
+| `Candil.ensure_engine_running/2` | **interno** ✓ — es el camino de `Candil.chat/3` y `serve/1` ✓; el CLI usa `Candil.chat` ✓, `Candil.serve` ✓ o `Engine.start_placed/2` ✓ |
+| `Candil.EnginePool.get/0` | **retirado** ✓ — está deprecado ✓, devuelve `:empty` ✓ y no es API ✓ |
+| `Candil.Store.start_link/1` | **interno** ✓ — es el arranque de un GenServer ✓, no la API del catálogo ✓ |
+| `Candil.Engine.Server.id_for/2` | **interno** ✓ (ya en §2 ✓) |
+| `Candil.Engine.holder/2` | **interno** ✓ (ya en §2 ✓) |
+| `Candil.Scheduler.instances/0` | **interno** ✓ — es una vista para tests ✓; el scheduler decide con `plan/1` ✓ |
+| `Candil.Engine.Resource.device_name/1` | **interno** ✓ — `Resource` es interno ✓; que sea público para los tests ✓ no lo convierte en contrato ✓ |
+
+**Y `Candil.Llm` deja de ser API** ✓: su `@moduledoc` dice que es la
+implementación interna ✓ y el contrato decía lo contrario ✓. La corrección
+tiene una consecuencia de código ✓: `Engine.start_placed/2` llama a
+`Candil.Llm.stop_engine/1` ✓ (`engine.ex:439` ✓) → debe llamar a
+`Candil.Engine.stop/1` ✓, que ya es público ✓, para que **el núcleo no
+dependa de un módulo que declara interno** ✓.
+
+**No se expone ninguno «porque el CLI lo necesita»** ✓. O es API con sus
+docs ✓, o el CLI no lo usa ✓.
 
 ---
 
@@ -110,13 +130,16 @@ los llama** ✓.
 
 **`status` es CLI-only** ✓. Es una **vista de operador**: mezcla
 `EnginePool.list/0` ✓, `Instances.read/0` ✓, `Engine.healthy?/1` ✓ y
-`Devices.processes/0` ✓ → cuatro lecturas públicas ✓. **No añadir
+`Devices.processes/0` ✓ → cuatro lecturas públicas ✓ (y `Devices.processes/0`
+está en §1 ✓ **por eso** ✓: si no, el CLI extraído dependería de un módulo no
+contractual ✓). **No añadir
 `Candil.status/0`** ✓: congelaría la presentación en el núcleo ✓ — y la
 presentación es justo lo que se va al otro proyecto ✓. La composición se
 documenta aquí ✓ y el CLI nuevo la implementa ✓.
 
-**`stop` es primitivo de núcleo, el comando es CLI** ✓. `Candil.Engine.stop/1` ✓
-y `Candil.Llm.stop_engine/1` ✓ ya son públicos ✓. Lo que **no** es núcleo es
+**`stop` es primitivo de núcleo, el comando es CLI** ✓. El primitivo es
+**`Candil.Engine.stop/1`** ✓ — y solo ese ✓: `Llm.stop_engine/1` deja de ser API
+✓ (§1 ✓), porque `Candil.Llm` es interno ✓. Lo que **no** es núcleo es
 la parte de operador: parar todas ✓, las instancias detached ✓ y el TERM del
 grupo de procesos ✓. **No hace falta un `Candil.stop/1`** mientras ningún
 consumidor de librería lo pida ✓.
