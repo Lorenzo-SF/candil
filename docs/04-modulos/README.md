@@ -5,6 +5,11 @@
 >
 > **Este índice no se lee de un tirón.** Cada módulo dice qué necesita de los
 > demás, y el orden está en [`02-orden`](../02-orden/README.md).
+>
+> 📌 Y hay una pregunta que este bloque no responde, y que decide dónde vive
+> cada cosa cuando el CLI se extraiga a su propio proyecto:
+> [`CONTRATO-PUBLICO.md`](CONTRATO-PUBLICO.md) — **qué es API pública de
+> Candil y qué es CLI** ✓.
 
 ---
 

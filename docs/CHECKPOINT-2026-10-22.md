@@ -17,9 +17,12 @@
 
 - **El núcleo está en verde.** `main` = `398a1b9`, CI en verde. Fases 0, 1, 2,
   3, 4, 5, 8 y 11 cerradas.
-- **Hay dos PR abiertos, los dos esperando revisión del dueño:** #129 (reserva
-  de VRAM, D-27) y #130 (`max_tokens`). Los dos tienen todos los checks en
-  verde y están bloqueados solo por `REVIEW_REQUIRED`.
+- **Los PR de esta tanda están los cuatro mergeados** (2026-10-22, con el aval
+  del dueño): #129 (reserva de VRAM, D-27), #130 (`max_tokens`), #131 (limpieza
+  de comentarios + este corte) y #132 (el embedder que el router creía tener y no
+  tenía). `main` está en verde con la suite en **1360 tests + 33 doctests, 0
+  fallos**, y la puerta de máquina pasa 3/3 con un modelo real que necesita
+  recorte.
 - **La extracción del CLI es viable**, pero no es el siguiente paso. Antes hay
   que cerrar tres cosas del núcleo: descarga del draft, borrado de modelos y
   desacoplo del `Holder` de una API interna del engine.
@@ -38,7 +41,7 @@
 
 | | |
 |---|---|
-| Commit | `398a1b9` |
+| Commit | `2c517b2` |
 | CI | Format, Lint & Audit ✅ · Compile & Test ✅ · Dialyzer ✅ · Docs ✅ · Deps In Sync (skipped) |
 | Suite | 33 doctests + 1329 tests, 0 fallos (semillas 0 y 1) |
 | Gates | `mix format --check-formatted` · `mix credo` · `mix dialyzer` · `mix docs` |
@@ -54,8 +57,8 @@
 | Head | `4d91ec6` |
 | Commits | 7 (`1e081f9`, `d682c72`, `bf1e966`, `7869f4b`, `2331fa6`, `546dd57`, `4d91ec6`) |
 | Checks | Format, Compile & Test, Dialyzer, Docs: ✅ |
-| Revisión | `REVIEW_REQUIRED`; la cuenta autenticada es la del autor y no puede autoaprobar |
-| Suite declarada | 33 doctests + 1338 tests, 0 fallos, 6 skipped (semillas 0 y 1) |
+| Revisión | ✅ **mergeado** el 2026-10-22 (squash + delete-branch) |
+| Suite declarada | 33 doctests + 1360 tests, 0 fallos, 6 skipped (semillas 0 y 1) |
 
 > El cuerpo del PR dice «tres commits»; la rama tiene **siete**. Los cuatro
 > restantes son rondas posteriores de CI, tests de hardware y ajustes del
@@ -82,33 +85,26 @@ foto. Queda como cota inferior opcional y la reserva se corrige al peso medido.
 | Head | `4db9202` |
 | Commits | 1 |
 | Checks | Format, Compile & Test, Dialyzer, Docs: ✅ |
-| Revisión | `REVIEW_REQUIRED`; misma limitación de autoaprobación |
-| Suite declarada | 33 doctests + 1318 tests, 0 fallos, 3 skipped (semillas 0 y 1) |
+| Revisión | ✅ **mergeado** el 2026-10-22 (squash + delete-branch) |
+| Suite declarada | 33 doctests + 1321 tests, 0 fallos, 3 skipped (semillas 0 y 1) |
 
 **Qué cierra:** default global de 512 → 4096, `max_tokens` por modelo y aviso
 cuando una respuesta sale vacía con `finish_reason: "length"`. Es la causa
 medida de que `agenta1` contestara `content: ""` con 512 tokens.
 
-### 2.4 · Rama local pendiente
+### 2.4 · Lo que se mergeó en esta tanda
 
-| | |
+| PR | Qué |
 |---|---|
-| Rama | `chore/limpiar-comentarios-corruptos` |
-| HEAD | `86048d4` |
-| Respecto a `main` | 2 commits por delante |
-| PR | No abierto |
-| Worktree | Limpio antes de este documento; este fichero queda sin trackear |
+| #129 | la reserva de VRAM completa (D-27), 7 commits en un squash |
+| #130 | `max_tokens` por modelo y default global de 4096 |
+| #131 | ocho comentarios con el texto corrupto reparados + este corte versionado en `docs/` |
+| #132 | la capa `:embedding` del router solo corre si el embedder puede atender una petición |
 
-Commits:
-
-1. `b250f8a` — ocho comentarios con caracteres CJK corruptos, en 7 ficheros
-   (`cli/holder.ex`, `router/fallback.ex`, `router/decision_engine.ex` y cuatro
-   tests).
-2. `86048d4` — fila **P-12** en `docs/09-deuda-y-pendientes/README.md`: los
-   backends que Candil no ve.
-
-No mezclar esta rama con #129. Puede ser un PR propio de limpieza/documentación,
-o absorberse en el PR de deuda cuando #129 esté mergeado.
+Y un PR de documentación en marcha con la **fila P-12** (los backends que
+Candil no ve) de vuelta en el registro de deudas —se había caído al resolver
+el conflicto del #129 ✓— y el **contrato público** escrito en
+[`04-modulos/CONTRATO-PUBLICO.md`](04-modulos/CONTRATO-PUBLICO.md) ✓.
 
 ### 2.5 · Lo que ya está hecho y no hay que reabrir
 
@@ -357,7 +353,7 @@ workflow de operador sobre primitivas que ya existen.
 
 | # | Decisión | Quién | Impacto |
 |---|---|---|---|
-| 1 | ¿«Terminado» incluye 6, 7, 9 y 10, o hay corte 1.0? | Dueño/consejero | Define cuándo se extrae el CLI |
+| 1 | ¿«Terminado» incluye 6, 7, 9 y 10, o hay corte 1.0? | **Dueño** (el consejero lo tiene por encargo 1 del mensaje 24) | Define cuándo se extrae el CLI. **Lo que ya está decidido**: el CLI se extrae **al final**, cuando el núcleo esté cerrado. Lo que queda por decidir es **dónde está la línea** del núcleo |
 | 2 | D-28: nombre de device, detección, overhead y `:foreign` por backend | Consejero | Bloquea el PR de P-12 |
 | 3 | ¿`remove` borra ficheros o también sale del catálogo/config? | Dueño | Define `Candil.remove/1` |
 | 4 | ¿`status`/`stop` son API pública o solo CLI? | Dueño | Define si hay facade en Candil |

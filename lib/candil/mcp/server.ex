@@ -103,6 +103,14 @@ defmodule Candil.MCP.Server do
   defp dispatch(_),
     do: %{jsonrpc: "2.0", id: nil, error: %{code: -32_600, message: "Invalid Request"}}
 
+  # El `protocolVersion` del cliente **se ignora** y se responde con el
+  # hardcodeado: la negociacion de `Candil.MCP.Protocol` esta escrita y
+  # probada, pero este camino no la usa. Es trabajo de la fase 7, no una
+  # capacidad que exista.
+  #
+  # Y las capacidades que se anuncian son **solo `tools`**, que es lo unico que
+  # este servidor sabe servir: el protocolo declara mas, y anunciarlas seria
+  # mentir sobre lo que hay.
   defp dispatch_method("initialize", _params) do
     {:ok,
      %{
