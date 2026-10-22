@@ -584,8 +584,38 @@ defmodule Candil.Router.DecisionEngine do
   defp confidence([_una]), do: :reduced
   defp confidence(_dos_o_mas), do: :minimal
 
+  # Que haya un embedder **en el Store** no es que haya un embedder. El Store
+  # registra lo que declara el catálogo, y un modelo declarado puede no tener
+  # fichero: retirado, o descargado a medias.
+  #
+  # Medido el 2026-10-22: en el catálogo de esta máquina hay **tres** modelos
+  # con `usage: [:embeddings]` (`embed`, `vector` y `ranker`) y **ninguno tiene
+  # fichero** —están retirados en ropero. La capa se ejecutaba, no producía
+  # nada, y el `trail` decía `{:embedding, 3, 3}`: una capa que se marca como
+  # ejecutada y no decide. Es la misma regla que los devices: **«no lo sé» no
+  # es «sí»**.
+  #
+  # Un modelo remoto no tiene fichero y sí sirve ✓, así que la pregunta es
+  # «¿puede este modelo atender una petición de embeddings?» ✓ y no «¿tiene
+  # un `.gguf` detrás?» ✓.
   defp embedder_available? do
     Store.list_models()
-    |> Enum.any?(&(:embeddings in &1.usage))
+    |> Enum.any?(&embedder_ready?/1)
   end
+
+  # Dos cosas: que el modelo **se dedique a embeddings** ✓ y que **pueda
+  # atender una peticion** ✓. Lo segundo es lo que faltaba ✓.
+  defp embedder_ready?(%{usage: usage} = model) when is_list(usage) do
+    :embeddings in usage and embedder_present?(model)
+  end
+
+  defp embedder_ready?(_model), do: false
+
+  defp embedder_present?(%{type: :remote}), do: true
+
+  defp embedder_present?(%{model_dir: dir, filename: name})
+       when is_binary(dir) and is_binary(name),
+       do: File.exists?(Path.join(dir, name))
+
+  defp embedder_present?(_model), do: false
 end
