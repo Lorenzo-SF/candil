@@ -992,6 +992,58 @@ atómica y el modelo que no quepa se para. Con un solo usuario es despreciable;
 si algún día el scheduler coloca dos modelos a la vez, hay que serializarlo
 por device.
 
+### La cuarta ronda (2026-10-22): tres decisiones del consejero
+
+El consejero revisó la ronda anterior y decidió tres cosas. Las tres están
+hechas, y **una de ellas era un bug de verdad** que solo se vio al medir.
+
+**1 · Las víctimas se contaban con la estimación, no con la verdad.** El
+scheduler expulsa a las víctimas **por tamaño**, así que la cuenta decide si
+dice «no cabe» o expulsa a alguien. Y la cuenta era
+`model.vram_mb || estimate_model_size(model)`: un modelo **corriendo** sin
+`vram_mb` contaba como 512 MiB (la estimación) cuando ocupaba 7978 de
+verdad.
+
+Medido el 2026-10-22 con un `coder` corriendo: `nvidia-smi` decía **1054 MiB**
+y el scheduler contaba **512**. Con un modelo de 8 GB la diferencia es de 7 GB,
+y la expulsión no libera lo que cree que libera.
+
+Ahora el tamaño de una instancia es el que dice `nvidia-smi`
+(`Candil.Scheduler.size_mb/2`), y la estimación solo se usa cuando **no hay
+medición** —un modelo en CPU, o una máquina sin `nvidia-smi`.
+
+**2 · Decidir y reservar son una sola operación, y no había cerrojo.** Dos
+`start_placed/2` concurrentes pueden medir **la misma** memoria libre (el
+`sync_foreign` de uno todavía no ve lo que el otro acaba de reservar) y decidir
+los dos que su modelo cabe. El primero reserva; el segundo recibe un error de
+acquire que no explica nada y su modelo no arranca, cuando lo que había era
+sitio de sobra y una carrera.
+
+Ahora hay un **semáforo** (`Candil.Engine.Resource.Placement`): el segundo
+espera y vuelve a decidir con la memoria ya cambiada.
+
+> Y un detalle que costó un rato: el cerrojo **no** es `:global.trans/3`. En
+> OTP 28 la API de cerrojos de `:global` ya no existe y `trans/3` se quedó
+> **sin hacer nada**: medido, dos llamadas concurrentes de `trans/3` tardaron
+> 1,0 s en vez de 2,0 s. El semáforo es un `GenServer` que **da el turno** (el
+> motor tiene que seguir siendo hijo de quien lo pide, no del cerrojo) y
+> suelta el turno aunque el que lo tenía se muera.
+
+**3 · Un modelo que fija las capas en GPU se rechaza.** `llama-fit-params` no
+puede ajustar un `--n-gpu-layers` que el usuario puso: aborta con *«n_gpu_layers
+already set by user to 99»*. Sin medición no hay peso real, la reserva se
+queda en una suposición y el motor arranca a ciegas.
+
+Ahora el scheduler devuelve `{:error, :gpu_layers_fixed}` con un mensaje que
+dice qué hacer (usa `-1` o `--cpu`), **en vez de arrancar a ciegas**. La
+excepción son los modelos con `--n-cpu-moe`: los expertos se van a la RAM, lo
+que queda en la VRAM cabe, y el modelo arranca bien — pero su reserva **tampoco
+se mide**, y de eso avisa el motor con un warning.
+
+Medido el 2026-10-22 con un modelo de 13 GB y la GPU con 15 886 MiB libres: con
+99 el fit aborta y el motor sale con código 1; con `-1` el fit ajusta y el
+modelo arranca.
+
 ### Verificación de la implementación (2026-10-21)
 
 Medido con `Agents-A1-4B-Q8_0.gguf` (4,48 GB), ctx 32768, caché `q8_0`,

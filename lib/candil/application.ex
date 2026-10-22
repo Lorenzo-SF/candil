@@ -46,6 +46,11 @@ defmodule Candil.Application do
 
     children = [
       {Registry, keys: :unique, name: Candil.Registry},
+      # El cerrojo de las colocaciones. Va el primero de los que se usan
+      # entre si: decidir donde va un modelo y reservar su VRAM tienen que ser
+      # una sola operacion, y sin esto dos arranques concurrentes pueden medir
+      # la misma memoria libre (D-27).
+      Candil.Engine.Resource.Placement,
       # Dead instance records are pruned in memory on every read, which means
       # nothing ever removes them from the FILE. This is the only thing that
       # does, and it kills nothing: it only forgets what the OS already did.

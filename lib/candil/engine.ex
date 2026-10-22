@@ -425,22 +425,34 @@ defmodule Candil.Engine do
       # falta de GPU.
       start(engine, model, nil)
     else
-      case Candil.Scheduler.plan(model) do
-        {:ok, device} ->
-          start(engine, model, device)
+      # Decidir DÓNDE va el modelo y reservar su VRAM son una sola operación.
+      # Sin el cerrojo, dos arranques concurrentes miden la misma memoria
+      # libre, los dos deciden que su modelo cabe, y el segundo recibe un error
+      # de acquire que no explica nada. Con el cerrojo, el segundo espera y
+      # vuelve a decidir con la memoria ya cambiada.
+      Candil.Engine.Resource.with_placement_lock(fn ->
+        case Candil.Scheduler.plan(model) do
+          {:ok, device} ->
+            start(engine, model, device)
 
-        {:evict, victims, device} ->
-          Enum.each(victims, &Candil.Llm.stop_engine/1)
-          start(engine, model, device)
+          {:evict, victims, device} ->
+            Enum.each(victims, &Candil.Llm.stop_engine/1)
+            start(engine, model, device)
 
-        {:error, :no_gpu} ->
-          # «Esta máquina no tiene GPU» no es «no cabe». Son hechos distintos y
-          # el mensaje tiene que distinguirlos: `--cpu` es la salida.
-          {:error, :no_gpu}
+          {:error, :no_gpu} ->
+            # «Esta máquina no tiene GPU» no es «no cabe». Son hechos distintos y
+            # el mensaje tiene que distinguirlos: `--cpu` es la salida.
+            {:error, :no_gpu}
 
-        {:error, :no_room} ->
-          {:error, :no_room}
-      end
+          {:error, :gpu_layers_fixed} ->
+            # El modelo fija las capas y `llama-fit-params` no puede ajustarlas:
+            # sin medición no hay peso real. Se dice en vez de arrancar a ciegas.
+            {:error, :gpu_layers_fixed}
+
+          {:error, :no_room} ->
+            {:error, :no_room}
+        end
+      end)
     end
   end
 
@@ -541,6 +553,19 @@ defmodule Candil.Engine do
 
   defp start_reserved(engine, model, device, holder, held?) do
     {fitted_args, weight} = fit_params_or_fallback(engine, model, device)
+
+    if not is_integer(weight) do
+      # Sin medición, la reserva se queda en la estimación —una suposición— y no
+      # en el peso real. Con un modelo que reparte los expertos a la CPU
+      # (`--n-cpu-moe`) es lo normal: las capas están fijadas y
+      # `llama-fit-params` no puede ajustarlas. Se avisa, porque la promesa de
+      # D-27 («la reserva es el peso real») aquí no se cumple.
+      Logger.warning(
+        "modelo #{inspect(model.alias)}: no se pudo medir el peso real " <>
+          "(fit-params no disponible o '--n-gpu-layers' fijo); la reserva se " <>
+          "queda en la estimación, no en lo que ocupa de verdad"
+      )
+    end
 
     with :ok <- correct_reservation(device, holder, model.vram_mb, weight, held?) do
       case do_start(engine, model, device, fitted_args, holder) do

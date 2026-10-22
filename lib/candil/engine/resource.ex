@@ -103,6 +103,33 @@ defmodule Candil.Engine.Resource do
   end
 
   @doc """
+  Serializa las **colocaciones**: decidir dónde va un modelo y reservar su
+  VRAM es una sola operación, no dos.
+
+  ## Por qué hace falta
+
+  Dos `start_placed/2` concurrentes pueden medir **la misma** memoria libre
+  (el `sync_foreign` de uno todavía no ve lo que el otro acaba de reservar) y
+  decidir los dos que su modelo cabe. El primero reserva; el segundo recibe
+  un error de acquire —que no explica nada— y su modelo no arranca, cuando
+  en realidad lo que había era sitio de sobra y una carrera.
+
+  Con el cerrojo, el segundo **espera** y vuelve a decidir con la memoria ya
+  cambiada: si ahora no cabe, lo dice (`no_room`), y si cabe, reserva.
+
+  El cerrojo vive en `Candil.Engine.Resource.Placement`, que es un semaforo
+  (el motor tiene que seguir siendo hijo de quien lo pide, no del cerrojo) y
+  no un mutex de `:global` — en OTP 28 la API de cerrojos de `:global` ya no
+  existe y `trans/3` se quedo sin hacer nada. Medido el 2026-10-22: dos
+  llamadas concurrentes de `trans/3` tardaron 1,0 s en vez de 2,0 s.
+  """
+  @spec with_placement_lock((-> result)) :: result | {:error, :placement_busy}
+        when result: term()
+  def with_placement_lock(fun) when is_function(fun, 0) do
+    Candil.Engine.Resource.Placement.with_lock(fun)
+  end
+
+  @doc """
   VRAM disponible en un device (0 si no está registrado).
 
   ## El 0 no es «quedan 0 MiB»

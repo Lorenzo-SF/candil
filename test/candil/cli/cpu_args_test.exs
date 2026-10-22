@@ -185,7 +185,13 @@ defmodule Candil.CLITest.CpuArgsTest do
       model_dir: tmp_dir,
       filename: "m.gguf",
       # El 99 es lo que hay en el toml del usuario, y es el que se cuela.
-      model_args: ["--temp", "0.7"],
+      #
+      # `--n-cpu-moe` es lo que permite que un modelo con las capas FIJAS
+      # arranque: los expertos del MoE se van a la RAM, lo que queda en la VRAM
+      # cabe, y `llama-fit-params` no hace falta para Adjustarlo. Sin eso, el
+      # scheduler rechaza el modelo con `:gpu_layers_fixed` (D-27) — porque sin
+      # medición la reserva se quedaría en una suposición.
+      model_args: ["--temp", "0.7", "--n-cpu-moe", "30"],
       # Lo que hay en tu toml HOY, dentro de model_args. Hydrate lo saca de
       # ahi y lo deja en el campo, para que `--cpu` pueda tocarlo.
       gpu_layers: 99

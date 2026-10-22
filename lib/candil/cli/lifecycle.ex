@@ -152,6 +152,11 @@ defmodule Candil.CLI.Lifecycle do
     "esta máquina no tiene GPU; usa --cpu para ejecutarlo en CPU"
   end
 
+  defp reason_text(:gpu_layers_fixed) do
+    "el modelo fija las capas en GPU y no se pueden ajustar: " <>
+      "pon gpu_layers = -1 (o --cpu) para que quepan"
+  end
+
   defp reason_text(:no_room) do
     "no cabe en la GPU: no hay VRAM libre para el modelo"
   end
