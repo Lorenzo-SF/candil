@@ -53,6 +53,8 @@ defmodule Candil.Scheduler do
   @type decision ::
           {:ok, non_neg_integer() | :proceed}
           | {:evict, [term()], non_neg_integer()}
+          | {:error, :no_gpu}
+          | {:error, :gpu_layers_fixed}
           | {:error, :no_room}
 
   @doc """
@@ -101,19 +103,112 @@ defmodule Candil.Scheduler do
 
   Si el modelo no pide VRAM (`size_mb == 0`, típicamente un modelo de CPU
   puro), devuelve `{:ok, :proceed}` sin mirar dispositivos: no hay nada que
-  colocar ni que expulsar. Si pide VRAM y no hay dispositivos (sin GPU o sin
-  nvidia-smi), devuelve `{:error, :no_room}`.
+  colocar ni que expulsar.
+
+  Si pide VRAM y **no hay GPU** (sin devices usables, o sin `nvidia-smi`),
+  devuelve `{:error, :no_gpu}`. Y si hay GPU pero no cabe,
+  `{:error, :no_room}`. Son hechos distintos: el primero se resuelve con
+  `--cpu`, el segundo no.
 
   Devuelve `{:ok, :proceed}` si no hay que hacer nada especial, o la
   decisión de `place/3`.
   """
   @spec plan(Candil.Model.t()) :: decision()
   def plan(%Candil.Model{} = model) do
-    size_mb = model.vram_mb || estimate_model_size(model)
-    devices = Candil.Scheduler.Devices.detect()
-    instances = build_instances()
+    cond do
+      # Un modelo de CPU no pide VRAM: no hay nada que colocar. Sin esto, con la
+      # GPU llena, un modelo de CPU se rechazaba con `:no_room` — y un modelo que
+      # corre en CPU no puede quedarse sin arrancar por falta de GPU.
+      model.gpu_layers == 0 ->
+        {:ok, nil}
 
-    place(size_mb, devices, instances)
+      # El modelo FIJA las capas en GPU, y no reparte expertos a la CPU.
+      #
+      # `llama-fit-params` no puede ajustar un `--n-gpu-layers` que el usuario
+      # puso: aborta con «n_gpu_layers already set by user to 99». Sin
+      # medición no hay peso real, la reserva se queda en la estimación —una
+      # suposición— y el motor arranca sin ajustar: que es como se llena la
+      # VRAM y se para en seco.
+      #
+      # Medido el 2026-10-22 con un modelo de 13 GB y la GPU con 15 886 MiB
+      # libres: con 99 el fit aborta y el motor sale con codigo 1; con `-1` el
+      # fit ajusta y el modelo arranca.
+      #
+      # La excepción son los modelos con `--n-cpu-moe`: los expertos se van a
+      # la RAM, lo que queda en la VRAM cabe, y el modelo arranca bien. Esos
+      # arrancan, pero **su reserva tampoco se mide** (el fit aborta igual), y
+      # de eso avisa el motor cuando lo detecta.
+      gpu_layers_fixed?(model) and not cpu_moe?(model) ->
+        {:error, :gpu_layers_fixed}
+
+      true ->
+        plan_on_gpu(model)
+    end
+  end
+
+  @doc """
+  Si el modelo **fija** las capas en GPU en vez de dejar que se ajusten.
+
+  `gpu_layers: -1` es «las que quepan» ✓ —se puede ajustar—. Un número
+  positivo es «exactamente estas» ✗, y `llama-fit-params` aborta cuando
+  intenta cambiarlo.
+  """
+  @spec gpu_layers_fixed?(Candil.Model.t()) :: boolean()
+  def gpu_layers_fixed?(%Candil.Model{gpu_layers: layers}) when is_integer(layers) and layers > 0,
+    do: true
+
+  def gpu_layers_fixed?(_model), do: false
+
+  # Si el modelo reparte los expertos del MoE a la CPU (`--n-cpu-moe`), lo que
+  # queda en la VRAM cabe aunque las capas esten fijadas.
+  defp cpu_moe?(%Candil.Model{model_args: args}) when is_list(args) do
+    args
+    |> Enum.chunk_every(2)
+    |> Enum.any?(fn
+      ["--n-cpu-moe", _value] -> true
+      _ -> false
+    end)
+  end
+
+  defp plan_on_gpu(model) do
+    size_mb = model.vram_mb || estimate_model_size(model)
+
+    # El ledger tiene que estar al día ANTES de decidir, o la decisión se toma
+    # sobre una memoria que ya no existe. La memoria ajena —la que usan
+    # procesos que Candil no gestiona— se ajusta aquí.
+    #
+    # Y la decisión se toma con la cifra **del ledger**, no con la de
+    # `nvidia-smi`. No es un detalle: `free_mb` de `nvidia-smi` es lo que hay
+    # libre ahora mismo, y el ledger descuenta además el overhead del
+    # contexto CUDA (370 MiB) que el motor **nuevo** va a crear. Si uno
+    # decidiera con `free_mb` y el otro reservara con `available`, los dos
+    # podrían decir cosas distintas: el scheduler «cabe» y la reserva «no
+    # cabe», y el modelo no arrancaría con un error que nadie entiende.
+    #
+    # Con la misma cifra en los dos lados, la respuesta es la misma por
+    # construcción: `available` es exactamente lo que le cabe a un motor
+    # nuevo, contexto CUDA incluido.
+    devices =
+      Enum.map(Candil.Scheduler.Devices.detect(), fn device ->
+        if device.usable do
+          :ok = Candil.Engine.Resource.sync_foreign(device.index)
+          %{device | free_mb: Candil.Engine.Resource.available(device.index)}
+        else
+          device
+        end
+      end)
+
+    # «No hay GPU» y «no cabe» son **hechos distintos**, y el mensaje tiene
+    # que distinguirlos: `--cpu` es la salida del primero, y del segundo no
+    # hay salida que no sea liberar memoria.
+    #
+    # Antes los dos salían como `:no_room`, que en una máquina sin GPU decía
+    # «la GPU está llena» cuando la verdad es «aquí no hay GPU».
+    if Enum.any?(devices, & &1.usable) do
+      place(size_mb, devices, build_instances())
+    else
+      {:error, :no_gpu}
+    end
   end
 
   @doc false
@@ -138,11 +233,49 @@ defmodule Candil.Scheduler do
 
   def device_index(_os_pid, _usage_by_pid), do: nil
 
-  defp estimate_model_size(%Candil.Model{context_size: ctx}) when is_integer(ctx) and ctx > 0 do
+  @doc """
+  La estimación de VRAM de un modelo: un cuarto de MiB por cada 1024 tokens de
+  contexto.
+
+  No es una estimación de VRAM: es un **suelo** (y un **mutex**) para cuando
+  el modelo no declara `vram_mb`. La verdad la da `llama-fit-params` al
+  arrancar, y por eso el número que se usa de verdad se recalcula en cada
+  arranque. Ver P-10.
+
+  Vive aquí y no en dos sitios: el scheduler la usa para decidir y
+  `Candil.Engine` la usa como mutex, y dos copias de la misma fórmula son dos
+  cifras que acabarán discrepando.
+  """
+  @spec estimate_model_size(Candil.Model.t()) :: non_neg_integer()
+  def estimate_model_size(%Candil.Model{context_size: ctx}) when is_integer(ctx) and ctx > 0 do
     div(ctx, 1024) * 4
   end
 
-  defp estimate_model_size(_), do: 0
+  def estimate_model_size(_), do: 0
+
+  @doc """
+  Cuánta VRAM ocupa una instancia **que ya está corriendo**.
+
+  La respuesta es la de `nvidia-smi`, no la del catálogo. Y no es un detalle:
+  el scheduler expulsa a las víctimas **por tamaño**, así que con la cuenta
+  equivocada dice «no cabe» con la GPU llena de un modelo que sí cabría.
+
+  Medido el 2026-10-22: un `coder` corriendo ocupaba **1054 MiB** según
+  `nvidia-smi`, y el scheduler lo contaba como **512** — la estimación
+  (`div(ctx, 1024) * 4`), porque el modelo no declara `vram_mb`. Con un
+  modelo de 7978 MiB la diferencia es de 7 GB, y la expulsión no libera lo
+  que cree que libera.
+
+  Cuando no hay medición (un modelo en CPU, o una máquina sin `nvidia-smi`)
+  se cae al valor declarado, y a la estimación si no hay declarado: es una
+  suposición, pero es la mejor que hay.
+  """
+  @spec size_mb(Candil.Model.t(), map() | nil) :: non_neg_integer()
+  def size_mb(_model, %{used_mb: used}) when is_integer(used) and used >= 0, do: used
+
+  def size_mb(model, _usage) do
+    (model && model.vram_mb) || estimate_model_size(model) || 0
+  end
 
   defp build_instances do
     usage_by_pid = process_usage_by_pid()
@@ -150,17 +283,32 @@ defmodule Candil.Scheduler do
     Candil.EnginePool.list()
     |> Enum.map(fn entry ->
       model = entry.model
-      size_mb = (model && model.vram_mb) || estimate_model_size(model) || 0
+      usage = usage_for(entry, usage_by_pid)
 
       %{
         model_alias: entry.alias,
-        device_index: device_index_for(entry, usage_by_pid),
-        size_mb: size_mb,
+        device_index: usage && usage.device_index,
+        size_mb: size_mb(model, usage),
         in_use: false,
-        pinned: (model && model.exclusive == true) || false,
+        pinned: model.exclusive == true,
         last_used_at: nil
       }
     end)
+  end
+
+  # La medición de `nvidia-smi` para este motor, si la hay. El PID del SO es
+  # el que `nvidia-smi` conoce: el del GenServer de Candil no.
+  defp usage_for(entry, usage_by_pid) do
+    case entry.pid do
+      beam_pid when is_pid(beam_pid) ->
+        case Candil.Engine.os_pid(beam_pid) do
+          nil -> nil
+          os_pid -> Map.get(usage_by_pid, os_pid)
+        end
+
+      _ ->
+        nil
+    end
   end
 
   # La VRAM y la tarjeta de cada proceso, por PID del sistema operativo.
@@ -181,15 +329,10 @@ defmodule Candil.Scheduler do
   # `nil` cuando no se puede saber: un modelo en CPU no aparece en
   # `nvidia-smi`, y sin `nvidia-smi` no hay medición. `nil` no expulsa, que es
   # lo correcto cuando no se sabe qué ocupa la GPU.
-  defp device_index_for(entry, usage_by_pid) do
-    case entry.pid do
-      beam_pid when is_pid(beam_pid) ->
-        device_index(Candil.Engine.os_pid(beam_pid), usage_by_pid)
-
-      _ ->
-        nil
-    end
-  end
+  #
+  # La medicion completa (el device Y la VRAM que ocupa) la trae `usage_for/2`:
+  # los dos datos salen del mismo `nvidia-smi`, y separarlos es como acabar
+  # con la tarjeta de un lado y la memoria de otro.
 
   defp evict(_size_mb, [], _instances), do: {:error, :no_room}
 

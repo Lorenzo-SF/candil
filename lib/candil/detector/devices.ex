@@ -125,16 +125,20 @@ defmodule Candil.Detector.Devices do
   defp run_processes do
     uuid_to_index = gpu_uuid_to_index()
 
-    case System.cmd("nvidia-smi", @processes_query, stderr_to_stdout: true) do
+    # `GPU.cmd/2` y no `System.cmd/3`: `System.cmd/3` **lanza** `:enoent` si el
+    # binario no se puede ejecutar, y un `nvidia-smi` que existe pero no
+    # arranca (shebang mal, sin permiso) es un `:enoent` tambien. Un crash de
+    # producción no es la forma de decir «no hay GPU».
+    case GPU.cmd("nvidia-smi", @processes_query) do
       {out, 0} -> parse_processes(out, uuid_to_index)
-      {_out, _rc} -> {:error, :smi_failed}
+      _ -> {:error, :smi_failed}
     end
   end
 
   # UUID -> index de cada tarjeta. Si la consulta falla se devuelve un mapa
   # vacio: los procesos saldran con `device_index: nil`, que es lo honesto.
   defp gpu_uuid_to_index do
-    case System.cmd("nvidia-smi", @gpu_uuid_query, stderr_to_stdout: true) do
+    case GPU.cmd("nvidia-smi", @gpu_uuid_query) do
       {out, 0} -> parse_gpu_uuid(out)
       _ -> %{}
     end
@@ -248,14 +252,14 @@ defmodule Candil.Detector.Devices do
         {:error, :no_smi}
 
       _path ->
-        case System.cmd("nvidia-smi", @query, stderr_to_stdout: true) do
+        case GPU.cmd("nvidia-smi", @query) do
           {out, 0} ->
             case parse_nvidia(out) do
               {:ok, devices} -> {:ok, %{backend: :cuda, devices: devices}}
               {:error, reason} -> {:error, reason}
             end
 
-          {_out, _rc} ->
+          _ ->
             {:error, :smi_failed}
         end
     end

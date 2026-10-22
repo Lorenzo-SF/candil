@@ -239,34 +239,21 @@ defmodule Candil do
   defp start_engine_if_found(engine_alias, model, opts) when is_atom(engine_alias) do
     case Candil.Store.get_engine(engine_alias) do
       {:ok, engine} ->
-        # Consultar al scheduler antes de arrancar: si no cabe, puede que haya
-        # que expulsar a otro modelo. El scheduler solo decide; quien ejecuta
-        # es este modulo (Engine.stop + start).
-        case Candil.Scheduler.plan(model) do
-          {:ok, device} ->
-            start_engine(engine, model, opts, device)
+        # Colocar y arrancar por el camino UNICO (`Engine.start_placed/2`): el
+        # scheduler decide donde va, se reserva la VRAM, y quien expulsa a las
+        # víctimas es el que ejecuta. Es el mismo camino que usa el CLI, y esa
+        # es la gracia: no pueden divergir.
+        case Candil.Engine.start_placed(engine, model) do
+          {:ok, _pid} ->
+            Process.sleep(Keyword.get(opts, :start_wait_ms, 3_000))
+            :ok
 
-          {:evict, victims, device} ->
-            Enum.each(victims, &Candil.Llm.stop_engine/1)
-            start_engine(engine, model, opts, device)
-
-          {:error, :no_room} ->
-            {:error, :no_room}
+          {:error, reason} ->
+            {:error, reason}
         end
 
       {:error, _} ->
         {:error, :engine_not_found}
-    end
-  end
-
-  defp start_engine(engine, model, opts, device) do
-    case Candil.Llm.start_engine(engine, model, device) do
-      {:ok, _pid} ->
-        Process.sleep(Keyword.get(opts, :start_wait_ms, 3_000))
-        :ok
-
-      {:error, reason} ->
-        {:error, reason}
     end
   end
 

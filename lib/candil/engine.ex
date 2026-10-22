@@ -36,6 +36,8 @@ defmodule Candil.Engine do
   alias Candil.Engine.Server
   alias Candil.{EnginePool, Installer}
 
+  require Logger
+
   @enforce_keys [:alias]
 
   defstruct alias: nil,
@@ -372,16 +374,267 @@ defmodule Candil.Engine do
   """
   @spec start(t(), Candil.Model.t(), non_neg_integer() | nil) :: {:ok, pid()} | {:error, term()}
   def start(%__MODULE__{} = engine, %Candil.Model{} = model, device \\ nil) do
-    # D-27 sub-paso 2: llama-fit-params calcula el peso y los args ajustados
-    # antes de arrancar. Si no está disponible (instalación antigua, strategy
-    # :none), se cae a build_args con la estimación (vram_mb).
-    {fitted_args, _weight} =
-      case Candil.Engine.FitParams.run(engine, model, device) do
-        {:ok, w, args} -> {args, w}
-        :fallback -> {nil, nil}
-      end
+    is_cpu = engine.cpu or model.gpu_layers == 0
 
-    do_start(engine, model, device, fitted_args)
+    # El titular se crea **una vez**, aquí, y lo usan todos los que participan:
+    # el acquire, la corrección y el `terminate/2` del server. Si cada uno lo
+    # construyera por su cuenta, un cambio en uno dejaría la reserva de la
+    # otra instancia — y con la generación, un `terminate/2` tardío del modelo
+    # viejo no puede soltar la reserva del nuevo (ver `holder/2`).
+    holder = holder(model, engine)
+
+    # D-27: la reserva va ANTES de `fit-params` para serializar arranques
+    # concurrentes.
+    case acquire(engine, model, is_cpu, device, holder) do
+      :skip ->
+        start_unreserved(engine, model, device, nil)
+
+      {:ok, :reserved} ->
+        start_reserved(engine, model, device, holder, true)
+
+      {:ok, :mutex_failed} ->
+        # El mutex no cabía, pero eso no es un «no cabe»: el mutex no es una
+        # reserva. Se sigue y **la medición** decide, que es lo único que sabe
+        # cuánto va a ocupar el modelo de verdad.
+        start_reserved(engine, model, device, holder, false)
+
+      {:error, reason} ->
+        {:error, reason}
+    end
+  end
+
+  @doc """
+  Coloca el modelo donde el scheduler diga y lo arranca.
+
+  Es **el** camino de arranque: lo usan la API (`Candil.chat/2`,
+  `Candil.serve/0`, `Candil.Agent`) y el CLI (`candil run`). Que sea uno solo es
+  lo que evita que uno arranque **sin reservar** y sin consultar al scheduler:
+  dos caminos con dos comportamientos, que es como se llega a que «el CLI hace
+  una cosa y la API otra» sin que nadie lo decida.
+
+  El scheduler **solo decide**; quien expulsa a las víctimas es esta función.
+  """
+  @spec start_placed(t(), Candil.Model.t()) :: {:ok, pid()} | {:error, term()}
+  def start_placed(%__MODULE__{} = engine, %Candil.Model{} = model) do
+    if engine.cpu or model.gpu_layers == 0 do
+      # Un motor de CPU no pide VRAM: ni el scheduler ni el ledger tienen nada
+      # que decir. Sin esta comprobación, `candil run --cpu` se rechazaba con
+      # `:no_room` en una máquina sin GPU —el scheduler miraba un modelo que
+      # pide GPU (`gpu_layers: 99`) sin saber que el motor lo va a correr en
+      # CPU. Un modelo que corre en CPU no puede quedarse sin arrancar por
+      # falta de GPU.
+      start(engine, model, nil)
+    else
+      # Decidir DÓNDE va el modelo y reservar su VRAM son una sola operación.
+      # Sin el cerrojo, dos arranques concurrentes miden la misma memoria
+      # libre, los dos deciden que su modelo cabe, y el segundo recibe un error
+      # de acquire que no explica nada. Con el cerrojo, el segundo espera y
+      # vuelve a decidir con la memoria ya cambiada.
+      Candil.Engine.Resource.with_placement_lock(fn ->
+        case Candil.Scheduler.plan(model) do
+          {:ok, device} ->
+            start(engine, model, device)
+
+          {:evict, victims, device} ->
+            Enum.each(victims, &Candil.Llm.stop_engine/1)
+            start(engine, model, device)
+
+          {:error, :no_gpu} ->
+            # «Esta máquina no tiene GPU» no es «no cabe». Son hechos distintos y
+            # el mensaje tiene que distinguirlos: `--cpu` es la salida.
+            {:error, :no_gpu}
+
+          {:error, :gpu_layers_fixed} ->
+            # El modelo fija las capas y `llama-fit-params` no puede ajustarlas:
+            # sin medición no hay peso real. Se dice en vez de arrancar a ciegas.
+            {:error, :gpu_layers_fixed}
+
+          {:error, :no_room} ->
+            {:error, :no_room}
+        end
+      end)
+    end
+  end
+
+  @doc false
+  # El titular de la reserva, en UN sitio. `Engine.start/3` lo usa para
+  # reservar y `Server.terminate/2` para liberar; si cada uno lo construyera
+  # por su cuenta, un cambio en uno dejaría la reserva de la otra instancia.
+  #
+  # Y lleva una **GENERACIÓN** (`make_ref/0`), porque `{alias, port}` no es
+  # único en el tiempo. Si el puerto se reutiliza y el `terminate/2` del server
+  # viejo llega tarde, un `release/2` —que quita la primera entrada de ese
+  # titular— podría soltar la reserva **del modelo nuevo**, que la estaba
+  # usando. Con la generación, la reserva vieja solo la suelta quien la pidió.
+  @spec holder(Candil.Model.t(), t()) :: {atom(), non_neg_integer() | nil, reference()}
+  def holder(%Candil.Model{} = model, %__MODULE__{} = engine) do
+    {model.alias, model.port || engine.port, make_ref()}
+  end
+
+  defp acquire(engine, model, is_cpu, device, holder) do
+    cond do
+      # Un motor externo no ocupa esta GPU: no hay nada que reservar.
+      engine.launcher != nil ->
+        :skip
+
+      # Un modelo de CPU no pide VRAM.
+      is_cpu ->
+        :skip
+
+      # Sin device resuelto no se sabe dónde reservar.
+      not is_integer(device) or device < 0 ->
+        :skip
+
+      # `vram_mb: 0` es «este modelo no pide VRAM», no «no lo sé».
+      model.vram_mb && model.vram_mb <= 0 ->
+        :skip
+
+      # Sin `vram_mb` se toma un MUTEX: una estimación provisional que
+      # serializa los arranques concurrentes mientras `fit-params` mide. No
+      # es una reserva de capacidad —la honestidad del ledger la da el
+      # titular `:foreign` y, después, el peso medido—, y por eso no puede
+      # rechazar un arranque: la estimación es una suposición y una suposición
+      # no puede decir «no cabe».
+      is_nil(model.vram_mb) ->
+        acquire_estimated(model, device, holder)
+
+      # Con `vram_mb` declarado, el valor es una **cota inferior**: lo mínimo
+      # que el modelo ocupa con seguridad. Si la cota no cabe, el peso real
+      # (que es >= la cota) tampoco cabe, así que aquí sí se puede rechazar.
+      true ->
+        acquire_declared(model, device, holder)
+    end
+  end
+
+  defp acquire_declared(model, device, holder) do
+    case Candil.Engine.Resource.acquire(device, holder, model.vram_mb) do
+      {:ok, _receipt} -> {:ok, :reserved}
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # La estimación por contexto es una estimación MUY mala —`div(ctx, 1024) * 4`
+  # da 512 MiB para un modelo que ocupa 7978—, y por eso no puede ser la
+  # reserva final. Es el **mutex** de los segundos que tarda `fit-params` en
+  # medir: lo que se reserve al final es **el peso real**.
+  defp acquire_estimated(model, device, holder) do
+    # La fórmula vive en UN sitio (`Candil.Scheduler.estimate_model_size/1`), que
+    # el scheduler usa para decidir y aquí se usa como mutex. Dos copias de la
+    # misma fórmula son dos cifras que acabarán discrepando.
+    cost = max(Candil.Scheduler.estimate_model_size(model), 1)
+
+    case Candil.Engine.Resource.acquire(device, holder, cost) do
+      {:ok, _receipt} ->
+        Logger.warning(
+          "modelo #{inspect(model.alias)} sin vram_mb: se toma un mutex de " <>
+            "#{cost} MiB hasta medir la real"
+        )
+
+        {:ok, :reserved}
+
+      # El mutex no cabe: no hay sitio ni para el marcador. **No se rechaza**:
+      # el mutex no es una reserva, y quien decide si el modelo cabe es la
+      # medición. Se sigue sin reserva previa, y la corrección toma la del
+      # peso real.
+      {:error, _reason} ->
+        Logger.warning(
+          "modelo #{inspect(model.alias)} sin vram_mb: no hay sitio ni para el " <>
+            "mutex de #{cost} MiB; sigue sin reservar y decide la medición"
+        )
+
+        {:ok, :mutex_failed}
+    end
+  end
+
+  defp start_unreserved(engine, model, device, holder) do
+    {fitted_args, _weight} = fit_params_or_fallback(engine, model, device)
+    do_start(engine, model, device, fitted_args, holder)
+  end
+
+  defp start_reserved(engine, model, device, holder, held?) do
+    {fitted_args, weight} = fit_params_or_fallback(engine, model, device)
+
+    if not is_integer(weight) do
+      # Sin medición, la reserva se queda en la estimación —una suposición— y no
+      # en el peso real. Con un modelo que reparte los expertos a la CPU
+      # (`--n-cpu-moe`) es lo normal: las capas están fijadas y
+      # `llama-fit-params` no puede ajustarlas. Se avisa, porque la promesa de
+      # D-27 («la reserva es el peso real») aquí no se cumple.
+      Logger.warning(
+        "modelo #{inspect(model.alias)}: no se pudo medir el peso real " <>
+          "(fit-params no disponible o '--n-gpu-layers' fijo); la reserva se " <>
+          "queda en la estimación, no en lo que ocupa de verdad"
+      )
+    end
+
+    with :ok <- correct_reservation(device, holder, model.vram_mb, weight, held?) do
+      case do_start(engine, model, device, fitted_args, holder) do
+        {:ok, pid} ->
+          {:ok, pid}
+
+        {:error, reason} ->
+          # `init/1` fallido no pasa por `terminate/2`: la reserva se libera
+          # aquí, que es el único punto donde sigue en vuelo.
+          _ = release_reservation(device, holder)
+          {:error, reason}
+      end
+    end
+  end
+
+  # La reserva es **el peso real**, en los dos sentidos, y no
+  # `max(declarado, real)`.
+  #
+  # `vram_mb` es una **cota inferior declarada**: el mínimo que el modelo
+  # ocupa con seguridad. El peso medido puede ser MAYOR (subió la reserva) o
+  # MENOR (bajó), y en los dos casos la reserva **es el peso real**.
+  #
+  # Y esa bajada importa: el `vram_mb` del pie de `coder` (12744, el footprint
+  # COMPLETO) es MAYOR que el peso ajustado que de verdad ocupa cuando
+  # llama.cpp recorta las capas que no caben (7978 con la memoria que había).
+  # Si la reserva se quedase en 12744, no cabría en el device y **el modelo no
+  # arrancaría**: un número puesto por el footprint impediría arrancar al
+  # modelo recortado. Por eso el campo significa «el MÍNIMO que ocupas», y no
+  # «cuánto ocupaste la última vez» (que además depende de la memoria libre
+  # del instante: el mismo modelo midió 795, 7978 y 10452 MiB en tres
+  # momentos).
+  #
+  # `held?` dice si había una reserva previa (el mutex o la cota). Si no la
+  # había —porque ni el mutex cabía—, se toma directamente la del peso real,
+  # sin soltar nada.
+  defp correct_reservation(_device, _holder, _declared, weight, _held)
+       when not is_integer(weight),
+       do: :ok
+
+  defp correct_reservation(device, holder, _declared, weight, false) do
+    # Sin reserva previa: se toma la del peso real, sin soltar nada.
+    case Candil.Engine.Resource.acquire(device, holder, weight) do
+      {:ok, _receipt} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  defp correct_reservation(_device, _holder, declared, weight, true) when weight == declared,
+    do: :ok
+
+  defp correct_reservation(device, holder, _declared, weight, true) do
+    _ = release_reservation(device, holder)
+
+    case Candil.Engine.Resource.acquire(device, holder, weight) do
+      {:ok, _receipt} -> :ok
+      {:error, reason} -> {:error, reason}
+    end
+  end
+
+  # Un solo dueño para cada reserva: `Engine.start/3` la sostiene mientras el
+  # server no existe (un `init/1` fallido no pasa por `terminate/2`); en
+  # cuanto `Server.start_link/1` devuelve `{:ok, pid}`, la libera
+  # `Server.terminate/2`. Nunca las dos para la misma reserva.
+  defp release_reservation(device, holder) do
+    if is_integer(device) and device >= 0 do
+      Candil.Engine.Resource.release(device, holder)
+    else
+      :ok
+    end
   end
 
   @doc """
@@ -399,17 +652,21 @@ defmodule Candil.Engine do
     :exit, _reason -> nil
   end
 
-  defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model, device, fitted_args) do
+  defp do_start(%__MODULE__{} = engine, %Candil.Model{} = model, device, fitted_args, holder) do
     cond do
       engine.launcher != nil ->
         register_start_result(start_via_launcher(engine, model), engine, model)
 
       binary_exists?(engine) ->
-        register_start_result(start_via_server(engine, model, device, fitted_args), engine, model)
+        register_start_result(
+          start_via_server(engine, model, device, fitted_args, holder),
+          engine,
+          model
+        )
 
       installable?(engine) ->
         case Installer.download_engine(engine) do
-          :ok -> do_start(engine, model, device, fitted_args)
+          :ok -> do_start(engine, model, device, fitted_args, holder)
           {:error, reason} -> {:error, reason}
         end
 
@@ -437,6 +694,13 @@ defmodule Candil.Engine do
     end
   end
 
+  defp fit_params_or_fallback(engine, model, device) do
+    case Candil.Engine.FitParams.run(engine, model, device) do
+      {:ok, w, args} -> {args, w}
+      :fallback -> {nil, nil}
+    end
+  end
+
   defp register_instance(pid, engine, model) do
     EnginePool.put(model.alias, instance_port(model, engine), pid, model, engine)
   end
@@ -449,8 +713,20 @@ defmodule Candil.Engine do
   defp instance_port(%Candil.Model{port: port}, %__MODULE__{}) when is_integer(port), do: port
   defp instance_port(_model, %__MODULE__{port: port}), do: port
 
-  defp start_via_server(%__MODULE__{} = engine, %Candil.Model{} = model, device, fitted_args) do
-    Server.start_link(%{engine: engine, model: model, device: device, fitted_args: fitted_args})
+  defp start_via_server(
+         %__MODULE__{} = engine,
+         %Candil.Model{} = model,
+         device,
+         fitted_args,
+         holder
+       ) do
+    Server.start_link(%{
+      engine: engine,
+      model: model,
+      device: device,
+      fitted_args: fitted_args,
+      holder: holder
+    })
   end
 
   defp start_via_launcher(%__MODULE__{} = engine, %Candil.Model{} = model) do
@@ -486,7 +762,19 @@ defmodule Candil.Engine do
   def stop(model_alias) when is_atom(model_alias) do
     case Registry.lookup(registry(), model_alias) do
       [{pid, _}] ->
-        GenServer.stop(pid, :normal)
+        # El server atrapa salidas desde D-27 para poder liberar la reserva en
+        # `terminate/2`. Eso abre una carrera con una parada en curso: si el
+        # motor ya esta cayendo, `GenServer.stop/3` sale con `:shutdown`/
+        # `:noproc` y el engine esta, igualmente, parado. No es un error.
+        try do
+          GenServer.stop(pid, :normal)
+        catch
+          # `:noproc` si ya no esta; el `:shutdown` anidado que `:sys.terminate`
+          # devuelve cuando otra salida lo esta parando. En los dos casos el
+          # engine acaba parado, que es lo que pide `stop/1`.
+          :exit, _reason -> :ok
+        end
+
         forget(model_alias)
         :ok
 

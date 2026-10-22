@@ -57,19 +57,30 @@ defmodule Candil.Engine.Server do
           model: Candil.Model.t(),
           base_url: binary(),
           lr_pid: pid(),
-          healthy: boolean()
+          healthy: boolean(),
+          device: non_neg_integer() | nil,
+          holder: term() | nil,
+          parent: pid() | nil
         }
 
   @doc false
   @spec start_link(map()) :: GenServer.on_start()
   def start_link(%{model: model} = init_arg) do
     registry = Engine.registry()
+    init_arg = Map.put_new(init_arg, :parent, self())
     GenServer.start_link(__MODULE__, init_arg, name: {:via, Registry, {registry, model.alias}})
   end
 
   @impl GenServer
   def init(%{engine: engine, model: model} = init_arg) do
+    # La reserva de VRAM se libera en `terminate/2`. Sin `trap_exit`, la salida
+    # de `LongRunning` —el motor murió, p. ej. OOM— mata este GenServer sin
+    # pasar por `terminate/2` y la reserva se queda puesta para siempre.
+    Process.flag(:trap_exit, true)
+
+    parent = Map.get(init_arg, :parent)
     device = Map.get(init_arg, :device)
+    holder = Map.get(init_arg, :holder)
     fitted_args = Map.get(init_arg, :fitted_args)
     cd = model_dir_safe(model)
     args = build_args(engine, model, device, fitted_args)
@@ -95,7 +106,10 @@ defmodule Candil.Engine.Server do
           model: model,
           base_url: base_url,
           lr_pid: lr_pid,
-          healthy: false
+          healthy: false,
+          device: device,
+          holder: holder,
+          parent: parent
         }
 
         Process.send_after(self(), :poll_health, HealthPoller.poll_interval())
@@ -135,6 +149,19 @@ defmodule Candil.Engine.Server do
 
   @impl GenServer
   def handle_info(:poll_health, state), do: HealthPoller.handle_poll_health(state)
+
+  # `LongRunning` murió: el motor ya no está, y con él la reserva. Parar por
+  # la misma razón arrastra `terminate/2`, que es quien la libera.
+  def handle_info({:EXIT, pid, reason}, %{lr_pid: pid} = state) do
+    {:stop, reason, state}
+  end
+
+  # El proceso que arrancó el engine. Un final normal del padre no lo para
+  # —igual que un link sin `trap_exit`, donde `:normal` no mata—; uno anormal
+  # sí, y pasa por `terminate/2`.
+  def handle_info({:EXIT, pid, reason}, %{parent: pid} = state) when reason != :normal do
+    {:stop, reason, state}
+  end
 
   def handle_info(_msg, state), do: {:noreply, state}
 
@@ -177,12 +204,21 @@ defmodule Candil.Engine.Server do
   def id_for(%{alias: model_alias}, %{port: port}), do: {:candil_engine, model_alias, port}
 
   @impl GenServer
-  def terminate(_reason, %{model: model, engine: engine}) do
-    # Explicit cleanup so the OS process goes away when Candil asks it
-    # to. If we got here because the link already died (port crashed),
-    # this returns {:error, :not_found} harmlessly.
-    # El id sale del MODELO y del ENGINE, cada uno de donde le toca: ver `id_for/2`.
+  def terminate(_reason, %{model: model, engine: engine, device: device, holder: holder}) do
     _ = LongRunning.stop(id_for(model, engine))
+
+    # D-27 sub-paso 3: liberar la reserva del resource si es GPU.
+    #
+    # Se libera **el titular que llegó con el server**, no uno recalculado
+    # aquí: el titular lleva una generación (`make_ref/0`) y `{alias, port}`
+    # no es único en el tiempo. Si el puerto se reutiliza y este `terminate/2`
+    # llega tarde, un titular recalculado podría soltar la reserva **del
+    # modelo nuevo**, que la estaba usando.
+    if is_integer(device) and device >= 0 and not (engine.cpu or model.gpu_layers == 0) and
+         holder != nil do
+      Candil.Engine.Resource.release(device, holder)
+    end
+
     :ok
   end
 

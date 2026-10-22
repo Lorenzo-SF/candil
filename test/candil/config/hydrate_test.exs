@@ -12,6 +12,22 @@ defmodule Candil.Config.HydrateTest do
     Enum.each(Store.list_models(), &Store.deregister_model(&1.alias))
     Enum.each(Store.list_engines(), &Store.deregister_engine(&1.alias))
     Enum.each(Store.list_providers(), &Store.deregister_provider(&1.alias))
+
+    # Y **al salir** también, que vaciar ANTES no basta: el último test de
+    # este fichero dejaba sus modelos en el Store global, y el siguiente
+    # fichero los encontraba ahí.
+    #
+    # Pasó de verdad (medido el 2026-10-21): este fichero deja un modelo con
+    # `usage: [:embeddings]` (el test «solo endpoints deja capabilities
+    # vacio»), y `router_test.exs` —que espera ser el único con un embedder—
+    # lo encontraba y decidía `:full` donde esperaba `:reduced`. Dos tests
+    # rojos según el orden, y el orden lo cambia añadir un fichero.
+    on_exit(fn ->
+      Enum.each(Store.list_models(), &Store.deregister_model(&1.alias))
+      Enum.each(Store.list_engines(), &Store.deregister_engine(&1.alias))
+      Enum.each(Store.list_providers(), &Store.deregister_provider(&1.alias))
+    end)
+
     :ok
   end
 

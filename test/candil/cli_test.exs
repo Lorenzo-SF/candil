@@ -13,7 +13,7 @@ defmodule Candil.CLITest do
 
   alias Candil.CLI
   alias Candil.CLI.{Colorize, Escript, Help, Holder, Lifecycle, Ports, Preflight}
-  alias Candil.{Engine, EnginePool, Instances, Model, Store}
+  alias Candil.{Engine, EnginePool, FakeGPU, Instances, Model, Store}
 
   doctest Candil.CLI.Version
 
@@ -25,6 +25,22 @@ defmodule Candil.CLITest do
     # that dies mid-test can still leave an instance behind, and `status` would
     # then print a row where this test expects an empty registry.
     Enum.each(EnginePool.list(), &EnginePool.delete(&1.alias, &1.port))
+
+    # El CLI arranca motores de verdad, y el arranque pasa por el scheduler:
+    # sin una GPU donde colocarlos, el motor no arranca y el test falla por
+    # una razón que no es del código. En CI no hay GPU, y en local puede estar
+    # ocupada por otra sesion. Se pone delante un `nvidia-smi` de mentira.
+    dir = Path.join(System.tmp_dir!(), "candil-fake-gpu-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    FakeGPU.install(dir, total_mb: 16_303, free_mb: 16_000)
+
+    on_exit(fn ->
+      FakeGPU.uninstall()
+      File.rm_rf(dir)
+      # El ledger del device 0 es global: este test lo crea y se lo lleva.
+      Candil.Engine.Resource.stop_device(0)
+    end)
+
     :ok
   end
 

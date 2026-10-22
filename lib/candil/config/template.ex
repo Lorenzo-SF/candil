@@ -184,11 +184,26 @@ defmodule Candil.Config.Template do
     #   # como llama-server se queja de "already set by user".
     #   gpu_layers   = -1
     #
-    #   # VRAM que ocupa el modelo en MB (opcional). Si no se pone, el scheduler
-    #   # la estima del context_size. Ponla si la conoces: la estimacion es un
-    #   # orden de magnitud, y una decision de eviction con un numero malo
-    #   # expulsa al modelo equivocado.
-    #   vram_mb      = 13000
+    #   # VRAM que ocupa el modelo en MB (opcional, y casi nunca hace falta).
+    #   #
+    #   # Es una COTA INFERIOR: el MINIMO que el modelo ocupa con seguridad.
+    #   # O sea, lo que ocupa DESPUES de que llama.cpp recorta las capas que no
+    #   # caben. Si no lo sabes, dejalo vacio: la reserva que Candil lleva es
+    #   # SIEMPRE el peso MEDIDO con `llama-fit-params` en el momento de
+    #   # arrancar, y este numero solo sirve como estimacion previa para que un
+    #   # arranque que no cabe falle pronto en vez de a los 4 s.
+    #   #
+    #   # NO pongas aqui el "footprint completo" del modelo. El mismo modelo
+    #   # medido el 2026-10-21 dio 795 MiB con la GPU ocupada, 7978 MiB con la
+    #   # GPU medio libre y 10452 MiB con la GPU libre: lo que cambia es quantas
+    #   # capas cabe recortar, que depende de la memoria libre del instante. Un
+    #   # numero alto aqui no es "lo que ocupa": es "lo que ocupaba con la GPU
+    #   # libre", y pone un techo que IMPIDE arrancar al modelo recortado, que
+    #   # es justo el que tiene que arrancar.
+    #   #
+    #   # Y si lo pones, que sea el minimo: la cota se reserva tal cual, y si
+    #   # la cota no cabe, el peso real (que es >= la cota) tampoco cabe.
+    #   vram_mb      = 8000
     #
     #   # Tokens de respuesta que se piden como maximo (opcional). El default
     #   # global son 4096, y con eso casi todo modelo contesta de sobra.

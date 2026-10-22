@@ -16,6 +16,7 @@ defmodule Candil.CLITest.CpuArgsTest do
   use ExUnit.Case, async: false
   import ExUnit.CaptureIO
 
+  alias Candil.FakeGPU
   alias Candil.Store
 
   @moduletag :tmp_dir
@@ -24,6 +25,21 @@ defmodule Candil.CLITest.CpuArgsTest do
     previous = System.get_env("CANDIL_DATA_DIR")
     System.put_env("CANDIL_DATA_DIR", Path.join(tmp_dir, "data"))
     on_exit(fn -> if previous, do: System.put_env("CANDIL_DATA_DIR", previous) end)
+
+    # El `nvidia-smi` falso va **delante** en el PATH: `System.find_executable/1`
+    # y `System.cmd/3` lo encuentran ahí. Sin esto, el test dependería de la
+    # máquina: en CI no hay GPU (el scheduler no tiene donde colocar y el motor
+    # no arranca) y en local puede estar ocupada por otra sesión. Un test que
+    # depende del hardware de quien lo corre no es un test: es una lotería.
+    # Medido el 2026-10-21: con la GPU al 99 % de otra sesión, este test
+    # fallaba —y el fallo no era del código.
+    FakeGPU.install(tmp_dir, total_mb: 16_303, free_mb: 16_000)
+    on_exit(&FakeGPU.uninstall/0)
+
+    # El ledger del device 0 es global: este test lo crea (con la capacidad
+    # que dice el `nvidia-smi` falso) y se lo lleva por delante, para no dejar
+    # un titular `:foreign` en el resto de la suite.
+    on_exit(fn -> Candil.Engine.Resource.stop_device(0) end)
 
     Process.flag(:trap_exit, true)
     :ok
@@ -169,7 +185,13 @@ defmodule Candil.CLITest.CpuArgsTest do
       model_dir: tmp_dir,
       filename: "m.gguf",
       # El 99 es lo que hay en el toml del usuario, y es el que se cuela.
-      model_args: ["--temp", "0.7"],
+      #
+      # `--n-cpu-moe` es lo que permite que un modelo con las capas FIJAS
+      # arranque: los expertos del MoE se van a la RAM, lo que queda en la VRAM
+      # cabe, y `llama-fit-params` no hace falta para Adjustarlo. Sin eso, el
+      # scheduler rechaza el modelo con `:gpu_layers_fixed` (D-27) — porque sin
+      # medición la reserva se quedaría en una suposición.
+      model_args: ["--temp", "0.7", "--n-cpu-moe", "30"],
       # Lo que hay en tu toml HOY, dentro de model_args. Hydrate lo saca de
       # ahi y lo deja en el campo, para que `--cpu` pueda tocarlo.
       gpu_layers: 99

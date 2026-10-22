@@ -213,8 +213,10 @@ tocar y hasta dónde. Es del dueño, no del motor.
   resoluciones estáticas contra la barra del 60%), el umbral quedó barrido
   (0.35) y **lo que queda es la política de señales**: qué se toca y hasta
   dónde. Eso es del dueño.
-- **Quién *escribe* la verdad de la VRAM** y **la colocación en varias GPUs** —
-  se mide y se enseña, no se reserva (§5 de la deuda, P-4 y P-6).
+- **La colocación en varias GPUs** — el scheduler coloca y expulsa, pero solo
+  sobre un device: el reintento en otro cuando el motor no carga (D-27 opción
+  C) **no está**, y solo tiene caso con más de una GPU (§5 de la deuda, P-6).
+  La VRAM ya no está en esta lista: **se reserva** (P-4, D-27, 2026-10-21).
 
 ---
 

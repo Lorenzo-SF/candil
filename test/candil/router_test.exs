@@ -16,6 +16,14 @@ defmodule Candil.RouterTest do
     Cache.flush()
     Consumer.unpin(:test_consumer)
 
+    # El Store es global, y este fichero **no** puede dar por hecho que está
+    # como lo dejó: otro fichero puede haber dejado un modelo con
+    # `usage: [:embeddings]`, y entonces el test de «sin embedder» no está sin
+    # embedder. Pasó (medido el 2026-10-21): dos tests rojos según el orden de
+    # los ficheros.
+    Enum.each(Store.list_models(), &Store.deregister_model(&1.alias))
+    Enum.each(Store.list_engines(), &Store.deregister_engine(&1.alias))
+
     # Los modelos tienen que **existir en disco**. La capa de embeddings solo
     # se ejecuta si el embedder puede atender una peticion, y un modelo
     # declarado sin fichero es un embedder que no existe: medido el 2026-10-22
