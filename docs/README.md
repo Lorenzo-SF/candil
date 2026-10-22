@@ -5,14 +5,18 @@
 > Si algo está aquí y no en otro sitio, está aquí porque no tiene otro sitio. Si
 > algo está en otro sitio y también aquí, es un error: una verdad, un sitio.
 >
-> **Rama**: `fix/agent-contract` (= PR #87, ya mergeado en `4d8d3e5`)
-> **Medido el 2026-10-16**: **1159 tests + 27 doctests, 0 fallos** · credo 0 ·
-> dialyzer 0 · CI en verde. Fases cerradas: 0, 1, 2, 3, 4, 8 y 11.
+> **Rama**: `main` (`2c517b2`)
+> **Medido el 2026-10-22**: **1360 tests + 33 doctests, 0 fallos** · credo 0 ·
+> dialyzer 0 · CI en verde. Fases cerradas: 0, 1, 2, 3, 4, 5, 8 y 11.
 >
 > **Si vienes de otro sitio y solo vas a leer una cosa**:
 > [`COMO-RETO-MARLO.md`](COMO-RETO-MARLO.md) — y si eres un agente sin nadie
 > delante, ve a su sección *«si eres un agente y no hay nadie delante»*, que
 > lista lo que sí se puede hacer sin GPU.
+>
+> 📌 **El corte más reciente**: [`CHECKPOINT-2026-10-22.md`](CHECKPOINT-2026-10-22.md)
+> — estado medido, lo que falta en orden, el plan de extracción del CLI y las
+> decisiones abiertas.
 >
 > ⚠️ **[La fase 0 ya se hizo, y encontró cuatro cosas que el plan daba por
 > buenas.](01-inventario/HALLAZGOS-FASE-0.md)** El proveedor remoto nunca había
