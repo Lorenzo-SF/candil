@@ -16,20 +16,30 @@ defmodule Candil.RouterTest do
     Cache.flush()
     Consumer.unpin(:test_consumer)
 
+    # Los modelos tienen que **existir en disco**. La capa de embeddings solo
+    # se ejecuta si el embedder puede atender una peticion, y un modelo
+    # declarado sin fichero es un embedder que no existe: medido el 2026-10-22
+    # en el catalogo de esta maquina, con tres declarados y ninguno en disco,
+    # la capa se ejecutaba, no producia nada, y el `trail` decia
+    # `{:embedding, 3, 3}` — una capa que se marca como ejecutada y no decide.
+    dir = Path.join(System.tmp_dir!(), "candil-router-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    on_exit(fn -> File.rm_rf(dir) end)
+
     :ok =
       Store.register_engine(%Engine{
         alias: :llama_cpp,
         binary: "llama-server"
       })
 
-    register(:coder, [:chat, :code])
-    register(:verifier, [:chat, :reasoning])
-    register(:embed, [:embeddings])
+    register(:coder, [:chat, :code], dir)
+    register(:verifier, [:chat, :reasoning], dir)
+    register(:embed, [:embeddings], dir)
 
     :ok
   end
 
-  defp register(alias, usage) do
+  defp register(alias, usage, dir) do
     # Como en `decision_engine_layers_test.exs`: la lista mezcla endpoints y
     # capacidades a proposito, para que estos tests comprueben tambien la
     # separacion. Un solo sitio con esa logica: `Model.split_usage/1`.
@@ -38,14 +48,19 @@ defmodule Candil.RouterTest do
     if invalidos != [],
       do: flunk("usage con valores que no existen: #{inspect(invalidos)}")
 
+    filename = "#{alias}.gguf"
+    # El fichero tiene que estar: la capa de embeddings se consulta solo si el
+    # embedder puede atender una peticion, y eso se comprueba mirando el disco.
+    File.write!(Path.join(dir, filename), "no es un gguf, pero existe")
+
     model = %Model{
       alias: alias,
       type: :local,
       engine: :llama_cpp,
       usage: endpoints,
       capabilities: capacidades,
-      model_dir: "/models",
-      filename: "#{alias}.gguf"
+      model_dir: dir,
+      filename: filename
     }
 
     :ok = Store.register_model(model)

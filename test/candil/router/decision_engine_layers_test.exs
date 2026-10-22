@@ -253,6 +253,14 @@ defmodule Candil.Router.DecisionEngineLayersTest do
         {_e, _c, invalidos} -> flunk("usage con valores que no existen: #{inspect(invalidos)}")
       end
 
+    # El fichero tiene que **estar**: la capa `:embedding` solo se ejecuta si
+    # el embedder puede atender una peticion, y eso se comprueba mirando el
+    # disco. Un modelo declarado sin fichero es un embedder que no existe.
+    dir = Path.join(System.tmp_dir!(), "candil-capas-#{System.unique_integer([:positive])}")
+    File.mkdir_p!(dir)
+    filename = "#{alias}.gguf"
+    File.write!(Path.join(dir, filename), "no es un gguf, pero existe")
+
     :ok =
       Store.register_model(%Model{
         alias: alias,
@@ -261,8 +269,8 @@ defmodule Candil.Router.DecisionEngineLayersTest do
         usage: endpoints,
         capabilities: capacidades,
         description: description,
-        model_dir: "/models",
-        filename: "#{alias}.gguf"
+        model_dir: dir,
+        filename: filename
       })
   end
 
