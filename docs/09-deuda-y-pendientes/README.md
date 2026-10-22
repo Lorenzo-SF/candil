@@ -250,6 +250,61 @@ restructuró. Borrarlas sin mirar el contenido sería exactamente el error del
 | **P-9** | La otra mitad del §8.3 de los agentes: un agente que **revienta** en bucle | 🟡 **a medias, y las dos primeras mitades cerradas el 2026-10-17**: el breaker cubre el **cuelgue** (5 seguidos abren, la puerta contesta sin pagar el plazo) y ahora **sobrevive al reinicio** — el circuito vive en `Candil.Agents.Breakers` (ETS en el árbol, por nombre, como los snapshots), así que un agente nombrado que revienta y vuelve encuentra su circuito como lo dejó y se niega a trabajar en vez de volver a colgarse. La mitad que sigue fuera: un agente **sin nombre** (no tiene identidad que sobrevivir) y un crash que no es un cuelgue —un `raise` en bucle—, que el breaker no cuenta (solo el plazo es fallo) y que el supervisor solo frena con su intensidad 10/5 s global. Y ahora tiene **presupuesto de crashes por agente** (`Candil.Agents.Crashes`: 5 crashes en 60 s y el agente se niega a arrancar con `:crash_budget_exceeded`). Lo que sigue fuera: un agente **sin nombre**. D-25 abre la tercera opción —darle identidad derivada (`{módulo, hash de las opciones}` o el `goal`) para que caiga en la misma puerta que los nombrados—. Si se prefiere que sigan sin protección, queda escrito como decisión explícita. Relectura si al llegar ahí no hay señal: quizá no hace falta un breaker, sino no reiniciar |
 
 
+### La auditoría del acoplamiento a NVIDIA (2026-10-22)
+
+**Qué se revisó**: el hardware, la VRAM y el backend, en todo el repo — no solo
+en la zona de D-27 ✓. El esqueleto de Candil **sí es genérico** ✓ (seis
+backends ✓, el device es *un slot con un presupuesto* ✓, macOS con memoria
+unificada ✓, la distinción «no cabe» / «no lo sé» ✓, el camino de CPU entero
+✓, y el ledger habla de «MiB de un device» sin saber qué es una GPU ✓).
+
+Lo que no es genérico son **tres costuras** ✓, y de ellas salen los hallazgos
+de abajo ✓. Los tres cubos son: **lo que está roto** ✓, **lo que miente** ✓ y
+**lo que hay que decidir** ✓.
+
+> **Alcance**: lectura dirigida a los puntos críticos ✓, no una pasada
+> exhaustiva por los ~70 módulos del repo ✓. Lo que no se ha revisado no está
+> aquí ✓.
+
+#### 5.1 · Bugs de producción
+
+| Dónde | Qué pasa | Clase |
+|---|---|---|
+| `detector/devices.ex:383-405` y `:407-418` | En macOS, `total_system_memory_mb/0` devuelve `{:ok, mb}` ✓, pero `unified_memory/0` guarda **ese tuple** en `total_mb` y `free_mb` ✓, marca `usable: true` ✓ y pone `free_mb = total_mb` ✓. El scheduler ve un device con memoria falsa ✓, y `Resource.sync_foreign/1` —que busca enteros ✓— no lo encuentra → **el `:foreign` no se ajusta nunca** ✓ | **P-12** |
+| `detector/devices.ex:232-239` | `:rocm`, `:sycl` y `:vulkan` se detectan como backend ✓ pero `detect/0` devuelve `devices: []` ✓ → el scheduler responde `:no_gpu` ✓. Un usuario con AMD o Intel recibe «no hay GPU» cuando lo que falta es «no sé medir esta GPU» ✓ | **P-12** |
+| `rag.ex:141-180` | Sin embeddings, `score_chunk/2` devuelve `nil` ✓, el filtro lo acepta ✓ y el `sort_by` ordena por id ✓ → `search/3` devuelve **chunks arbitrarios** ✓, no los relacionados con la pregunta ✓ | deuda (fase 6) |
+
+#### 5.2 · Textos que mienten
+
+| Dónde | Qué dice / qué es | Clase |
+|---|---|---|
+| `rag.ex:34-40` | «Hybrid retrieval with RRF» ✓, pero `search/3` solo usa coseno ✓ y `rrf/2` (`:310-343` ✓) no se llama desde la búsqueda ✓ | deuda (fase 6) |
+| `rag.ex:73` y `:125-126` | `create_index/2` y `search/3` dicen «Not implemented until phase 6» ✓, y sí están implementados ✓ | deuda (fase 6) |
+| `rag.ex:59` | Declara `backend :: :memory | :postgres` ✓ y no hay backend Postgres ✓ ni opción para elegirlo ✓ | deuda (fase 6) |
+| `mcp.ex:28-35` | `serve/1` dice que devuelve `{:error, :not_implemented}` ✓ y en realidad arranca un GenServer sin transporte ✓ | deuda (fase 7) |
+| `mcp.ex:48-52` | `transports/0` anuncia `[:stdio, :http]` ✓ y no hay HTTP ✓; `connect/1` (`:43-46` ✓) devuelve `not_implemented` ✓, pero el moduledoc dice «as a server and as a client» ✓ | deuda (fase 7) |
+| `mcp/server.ex:20` y `:106-113` | El servidor fija la versión `2025-11-25` ✓ e ignora el `protocolVersion` del cliente ✓, sin usar la negociación de `Candil.MCP.Protocol` ✓; las capacidades solo anuncian tools ✓ | deuda (fase 7) |
+| `engine/resource.ex:37` | Dice que el titular es `{alias, port}` ✓; el código real es `{alias, port, make_ref()}` ✓ (`engine.ex:469-471` ✓) | deuda de docs |
+| `engine/resource.ex:22-25` | Fija 15933/16303 MiB de una RTX 5080 ✓ en el moduledoc como si fuera una verdad general ✓ | **P-12** (texto) |
+
+#### 5.3 · Decisiones de diseño
+
+| Dónde | Qué hay que decidir | Clase |
+|---|---|---|
+| `engine/resource.ex:49`, `:285-287`, `:371-372` | La capacidad sale de `nvidia-smi` ✓, se registra `:system = 370` ✓ y el `:foreign` se calcula con la misma fuente ✓. Es una convención válida ✓, pero **D-28** tiene que fijar cuál se usa y **retirar `:system`** ✓ — con la fuente del motor el overhead ya está fuera de la capacidad ✓, y con la del sistema va dentro del `:foreign` ✓; tenerlo además como titular lo descuenta dos veces ✓ | **P-12** |
+| `engine/server.ex:322-332` y `engine/fit_params.ex:80-91` | `CUDA#{device}` se deriva del índice ✓. **D-28** exige el nombre que publica `llama-server --list-devices` ✓: `CUDA0` vale para CUDA y es falso para ROCm, SYCL o Vulkan ✓ | **P-12** |
+| `mcp.ex:32-35` | `serve/1` no elige transporte ✓ y `run_stdio/1` no está cableado ✓. ¿El servidor MCP es una función bloqueante, un proceso, o un comando del CLI nuevo? ✓ | deuda (fase 7) |
+| `agent.ex` | **No hay ninguna referencia a `Candil.Router`** ✓: el agente usa un modelo fijo ✓ y no hay router por paso ✓ | deuda (fase 10) |
+| `agent.ex:146-166` | `Agent.new/1` llama a `Candil.ensure_engine_running/2` ✓ e **ignora el resultado** ✓: el agente puede arrancar sin motor ✓ y fallar en el primer paso ✓ | deuda (fase 10) |
+
+#### 5.4 · Lo que el dueño decidió de esta auditoría
+
+- **El embedder que el router cree que tiene**: `embedder_available?/0` preguntaba si el Store tiene un modelo con `usage: [:embeddings]` ✓ — y el Store registra lo que **declara** el catálogo ✓, no lo que está en disco ✓. Medido el 2026-10-22: hay **tres** embeddings declarados y **ninguno con fichero** ✓ → la capa se ejecutaba, no producía nada ✓, y el `trail` decía `{:embedding, 3, 3}` ✓. **Arreglado** ✓ (PR #132 ✓): ahora pregunta si el modelo **puede atender una petición** ✓ — un local necesita su fichero ✓, un remoto no ✓.
+- **La regla**: es un cambio de **núcleo pequeño**, no de catálogo ✓. «¿Puede este modelo atender embeddings?» es una propiedad de **runtime** ✓, no un dato del catálogo ✓ — el catálogo declara el `source` ✓ y la presencia se resuelve en el núcleo ✓.
+- **Pendiente del follow-up**: usar `Candil.Model.file_path/1` ✓ en vez de duplicar la resolución de path ✓, y `File.regular?/1` ✓ en vez de `File.exists?/1` ✓ (que acepta directorios ✓).
+
+
+
 ### Y Candil reventaba en toda máquina con GPU pero sin el toolkit de CUDA
 
 Medido el 2026-10-21, y **no es un problema de tests: es un crash de

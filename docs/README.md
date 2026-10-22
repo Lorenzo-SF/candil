@@ -182,6 +182,8 @@ las tres veces.
 | [`08-decisiones`](08-decisiones/) | **qué se decidió, cuándo, por qué y qué costó** |
 | [`BITACORA-CANDIL.md`](BITACORA-CANDIL.md) | **los ocho errores de una sesión** y lo que se aprendió de cada uno. Un registro que solo dice aciertos no se lee |
 | [`09-deuda-y-pendientes`](09-deuda-y-pendientes/) | **deuda, problemas abiertos, y lo que falta por probar** |
+| [`10-ergonomia`](10-ergonomia/) | cómo se maneja Candil: la ergonomía de los errores y de la salida |
+| [`04-modulos/CONTRATO-PUBLICO.md`](04-modulos/CONTRATO-PUBLICO.md) | **qué es API pública y qué es CLI** — lo que decide dónde vive cada cosa cuando el CLI se extraiga |
 
 **Si acabas de llegar y tienes una máquina delante, empieza por
 [`09-deuda-y-pendientes` §2](09-deuda-y-pendientes/README.md)**: es la lista
