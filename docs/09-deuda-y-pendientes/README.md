@@ -272,19 +272,22 @@ de abajo ✓. Los tres cubos son: **lo que está roto** ✓, **lo que miente** �
 |---|---|---|
 | `detector/devices.ex:383-405` y `:407-418` | En macOS, `total_system_memory_mb/0` devuelve `{:ok, mb}` ✓, pero `unified_memory/0` guarda **ese tuple** en `total_mb` y `free_mb` ✓, marca `usable: true` ✓ y pone `free_mb = total_mb` ✓. El scheduler ve un device con memoria falsa ✓, y `Resource.sync_foreign/1` —que busca enteros ✓— no lo encuentra → **el `:foreign` no se ajusta nunca** ✓ | **P-12** |
 | `detector/devices.ex:232-239` | `:rocm`, `:sycl` y `:vulkan` se detectan como backend ✓ pero `detect/0` devuelve `devices: []` ✓ → el scheduler responde `:no_gpu` ✓. Un usuario con AMD o Intel recibe «no hay GPU» cuando lo que falta es «no sé medir esta GPU» ✓ | **P-12** |
+| `engine/fit_params.ex:67` y el mismo patrón en `engine/server.ex` | La ruta del modelo se construye con `Path.join(model.model_dir, model.filename)` ✓ en vez de `Candil.Model.file_path/1` ✓ → un modelo configurado **solo con `source`** ✓ se queda sin ruta ✓. No es de NVIDIA ✓, pero es un bug de arranque ✓ | deuda de núcleo |
 | `rag.ex:141-180` | Sin embeddings, `score_chunk/2` devuelve `nil` ✓, el filtro lo acepta ✓ y el `sort_by` ordena por id ✓ → `search/3` devuelve **chunks arbitrarios** ✓, no los relacionados con la pregunta ✓ | deuda (fase 6) |
+| `engine/resource.ex:309-311` | **`sync_foreign/1` se traga el fallo**: el `else` es `_ -> :ok` ✓, así que si no se puede medir, el `:foreign` se queda **viejo** ✓ y el scheduler decide con una cifra que ya no es verdad ✓. Es el mismo daño que `unified_memory/0` ✓ pero por otra puerta ✓: no es que la cifra sea falsa ✓, es que **no se actualizó y se dice que sí** ✓ | **P-12** |
+| `scheduler.ex:273-297` | `size_mb/2` cae a `vram_mb` o a `estimate_model_size/1` ✓ cuando no hay fila de `nvidia-smi` ✓ → una **suposición decide a quién se expulsa** ✓ en el cambio de modelo en caliente ✓. No suele dar un OOM ✓ (normalmente infravalora ✓ y expulsa de más ✓), pero es una cifra inventada presented como medición ✓ | **P-12** |
 
 #### 5.2 · Textos que mienten
 
 | Dónde | Qué dice / qué es | Clase |
 |---|---|---|
-| `rag.ex:34-40` | «Hybrid retrieval with RRF» ✓, pero `search/3` solo usa coseno ✓ y `rrf/2` (`:310-343` ✓) no se llama desde la búsqueda ✓ | deuda (fase 6) |
-| `rag.ex:73` y `:125-126` | `create_index/2` y `search/3` dicen «Not implemented until phase 6» ✓, y sí están implementados ✓ | deuda (fase 6) |
-| `rag.ex:59` | Declara `backend :: :memory | :postgres` ✓ y no hay backend Postgres ✓ ni opción para elegirlo ✓ | deuda (fase 6) |
-| `mcp.ex:28-35` | `serve/1` dice que devuelve `{:error, :not_implemented}` ✓ y en realidad arranca un GenServer sin transporte ✓ | deuda (fase 7) |
+| `rag.ex:34-40` | «Hybrid retrieval with RRF» ✓, pero `search/3` solo usa coseno ✓ y `rrf/2` (`:310-343` ✓) no se llama desde la búsqueda ✓ | ✅ **corregido en el #133** ✓: el moduledoc dice ahora que la parte vectorial es la que hay ✓ y que la léxica y la fusión no ✓ |
+| `rag.ex:73` y `:125-126` | `create_index/2` y `search/3` dicen «Not implemented until phase 6» ✓, y sí están implementados ✓ | ✅ **corregido en el #133** ✓ |
+| `rag.ex:59` | Declara `backend :: :memory | :postgres` ✓ y no hay backend Postgres ✓ ni opción para elegirlo ✓ | ✅ **corregido en el #133** ✓: el tipo es solo `:memory` ✓ y el doc dice que Postgres es a donde habría que ir ✓ |
+| `mcp.ex:28-35` | `serve/1` dice que devuelve `{:error, :not_implemented}` ✓ y en realidad arranca un GenServer sin transporte ✓ | ✅ **corregido en el #133** ✓: el doc dice que levanta el GenServer ✓ y que lo que falta es el transporte ✓ |
 | `mcp.ex:48-52` | `transports/0` anuncia `[:stdio, :http]` ✓ y no hay HTTP ✓; `connect/1` (`:43-46` ✓) devuelve `not_implemented` ✓, pero el moduledoc dice «as a server and as a client» ✓ | deuda (fase 7) |
 | `mcp/server.ex:20` y `:106-113` | El servidor fija la versión `2025-11-25` ✓ e ignora el `protocolVersion` del cliente ✓, sin usar la negociación de `Candil.MCP.Protocol` ✓; las capacidades solo anuncian tools ✓ | deuda (fase 7) |
-| `engine/resource.ex:37` | Dice que el titular es `{alias, port}` ✓; el código real es `{alias, port, make_ref()}` ✓ (`engine.ex:469-471` ✓) | deuda de docs |
+| `engine/resource.ex:37` | Dice que el titular es `{alias, port}` ✓; el código real es `{alias, port, make_ref()}` ✓ (`engine.ex:469-471` ✓) | ✅ **corregido en el #133** ✓: el doc habla ya de la generación ✓ y de por qué existe ✓ |
 | `engine/resource.ex:22-25` | Fija 15933/16303 MiB de una RTX 5080 ✓ en el moduledoc como si fuera una verdad general ✓ | **P-12** (texto) |
 
 #### 5.3 · Decisiones de diseño
@@ -293,6 +296,7 @@ de abajo ✓. Los tres cubos son: **lo que está roto** ✓, **lo que miente** �
 |---|---|---|
 | `engine/resource.ex:49`, `:285-287`, `:371-372` | La capacidad sale de `nvidia-smi` ✓, se registra `:system = 370` ✓ y el `:foreign` se calcula con la misma fuente ✓. Es una convención válida ✓, pero **D-28** tiene que fijar cuál se usa y **retirar `:system`** ✓ — con la fuente del motor el overhead ya está fuera de la capacidad ✓, y con la del sistema va dentro del `:foreign` ✓; tenerlo además como titular lo descuenta dos veces ✓ | **P-12** |
 | `engine/server.ex:322-332` y `engine/fit_params.ex:80-91` | `CUDA#{device}` se deriva del índice ✓. **D-28** exige el nombre que publica `llama-server --list-devices` ✓: `CUDA0` vale para CUDA y es falso para ROCm, SYCL o Vulkan ✓ | **P-12** |
+| `engine/resource.ex:2-10` y `:62` | Los nombres internos del resource son `:cuda0`…`:cuda31` ✓ y el overhead es una constante global de 370 ✓. **D-28** tiene que decidir si el nombre del resource es **el del backend** ✓ o un identificador neutro ✓ — no se deja como deuda oculta ✓ | **P-12** |
 | `mcp.ex:32-35` | `serve/1` no elige transporte ✓ y `run_stdio/1` no está cableado ✓. ¿El servidor MCP es una función bloqueante, un proceso, o un comando del CLI nuevo? ✓ | deuda (fase 7) |
 | `agent.ex` | **No hay ninguna referencia a `Candil.Router`** ✓: el agente usa un modelo fijo ✓ y no hay router por paso ✓ | deuda (fase 10) |
 | `agent.ex:146-166` | `Agent.new/1` llama a `Candil.ensure_engine_running/2` ✓ e **ignora el resultado** ✓: el agente puede arrancar sin motor ✓ y fallar en el primer paso ✓ | deuda (fase 10) |

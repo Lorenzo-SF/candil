@@ -101,10 +101,23 @@ medida de que `agenta1` contestara `content: ""` con 512 tokens.
 | #131 | ocho comentarios con el texto corrupto reparados + este corte versionado en `docs/` |
 | #132 | la capa `:embedding` del router solo corre si el embedder puede atender una petición |
 
-Y un PR de documentación en marcha con la **fila P-12** (los backends que
-Candil no ve) de vuelta en el registro de deudas —se había caído al resolver
-el conflicto del #129 ✓— y el **contrato público** escrito en
-[`04-modulos/CONTRATO-PUBLICO.md`](04-modulos/CONTRATO-PUBLICO.md) ✓.
+Y la documentación, ya mergeada ✓: la **fila P-12** de vuelta en el registro
+✓, el **contrato público** en
+[`04-modulos/CONTRATO-PUBLICO.md`](04-modulos/CONTRATO-PUBLICO.md) ✓, la
+**auditoría del acoplamiento a NVIDIA** en `docs/09` §5.1-5.4 ✓ y los **textos
+que mienten** corregidos en el propio código ✓.
+
+**Y desde entonces** ✓:
+- **D-28 escrita** ✓ (la decisión de los backends ✓, en `docs/08` ✓).
+- **Segunda lectura de la auditoría** ✓: el consejero encontró tres sitios más
+  ✓ — `sync_foreign/1` se traga el fallo ✓, `size_mb/2` usa una suposición
+  como si fuera una medición ✓, y la ruta del modelo se construye a mano en vez
+  de con `Model.file_path/1` ✓ — y avisó de que **cinco filas de la auditoría
+  ya no eran ciertas** ✓ (las había corregido el #133 ✓) ✓.
+- **Contrato revisado** ✓: `Candil.Llm` sale de la API ✓ (su `@moduledoc` ya
+  decía que era interno ✓), `Devices.processes/0` entra ✓ (sin él, el CLI
+  extraído dependería de un módulo no contractual ✓), y los helpers `@doc
+  false` quedan clasificados uno a uno ✓.
 
 ### 2.5 · Lo que ya está hecho y no hay que reabrir
 
@@ -353,7 +366,7 @@ workflow de operador sobre primitivas que ya existen.
 
 | # | Decisión | Quién | Impacto |
 |---|---|---|---|
-| 1 | ¿«Terminado» incluye 6, 7, 9 y 10, o hay corte 1.0? | **Dueño** (el consejero lo tiene por encargo 1 del mensaje 24) | Define cuándo se extrae el CLI. **Lo que ya está decidido**: el CLI se extrae **al final**, cuando el núcleo esté cerrado. Lo que queda por decidir es **dónde está la línea** del núcleo |
+| 1 | ¿Dónde está la línea de «terminado»? | **Dueño — YA DECIDIDO** | **«Terminado» = el 100 % de las tareas definidas como framework para Candil, excluyendo las del CLI.** O sea: las fases 6, 7, 9 y 10 **entran**, y también P-1, P-6, P-9, P-10 y P-12. **Ojo**: el 1.0 que recomienda el consejero (encargo 1 del mensaje 24) **deja esas fases fuera**, así que **no cumple esta definición** ✓. El CLI se extrae **después**, y entonces sí: el núcleo cerrado es el que agota la definición del dueño |
 | 2 | D-28: nombre de device, detección, overhead y `:foreign` por backend | Consejero | Bloquea el PR de P-12 |
 | 3 | ¿`remove` borra ficheros o también sale del catálogo/config? | Dueño | Define `Candil.remove/1` |
 | 4 | ¿`status`/`stop` son API pública o solo CLI? | Dueño | Define si hay facade en Candil |
