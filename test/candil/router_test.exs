@@ -296,7 +296,7 @@ defmodule Candil.RouterTest do
   #
   # Las dos cambian el comportamiento observable, asi que se comprueban por
   # separado y con el resultado en la mano. Un test que solo mira "no revienta"
-  # pasa igual con las dos聚合物.
+  # pasa igual con las dos decisiones.
 
   describe "3.3 · la capa de embeddings saltada deja marca" do
     test "sin embedder, la decision sale con confidence: :degraded" do

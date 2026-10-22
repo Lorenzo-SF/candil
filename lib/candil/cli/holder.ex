@@ -249,11 +249,11 @@ defmodule Candil.CLI.Holder do
   #
   # Aqui NO se detiene el VM: ni con `exit/1` ni con `System.halt/1`.
   #
-  # Las dos seCarryeron por delante la suite. `System.halt(0)` mata la maquina
+  # Las dos se llevaron por delante la suite. `System.halt(0)` mata la maquina
   # virtual entera, y `HolderShutdownTest` llama a `block/1` de verdad: el
   # proceso de test se llevaba por delante, `mix test` salia con 0 y SIN
   # imprimir "Finished in". Un verde que no dice cuantos tests ha corrido no es
-  # un verde, y encima habia绿灯 de por medio.
+  # un verde, y encima habia un semaforo en verde de por medio.
   #
   # Asi que `hold/1` devuelve un motivo y quien decide como termina el proceso
   # es el limite del escript, `Candil.CLI.Escript.hold/2`, que es el unico sitio

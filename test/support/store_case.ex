@@ -53,7 +53,7 @@ defmodule Candil.StoreCase do
     # Y tambien un `CANDIL_DATA_DIR` propio por test. El Store son ETS, pero
     # `Candil.Instances` escribe un fichero en disco, y ese estado tambien es
     # global: un test que registra una instancia la deja al siguiente. Con un
-    # directorio por test, la 实例 de uno no aparece en el `status` del otro.
+    # directorio por test, la instancia de uno no aparece en el `status` del otro.
     dir = Path.join(System.tmp_dir!(), "candil-store-#{System.unique_integer([:positive])}")
     File.mkdir_p!(dir)
     previous = System.get_env("CANDIL_DATA_DIR")
