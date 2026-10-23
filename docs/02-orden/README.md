@@ -5,6 +5,11 @@
 >
 > **Medido el**: 2026-10-11 · `main` `e6c4367`
 >
+> **Plano aparte**: [`CARRIL-0B-PRERREQUISITOS.md`](CARRIL-0B-PRERREQUISITOS.md)
+> — los tres prerrequisitos que la extracción del CLI necesita ✓ y que **son de
+> framework** ✓: el draft ✓, `remove`/`forget` ✓ y el `Holder` ✓. Borrador del
+> 2026-10-23 ✓, pendiente de aprobación ✓.
+>
 > ⚠️ **Renumerado el 2026-10-11.** El orden anterior ponía la 8b · Scheduler
 > como fase 3 y el Gateway como fase 4, y eso dragaba cuatro fases hacia el
 > trabajo local sin decirlo. El motivo del cambio, con las mediciones que lo
