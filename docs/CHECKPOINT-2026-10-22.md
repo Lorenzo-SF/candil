@@ -389,7 +389,7 @@ workflow de operador sobre primitivas que ya existen.
 | 8 | **El embedder**: ¿restaurar `embed`/`vector`/`ranker`, un proveedor remoto, o documentar la degradación? | **Dueño** | Define el tamaño de la **fase 6** ✓, y con ella la 9 y el P-1 ✓ |
 | 9 | **P-6**: ¿reintento en otro device, split, o ambos? ¿Vale la evidencia simulada con `FakeGPU`? | **Dueño** | Define si P-6 entra y con qué evidencia ✓ |
 | 10 | **`Agent.new/1`**: ¿`{:ok, agent}` / `{:error, reason}`, o excepción? | **Dueño** | Rompe el contrato actual ✓, que miente ✓ |
-| 11 | **P-1 `:degrade`**: ¿se implementa con la cobertura del RAG, o se cierra con la decisión escrita? | **Dueño** | Define si P-1 es código o decisión ✓ |
+| 11 | **P-1 `:degrade`**: ¿se implementa con la cobertura del RAG, o se cierra con la decisión escrita? | **Dueño** | Define si P-1 es código o decisión ✓. **Hoy `:degrade` está en el tipo** ✓ (`refusal.ex:99` ✓) y **`apply/5` revienta** ✓ con un `ArgumentError` ✓ (`:191-195` ✓): lo peor de las tres salidas ✓, porque es un error que **no explica nada** ✓ al cliente ✓. Las cuatro salidas, con su coste ✓: **(1)** implementarlo de verdad ✓ —solo tiene sentido si el enrutado sabe **qué pide la pregunta** ✓ (cobertura ✓), y exige candidatos ordenados por capacidad ✓ y un modelo alternativo que cubra lo mismo ✓; **(2)** **mantenerlo declarado pero sin crash** ✓ —`apply/5` devuelve `{:error, %Candil.Error{reason: :degrade_unavailable}}` ✓ o se rechaza al cargar la config ✓ con un mensaje claro ✓: conserva el tipo ✓, quita el crash ✓ y no promete capacidad inexistente ✓; **(3)** retirarlo del tipo y de la config ✓ —cierra P-1 por escrito ✓ y D-09 se queda en `:fail`/`:wait` ✓, pero rompe la API declarada ✓ y obliga a migrar docs y tests ✓; **(4)** dejarlo como está ✓ y documentarlo ✓ —no cambia código ✓, pero mantiene el peor comportamiento ✓. **El consejo del consejero: la (2) ahora** ✓, y la (1) solo si se cierra la cobertura ✓; y si al llegar ahí **nadie echa de menos `:degrade`** ✓, la relectura honesta es **revisar D-09** ✓, no ampliarlo ✓ |
 | 12 | **P-10**: ¿la capa de señales entra? | Consejero | ✅ **CERRADA** (no pendiente ✓): **no entra** ✓ (D-29 ✓), y `Scheduler.Signal` **se retira** ✓ (§4.7 ✓) |
 
 ---
@@ -450,8 +450,9 @@ rg -n 'id_for|LongRunning.stop' lib/candil/cli/holder.ex lib/candil/engine/serve
    con la línea de `Engine.stop/1` ✓); pendiente solo la revisión del dueño ✓.
 4. ~~El carril 0~~ — **#137** ✓ abierto ✓, con D-29 ✓, el plano de la fase 9 ✓,
    la numeración ✓, el plan rehecho ✓ y el CHECKPOINT ✓ reconciliado ✓.
-5. **El dueño mergea #136** ✓ y después **#137** ✓, y los specs nuevos en su
-   PR ✓.
+5. **El dueño mergea** ✓, en este orden ✓: **#136** ✓ (P-12 ✓), **#137** ✓
+   (el carril 0 ✓), **#138** ✓ (los planos de la fase 10 y de P-6 ✓) y **#139** ✓
+   (el spec del carril 0b ✓). Los cuatro con base `main` ✓ y sin apilar ✓.
 6. **El dueño decide** las decisiones abiertas de **§6** ✓: el embedder ✓, el
    alcance de P-6 ✓, `remove/1` con el motor vivo ✓, el contrato de
    `Agent.new/1` ✓ y el P-1 ✓.

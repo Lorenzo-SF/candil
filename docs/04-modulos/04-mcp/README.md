@@ -10,6 +10,30 @@
 > **Fase en el orden global**: la **7** de [`docs/02-orden/`](../../02-orden/README.md),
 > cuyo prerrequisito declarado es la **1** (los behaviours que faltan).
 > **Estado**: **el protocolo está escrito y desfasado.** El resto no existe.
+>
+> **Actualizado el 2026-10-23** ✓: el plan de este documento **ya no describe el
+> código** ✓ — está escrito leyendo la rama `docs-v2` ✓. Lo que **hoy** hay ✓,
+> revisado contra el código ✓:
+>
+> - El **protocolo** ✓ está escrito ✓, en `2025-11-25` ✓ (`protocol.ex:30` ✓),
+>   y el servidor **anuncia** esa versión ✓ (`server.ex:20` ✓). Lo que **no**
+>   hay es la revisión `2026-07-28` ✓ que propone este plan ✓ —y esa fecha
+>   **no está en `@supported`** ✓ (`protocol.ex:33` ✓), así que **hay que
+>   validarla contra la especificación** ✓ antes de cambiar una línea ✓.
+> - El **servidor stdio** ✓ **existe y funciona** ✓ (`server.ex:41-69` ✓), y usa
+>   `Tool.list/0` ✓ en `tools/list` ✓ (`:123-131` ✓) y convierte la excepción
+>   de un tool en `-32603` ✓ (`:133-154` ✓). Este plan lo daba por **pendiente**
+>   ✓.
+> - El servidor **ignora el `protocolVersion` del cliente** ✓ (`server.ex:106-113`
+>   ✓), aunque `Protocol.negotiate/1` ✓ y `check_http_header/1` ✓ ya existen ✓.
+> - **`transports/0` sigue mintiendo** ✓ (`mcp.ex:58-59` ✓): anuncia
+>   `[:stdio, :http]` ✓ y **no hay HTTP** ✓.
+> - **`connect/1` sigue sin implementar** ✓ (`mcp.ex:44-48` ✓) ✓.
+> - `Candil.Tool` ✓ —el registro **genérico** ✓, `lib/candil/tool.ex` ✓— usa
+>   `@behaviour` ✓ (`:64` ✓) **sin `@callback`** ✓, y `call/2` ✓ (`:114` ✓)
+>   **no llama** a `validate_args/2` ✓ (`:134` ✓). El hueco **no** está en
+>   `lib/candil/mcp/tool.ex` ✓ —que sí tiene sus callbacks ✓— sino en el
+>   registro genérico ✓.
 
 ---
 

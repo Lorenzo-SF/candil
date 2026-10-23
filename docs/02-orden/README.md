@@ -73,8 +73,8 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 | **3** | **El enrutado: las capas que faltan** | 1, 2 | Que el enrutado elija por significado y no solo por regla | ✅ |
 | **4** | **La política: quién va primero** | 3 | Que varios compitan por un destino y no se estorben | ✅ **mergeada y medida** (§2.1 de la deuda); `rest_for_one` no está, a propósito (P-3) |
 | **5** | **El refusal, en los tres tipos** | 4 | Que un "no" diga qué corregir | ✅ **cerrada el 2026-10-17**: `fail` y `wait` llegan al cliente HTTP —503 con `Retry-After` y el motivo dentro—; `:degrade` queda declarado y no alcanzable, con su porqué en P-1 |
-| **6** | RAG | 1 | La mesa camilla | ⬜ |
-| **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ |
+| **6** | RAG | 1 | La mesa camilla | ⬜ **a medias** ✓: el vector, el índice, el rewrite y el rerank **ya están** ✓ en `main` ✓; faltan la léxica ✓, el RRF cableado ✓, el incremental con ids estables ✓, el watcher ✓ y el behaviour de embedder ✓ — que depende de una decisión del dueño ✓ (§6 ✓) |
+| **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ **a medias** ✓: el protocolo ✓ y el servidor stdio ✓ **ya están** ✓ en `main` ✓; faltan el HTTP ✓, la negociación real ✓ —el servidor **ignora** el `protocolVersion` del cliente ✓—, el cliente ✓, y `Candil.Tool` con su `@callback` ✓ y su `validate_args/2` **llamado** ✓ |
 | **8** | **Gateway** `candil serve` | 3, 5 | Que otro proceso use Candil sin escribir Elixir | ✅ **cerrada el 2026-10-16**: el comando existe y sirve, medido con `curl` |
 | **9** | Mesa camilla | 4 | Voces con memoria compartida | ⬜ |
 | **10** | **Agentes** — el behaviour y el bucle, en Candil (D-13) | 4 | Agentes | ⬜ |
