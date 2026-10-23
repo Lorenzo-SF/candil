@@ -804,121 +804,60 @@ daña si no se hace, y por eso está en la §7 y no solo en el test.
 
 ---
 
-## Anexo I · Desglose en fases
+## Anexo I · Desglose en fases (rehecho el 2026-10-23)
 
-### 🔶 FASE M-1 · `Candil.Tool` deja de ser un registro a medias
+Las fases originales trataban el protocolo y el servidor stdio como pendientes.
+Eso ya no es cierto: ambos existen en `main`. Este anexo dice qué queda y qué
+se borra.
 
-> **Prerrequisito**: **ninguno.**
-> **Desbloquea**: M-3, M-5 y M-6. Y es la fase **1** de
-> [`docs/02-orden/`](../../02-orden/README.md), la misma que `R-1` del módulo RAG.
-> **Una fase, dos módulos.** Ver el Anexo IV, decisión 1.
+### Estado hoy
 
-Es corta y es la que más valor da por línea escrita.
+| Fase original | Qué era | Estado real hoy | Acción |
+|---|---|---|---|
+| **M-1** | `Candil.Tool` con `@callback` y `validate_args/2` llamado | **Pendiente** ✓: `lib/candil/tool.ex:64` tiene `@behaviour` sin `@callback`; `call/2` (`:114`) no llama a `validate_args/2` (`:134`) | **Se mantiene** |
+| **M-2** | Protocolo a `2026-07-28` | **Pendiente de validación**: el código sigue en `2025-11-25` (`protocol.ex:30`, `server.ex:20`); `2026-07-28` no está en `@supported` (`protocol.ex:33`) | **Validar contra la spec antes de tocar; si la fecha no existe, el plan la inventó** |
+| **M-3** | Servidor stdio | **Ya existe y funciona** (`server.ex:41-69`), con `Tool.list/0` en `tools/list` (`:123-131`) y `-32603` por tool que revienta (`:133-154`) | **Se borra como fase**; queda como hecho |
+| **M-4** | Servidor HTTP | **Pendiente**: no hay HTTP; `transports/0` anuncia `[:stdio, :http]` sin HTTP (`mcp.ex:58-59`) | **Se mantiene** |
+| **M-5** | Cliente | **Pendiente**: `connect/1` devuelve `not_implemented` (`mcp.ex:44-48`) | **Se mantiene** |
+| **M-6** | Endurecer | **Parcialmente hecho**: `-32603` por tool que lanza ya está (`server.ex:133-154`); falta `-32600` por batch, `-32602` por tool desconocida sin crear átomo, y `ttlMs`/`cacheScope` | **Se mantiene, podado** |
 
-1. `@callback run(map()) :: {:ok, term()} | {:error, term()}` en
-   `lib/candil/tool.ex`, al lado del `@type t`. **El `@behaviour` del `use` ya
-   está puesto** (`lib/candil/tool.ex:64`); lo que falta es lo que lo hace
-   meaningful.
-2. Que `handle_call({:call, name, args}, ...)` llame a `validate_args/2` **antes**
-   de `function.(args)`. `validate_args/2` ya existe y ya está probado en
-   `test/candil/tool_test.exs:43-60`.
-3. Test de que un `run/1` mal escrito **falla**. Si el compilador no se queja,
-   el test de §4.1 es el que dice que se queja.
-4. Correr las siete puertas.
+### Fases que quedan
 
-### 🔶 FASE M-2 · El protocolo a `2026-07-28`
+1. **M-1 · `Candil.Tool` deja de ser un registro a medias** (sin prerrequisito).
+   - Añadir `@callback run(map()) :: {:ok, term()} | {:error, term()}` en `lib/candil/tool.ex`.
+   - Hacer que `handle_call({:call, name, args}, ...)` llame a `validate_args/2` antes de `function.(args)`.
+   - Test de que un `run/1` mal escrito falla al compilar o al ejecutar.
 
-> **Prerrequisito**: **ninguno.** Se puede hacer hoy, y **es lo primero que hay
-> que hacer**, porque cambia un test que hoy está verde y afirma lo contrario.
+2. **M-2 · Decisión de revisión de protocolo** (sin prerrequisito).
+   - Validar `2026-07-28` contra la especificación oficial antes de cambiar una línea.
+   - Si la fecha no existe, documentarlo y mantener `2025-11-25`.
+   - Si existe, actualizar `@latest`, `@supported`, `negotiate/1`, `check_http_header/1` y `server.ex` para usar la negociación real en vez de ignorar `protocolVersion`.
 
-⚠️ **Este bloque no es «añadir cosas». Es quitar cosas.** Y eso significa que
-`test/candil/mcp_protocol_test.exs` **cambia de verdad**:
+3. **M-4 · Servidor HTTP** (prerrequisito: M-3, ya hecho).
+   - `POST /mcp` con `MCP-Protocol-Version` obligatoria; sin ella, `400`.
+   - Reusar el mismo `dispatch` que stdio.
+   - Sin `Mcp-Session-Id` en esta revisión.
 
-| Test actual | Qué pasa |
-|---|---|
-| `:10-13` — `assert Protocol.version() == "2025-11-25"` | **falla** hasta que `@latest` sea `"2026-07-28"` |
-| `:93-95` — `assert "initialize" == List.first(Protocol.server_methods())` | **se borra**: no hay `initialize` |
-| `:15-17` — `2024-11-05` como fallback | **se decide** si sigue o se va (Anexo IV, decisión 2) |
-| `:32-38` — sin cabecera se asume `2025-03-26` | **se parte en dos**: `400` para moderno, supuesto para heredado |
-| `:81-90` — `initialize_result/0` | **se borra**, y con él `lib/candil/mcp/protocol.ex:129-143` |
+4. **M-5 · Cliente** (prerrequisito: M-3, ya hecho; M-1 para reexponer).
+   - `connect/1` por el transporte que se le pase.
+   - Sondeo con `server/discover` para detectar moderno/heredado.
+   - Reexposición con `Candil.Tool.define/1`, sin tocar `Candil.Tool`.
 
-1. `lib/candil/mcp/revision.ex`: la **tupla**. `id`, `handshake`, `sessions`,
-   `requires_discover`, `requires_meta`, `requires_result_type`. Y
-   `supports?/1` comparando rasgos, no cadenas.
-2. Reescribir `@supported`. **Decidir** si `2025-11-25` se sirve: sin handshake
-   se puede, pero es **otro dialecto**, y son dos máquinas distintas. Es la
-   decisión 2 del Anexo IV y **no se decide por omisión**.
-3. `check_request/1`: lee `params._meta["io.modelcontextprotocol/protocolVersion"]`,
-   y en http también la cabecera `MCP-Protocol-Version`.
-4. `unsupported_version_error/1`: `-32022` con `data.supported` **y**
-   `data.requested`.
-5. `server/discover` → `DiscoverResult` con versiones, capacidades e identidad.
-6. `resultType` en todo resultado. Y el cliente que recibe un resultado viejo **lo
-   trata como `"complete"`**, que es lo que la especificación obliga.
-7. `lib/candil/mcp/errors.ex`: los cinco códigos, cada uno con su nombre al lado
-   para que nadie los invente.
+5. **M-6 · Endurecer** (prerrequisito: M-4 y M-5).
+   - `-32600` por batch, con mensaje actualizado a la revisión vigente.
+   - `-32602` por herramienta desconocida, sin `String.to_atom/1`.
+   - `ttlMs` + `cacheScope` en `tools/list`.
 
-### 🔶 FASE M-3 · El servidor stdio
+### Fases que se borran
 
-> **Prerrequisito**: M-1 **y** M-2.
+- **M-3 (servidor stdio)**: ya está en `lib/candil/mcp/server.ex:41-69`.
+- La parte de M-2 que consistía en «escribir el protocolo»: ya está en `lib/candil/mcp/protocol.ex`.
+- La parte de M-6 que era «-32603 por tool que lanza»: ya está en `server.ex:133-154`.
 
-1. `transport.ex`: `@callback recv(timeout()) :: {:ok, binary()} | :closed | {:error, term()}`,
-   `@callback send(binary()) :: :ok | {:error, term()}`, `@callback close() :: :ok`.
-   **Un transporte que no cumple el behaviour no sirve.**
-2. `dispatch.ex`: **la única tabla `method → función`**. `tools/list` → lo que
-   devuelva `Candil.Tool.list/0` **en ese momento**.
-3. `server.ex`: bucle. `recv` → Jason.decode → `dispatch` → `send`.
-   **`Jason` ya es dependencia** (`mix.exs`).
-4. Test de §4.3: el tool que revienta y el servidor que sigue.
-5. **El test de §4.4 en este punto.** No al final: si el test de tercero no pasa
-   cuando el servidor está en pie, no va a pasar después.
+### Invariante
 
-### 🔶 FASE M-4 · El servidor http
-
-> **Prerrequisito**: M-3. **`Plug` y `Bandit` ya son dependencias** (`mix.exs`), y
-> hay un módulo `Candil.Gateway.Endpoint` al que mirar.
-
-1. `transport/http.ex`: `POST /mcp`, `MCP-Protocol-Version` **obligatoria**, sin
-   ella `400`. **Sin `GET`**: en `2026-07-28` el endpoint GET se eliminó.
-2. El mismo `dispatch.ex`. **El transporte no sabe de métodos**, y si algún día
-   aparece uno que sabe, es la señal de que se ha roto la frontera.
-3. Lo de `server/discover` en http es lo mismo que en stdio. **Sin `Mcp-Session-Id`**
-   en ningún sitio: no existe en esta revisión.
-
-### 🔶 FASE M-5 · El cliente
-
-> **Prerrequisito**: M-3, y M-1 para poder reexponer.
-
-1. `client.ex`: `connect/1` habla el **mismo** protocolo por el `transport` que se
-   le pase. Un cliente y un servidor son el mismo `dispatch`, mirado al revés.
-2. Por **stdio**, sondear con `server/discover` primero: si vuelve un
-   `DiscoverResult` o un `-32022` reconocido, el otro es moderno; si vuelve otro
-   error o nada, es heredado. **Es lo que dice la especificación** y es lo que
-   hace que un cliente `2026-07-28` pueda hablar con un servidor viejo sin
-   tener dos implementaciones.
-3. **La reexposición**: cada `tool` del otro se convierte con
-   `Candil.Tool.define/1` en un `%Candil.Tool{}` cuya `function` llama al cliente.
-   **El `Candil.Tool` no cambia una línea.** Eso es el punto entero.
-4. El **nombre de la herramienta reexpuesta**: `otro_servidor__mi_herramienta`, y
-   el `name` del `_meta` donde va el de origen. Un nombre plano de otro servidor
-   en tu registro es una **colisión esperando**.
-
-### 🔶 FASE M-6 · Endurecer
-
-> **Prerrequisito**: M-4 y M-5.
-
-1. `-32603` por tool que lanza, y el servidor sigue (§2.5).
-2. `-32600` por batch. El código **no cambia** (`-32600` es *Invalid Request* de
-   JSON-RPC); lo que cambia es el mensaje, que hoy nombra `2025-06-18` como
-   referencia y en una revisión sin estado tiene que nombrar **`2026-07-28`**
-   (§2.3).
-3. `-32602` por herramienta desconocida, **sin crear el átomo** (§2.4).
-4. `ttlMs` + `cacheScope` en `tools/list` — la `CacheableResult` de `2026-07-28`.
-   **Un `tools/list` que cambia en cada llamada es una petición de red por cada
-   prompt.**
-5. **El grep del §4.4, a mano, en la máquina del dueño.**
-
----
+`dispatch` no sabe qué transporte hay. El mismo `tools/call` se sirve por stdio y por http
+con el mismo código.
 
 ## Anexo II · Los contratos
 
