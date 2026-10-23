@@ -13,7 +13,39 @@
 > escaneo lineal» que **no tiene una línea de código**. Que `search/3` exista no
 > significa que el escaneo exista, y esa confusion es justo lo que hay que
 > evitar aquí.
-> **Fase en el orden global**: la **7** de [`docs/02-orden/`](../../02-orden/README.md),
+>
+> **Actualizado el 2026-10-23** ✓: lo de arriba **ya no es cierto** ✓ y el plan
+> de este documento **tampoco** ✓ — está escrito leyendo la rama `docs-v2` ✓.
+> Lo que **hoy** hay ✓ —revisado contra el código ✓—:
+>
+> - `create_index/2` ✓, `index/3` ✓, `search/3` ✓, `drop_index/1` ✓ y
+>   `list_indexes/0` ✓ **están escritos** ✓ (`rag.ex:78-260` ✓) ✓, con un `Store`
+>   de verdad ✓ (`lib/candil/rag/store.ex` ✓). Y `rrf/2` ✓ (`rag.ex:342` ✓) y
+>   `cosine/2` ✓ (`:376` ✓) **también** ✓.
+> - El `@type backend` ✓ ya está corregido a `:memory` ✓ (`rag.ex:67` ✓): el
+>   `:postgres` que decía este plan **nunca existió** ✓ y declararlo era
+>   prometer un backend que no hay ✓.
+> - **`Candil.RAG.Chunker` no coincide con el contrato de este plan** ✓:
+>   `chunk/2` devuelve una **lista** ✓ (`chunker.ex:113` ✓), no `{:ok, chunks}`
+>   ✓; el callback es `chunk/2 :: [Chunk.t()]` ✓ (`:54` ✓); y no existe
+>   `strategy/0` ✓ sino `default_strategy/0` ✓ y `strategies/0` ✓
+>   (`:167` ✓, `:171` ✓). Y los ids de chunk son **`"doc:0"`** ✓
+>   (`chunker.ex:140` ✓), no el hash estable que este plan exige ✓ —y sin ids
+>   estables **el incremental no se puede hacer** ✓.
+> - **No existen** ✓ `lib/candil/rag/embedder.ex` ✓, `lexical.ex` ✓,
+>   `hybrid.ex` ✓ ni `watcher.ex` ✓ —en `lib/candil/rag/` solo hay `chunker.ex`
+>   ✓ y `store.ex` ✓— y la sección `[rag]` **no está** en `config/schema.ex` ✓.
+> - `search/3` ✓ **no usa RRF ni la léxica** ✓, y sin embeddings devuelve los
+>   chunks ordenados por id ✓ (`rag.ex:179-182` ✓): es provisional ✓ y está
+>   documentado como tal ✓.
+>
+> **Lo que queda de la fase 6 sin embedder** ✓, que es la pregunta que está
+> sobre la mesa ✓: el chunking ✓, el índice ✓, la búsqueda vectorial **cuando se
+> pasan embeddings a mano** ✓, el rewrite y el rerank opcionales ✓
+> (`rag.ex:157-196` ✓), y las funciones puras ✓ —`rrf/2` ✓, `cosine/2` ✓. Lo que
+> **no** se puede cerrar sin él ✓: la búsqueda híbrida ✓, el RRF cableado ✓, la
+> semántica automática ✓ y el incremental real ✓.
+> **Fase en el orden global**: la **6** de [`docs/02-orden/`](../../02-orden/README.md),
 > más la tarea **0.3** (RAG mínimo) de la fase 0.
 > **Estado**: **nada de esto está escrito.** Este documento es el plano, no el
 > parte.

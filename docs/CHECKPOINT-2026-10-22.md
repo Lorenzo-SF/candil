@@ -3,9 +3,14 @@
 > **Corte para el consejero.** Esto es una foto, no la verdad permanente.
 > Si algo difiere, manda el repositorio: `git log`, `gh pr view` y los tests.
 >
-> **Decisión de este corte:** Candil se termina primero. El CLI se extrae
-> **después**, a otro proyecto, y solo cuando el contrato de librería esté
-> cerrado. No se añaden comandos nuevos al CLI de Candil mientras tanto.
+> **Decisión de este corte (actualizada el 2026-10-23):** el dueño ha
+> definido **«terminado» = el 100 % de las tareas definidas como framework para
+> Candil, excluyendo todas las relativas al CLI** ✓. Los **tres
+> prerrequisitos** de la extracción (§4.6 ✓) **sí son de framework** ✓ —son API
+> del núcleo ✓— y entran ✓; **mover el CLI a otro proyecto no** ✓, y por eso
+> **no espera a las fases** ✓: se hace en paralelo con ellas ✓, en cuanto el
+> contrato esté cerrado ✓. No se añaden comandos nuevos al CLI de Candil
+> mientras tanto ✓.
 >
 > Este documento sustituye a `tmp/ESTADO-CANDIL.md` como corte compartible.
 > `tmp/` está ignorado por git; el detalle de catálogo y máquina de ese fichero
@@ -225,9 +230,10 @@ No bloquea la extracción del CLI, pero sí bloquea llamar «terminado» al moto
 local si el objetivo incluye varias GPUs.
 
 - **P-6:** colocación en varias GPUs, reintento en otro device. Depende de P-4.
-- **P-10:** cableado completo del scheduler. En `main`, `Candil.Scheduler.Signal`
-  y `Candil.Scheduler.Devices` siguen sin llamadores en `lib/` (medido
-  2026-10-19); #129 puede cambiar parte de eso.
+- **P-10:** ✅ **cerrado el 2026-10-23** (D-29). La capa de señales **no entra**:
+  `Candil.Scheduler.Signal` no tenía ni un llamador en `lib/` (medido el
+  2026-10-23) y se retira. Lo que queda de la 8b es **P-6**, el reintento en
+  otro device.
 - **P-9:** agentes sin nombre y crash que no es cuelgue; D-25 propone identidad
   derivada.
 - **P-1:** `:degrade` sigue declarado y no alcanzable; no bloquea, pero no
@@ -263,7 +269,9 @@ No es código de Candil, pero afecta a la puerta de máquina y al `doctor`:
 
 ### 4.6 · Contrato de núcleo que falta antes de extraer el CLI
 
-Esto es lo único que **sí** es un prerrequisito de la extracción:
+**Los tres son de framework** ✓ —son API del núcleo ✓— y por eso **entran en
+«terminado»** ✓, aunque la extracción **no** entre ✓. Esto es lo único que
+**sí** es un prerrequisito de la extracción:
 
 1. **Descarga del draft en el núcleo.**
    - `Candil.pull/1` descarga engine + modelo, pero no `model.draft`.
@@ -294,7 +302,12 @@ Esto es lo único que **sí** es un prerrequisito de la extracción:
 
 ### 4.7 · Extracción del CLI (fase 12)
 
-**No hacerlo antes de 4.6.** La secuencia:
+**No es una tarea de framework** ✓ —la definición del dueño la excluye ✓— y por
+eso **no espera a las fases 6, 7, 9 y 10** ✓: se hace **en paralelo** ✓ con
+ellas ✓.
+
+**Pero sí espera a 4.6** ✓: el proyecto nuevo debe nacer sobre un contrato
+cerrado ✓, no sobre uno que va a cambiar ✓. La secuencia:
 
 1. Crear el proyecto nuevo (nombre pendiente) como app Elixir con Candil como
    dependencia, Alaja y escript propio.
@@ -366,24 +379,34 @@ workflow de operador sobre primitivas que ya existen.
 
 | # | Decisión | Quién | Impacto |
 |---|---|---|---|
-| 1 | ¿Dónde está la línea de «terminado»? | **Dueño — YA DECIDIDO** | **«Terminado» = el 100 % de las tareas definidas como framework para Candil, excluyendo las del CLI.** O sea: las fases 6, 7, 9 y 10 **entran**, y también P-1, P-6, P-9, P-10 y P-12. **Ojo**: el 1.0 que recomienda el consejero (encargo 1 del mensaje 24) **deja esas fases fuera**, así que **no cumple esta definición** ✓. El CLI se extrae **después**, y entonces sí: el núcleo cerrado es el que agota la definición del dueño |
-| 2 | D-28: nombre de device, detección, overhead y `:foreign` por backend | Consejero | Bloquea el PR de P-12 |
-| 3 | ¿`remove` borra ficheros o también sale del catálogo/config? | Dueño | Define `Candil.remove/1` |
+| 1 | ¿Dónde está la línea de «terminado»? | **Dueño — YA DECIDIDO** | **«Terminado» = el 100 % de las tareas definidas como framework para Candil, excluyendo las del CLI.** O sea: las fases 6, 7, 9 y 10 **entran**, y también P-1, P-6, P-9, P-10 y P-12. **Ojo**: el 1.0 que recomienda el consejero (encargo 1 del mensaje 24) **deja esas fases fuera**, así que **no cumple esta definición** ✓. **El CLI se extrae en paralelo** ✓ con las fases 6, 7, 9 y 10 ✓, una vez cerrado el contrato ✓ (§4.6 ✓): los tres prerrequisitos **son de framework** ✓ y entran ✓; **mover el CLI no** ✓ |
+| 2 | D-28: nombre de device, detección, overhead y `:foreign` por backend | Consejero | ✅ **YA DECIDIDO** (escrita y mergeada el 2026-10-22 ✓) e **implementada** ✓ (PR #136 ✓, en revisión ✓) |
+| 3 | ¿`remove` borra ficheros o también sale del catálogo/config? | Dueño | ✅ **YA DECIDIDO**: `remove` = ficheros + catálogo + el TOML ✓, y `forget/1` para el que solo quita del catálogo ✓. Falta una cosa: **qué hace con el motor vivo** ✓ |
 | 4 | ¿`status`/`stop` son API pública o solo CLI? | Dueño | Define si hay facade en Candil |
 | 5 | ¿El proyecto nuevo conserva Alaja? | Dueño/consejero | Define el traslado del CLI |
 | 6 | ¿Se restauran `embed`, `vector`, `ranker`, `vault` o se documenta la degradación? | Dueño | Afecta a la puerta de máquina y al router |
-| 7 | ¿La rama de comentarios corruptos va en PR propio o se absorbe? | Dueño | Higiene, no bloquea |
+| 7 | ¿La rama de comentarios corruptos va en PR propio o se absorbe? | Dueño | ✅ **YA RESUELTO**: se absorbió en el #131 ✓ |
+| 8 | **El embedder**: ¿restaurar `embed`/`vector`/`ranker`, un proveedor remoto, o documentar la degradación? | **Dueño** | Define el tamaño de la **fase 6** ✓, y con ella la 9 y el P-1 ✓ |
+| 9 | **P-6**: ¿reintento en otro device, split, o ambos? ¿Vale la evidencia simulada con `FakeGPU`? | **Dueño** | Define si P-6 entra y con qué evidencia ✓ |
+| 10 | **`Agent.new/1`**: ¿`{:ok, agent}` / `{:error, reason}`, o excepción? | **Dueño** | Rompe el contrato actual ✓, que miente ✓ |
+| 11 | **P-1 `:degrade`**: ¿se implementa con la cobertura del RAG, o se cierra con la decisión escrita? | **Dueño** | Define si P-1 es código o decisión ✓. **Hoy `:degrade` está en el tipo** ✓ (`refusal.ex:99` ✓) y **`apply/5` revienta** ✓ con un `ArgumentError` ✓ (`:191-195` ✓): lo peor de las tres salidas ✓, porque es un error que **no explica nada** ✓ al cliente ✓. Las cuatro salidas, con su coste ✓: **(1)** implementarlo de verdad ✓ —solo tiene sentido si el enrutado sabe **qué pide la pregunta** ✓ (cobertura ✓), y exige candidatos ordenados por capacidad ✓ y un modelo alternativo que cubra lo mismo ✓; **(2)** **mantenerlo declarado pero sin crash** ✓ —`apply/5` devuelve `{:error, %Candil.Error{reason: :degrade_unavailable}}` ✓ o se rechaza al cargar la config ✓ con un mensaje claro ✓: conserva el tipo ✓, quita el crash ✓ y no promete capacidad inexistente ✓; **(3)** retirarlo del tipo y de la config ✓ —cierra P-1 por escrito ✓ y D-09 se queda en `:fail`/`:wait` ✓, pero rompe la API declarada ✓ y obliga a migrar docs y tests ✓; **(4)** dejarlo como está ✓ y documentarlo ✓ —no cambia código ✓, pero mantiene el peor comportamiento ✓. **El consejo del consejero: la (2) ahora** ✓, y la (1) solo si se cierra la cobertura ✓; y si al llegar ahí **nadie echa de menos `:degrade`** ✓, la relectura honesta es **revisar D-09** ✓, no ampliarlo ✓ |
+| 12 | **P-10**: ¿la capa de señales entra? | Consejero | ✅ **CERRADA** (no pendiente ✓): **no entra** ✓ (D-29 ✓), y `Scheduler.Signal` **se retira** ✓ (§4.7 ✓) |
 
 ---
 
 ## 7 · Lo que no hay que hacer
 
-- **No extraer el CLI ahora.** El núcleo todavía tiene dos operaciones que solo
-  existen en el CLI (draft y remove) y un acoplamiento interno (`Holder`).
+- **No extraer el CLI hasta cerrar §4.6.** El núcleo todavía tiene dos
+  operaciones que solo existen en el CLI (draft y remove) y un acoplamiento
+  interno (`Holder`). **Una vez cerradas, la extracción va en paralelo con las
+  fases** ✓ — no espera a que terminen ✓.
 - **No añadir comandos nuevos al CLI de Candil.** Si hace falta uno, se anota
   para el proyecto nuevo.
 - **No rellenar `vram_mb` en el catálogo.** La medición ya demostró que varía.
-- **No apilar PRs.** #130 va aparte; P-12 va después de #129.
+- **No apilar PRs.** Cada PR tiene su base en `main` ✓, y el orden de merge
+  es **#136 → #137** ✓ (y después el de los specs ✓). Nada de PR apilados ✓.
+- **No auto-aprobar un PR propio.** El dueño revisa; el merge con admin lleva su
+  aval ✓.
 - **No mover lógica de inferencia, scheduling, router o gateway al CLI.** Eso
   se queda en Candil; el CLI solo compone y pinta.
 - **No dar por bueno un test que no se ha ejecutado en la máquina real.** La
@@ -420,11 +443,22 @@ rg -n 'id_for|LongRunning.stop' lib/candil/cli/holder.ex lib/candil/engine/serve
 
 ## 9 · Siguiente acción
 
-1. El dueño revisa y mergea **#129** y **#130** (independientes); verifica `main` en verde.
-2. El consejero decide el alcance de «terminado» y escribe **D-28**.
-3. Se abre el PR de **P-12** (backends) después de #129.
-4. Se cierran los tres prerrequisitos de **4.6**.
-5. Se extrae el CLI a su proyecto y se actualiza `zaguan`.
+1. ~~El dueño revisa y mergea **#129** y **#130**~~ — hechos el 2026-10-22 ✓.
+2. ~~El consejero decide el alcance de «terminado» y escribe **D-28**~~ — el
+   dueño lo decidió ✓ y D-28 está escrita y mergeada ✓ (#134 ✓).
+3. ~~Se abre el PR de **P-12**~~ — implementado el 2026-10-23 ✓ (**#136** ✓,
+   con la línea de `Engine.stop/1` ✓); pendiente solo la revisión del dueño ✓.
+4. ~~El carril 0~~ — **#137** ✓ abierto ✓, con D-29 ✓, el plano de la fase 9 ✓,
+   la numeración ✓, el plan rehecho ✓ y el CHECKPOINT ✓ reconciliado ✓.
+5. **El dueño mergea** ✓, en este orden ✓: **#136** ✓ (P-12 ✓), **#137** ✓
+   (el carril 0 ✓), **#138** ✓ (los planos de la fase 10 y de P-6 ✓) y **#139** ✓
+   (el spec del carril 0b ✓). Los cuatro con base `main` ✓ y sin apilar ✓.
+6. **El dueño decide** las decisiones abiertas de **§6** ✓: el embedder ✓, el
+   alcance de P-6 ✓, `remove/1` con el motor vivo ✓, el contrato de
+   `Agent.new/1` ✓ y el P-1 ✓.
+7. Se cierran los tres prerrequisitos de **4.6** ✓ (carril **0b** ✓).
+8. Se extrae el CLI a su proyecto **en paralelo** ✓ con las fases ✓, y se
+   actualiza `zaguan` ✓.
 
 Mientras todo eso pasa, **Candil sigue siendo la fuente de verdad** y el CLI
 actual sigue siendo una aplicación suya, no un fork. La extracción no cambia

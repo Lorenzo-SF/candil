@@ -18,7 +18,7 @@
 | # | Módulo | Qué es, en una frase |
 |---|---|---|
 | **01** | [Routing y ciclo de vida](01-routing-y-ciclo-vida/) | Decide a qué modelo va cada prompt, y que los motores ocupen la GPU solo cuando hacen falta |
-| **02** | [Contexto compartido](02-contexto-compartido/) | Que el mismo hilo sobreviva al cambio de modelo, sin reenviar el historial entero cada vez |
+| **02** | [Contexto compartido](02-contexto-compartido/) | Que el mismo hilo sobreviva al cambio de modelo, sin reenviar el historial entero cada vez — y la [mesa camilla](02-contexto-compartido/FASE-9-MESA-CAMILLA.md) de la fase 9 |
 | **03** | [RAG](03-rag/) | Que el modelo responda con lo que está en tus documentos, y con la cita de dónde |
 | **04** | [MCP](04-mcp/) | Que las herramientas de Candil sirvan a cualquier cliente, y que las de otros sirvan a Candil |
 | **05** | [Agentes](05-agentes/) | Que un agente sea un proceso con vida propia, no un `while true` |

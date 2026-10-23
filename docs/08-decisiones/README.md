@@ -1274,6 +1274,38 @@ el backend no usa la convención del sistema ✓ o queda `usable: false` ✓.
   `:cuda0`… `:cuda31` ✓ → D-28 tiene que decidir si es el nombre del backend
   ✓ o un identificador neutro ✓; no se deja como deuda oculta ✓.
 
+
+## D-29 · La capa de señales no se construye; el scheduler mide el modelo, no una señal
+
+**Cuándo**: 2026-10-23, **a propuesta del consejero** y **decidida por el dueño** ✓.
+**Qué**: `Candil.Scheduler` **no** recibe una `Signal` con unidades distintas. Su
+entrada es `%Candil.Model{}` y su medida es `model.vram_mb || estimate_model_size/1`.
+El coste y el rate-limit de un proveedor remoto son **política del Provider y
+del Router**, no del scheduler. `Candil.Scheduler.Signal` **se retira**: no tiene
+ni un llamador en `lib/` (medido el 2026-10-23 ✓) y duplica la fórmula de tamaño
+que ya vive en `Candil.Scheduler.estimate_model_size/1` ✓.
+
+**Por qué**: el scheduler **solo coloca modelos locales** ✓; no hay un segundo
+consumidor real de señales ✓. Una abstracción con una sola implementación y
+cero llamadores es una **promesa**, no una capacidad ✓ — y el repo ya tiene la
+regla escrita: *«una pieza interna sin llamador en `lib/` es trabajo sin
+empezar, no una fase cerrada»* ✓ (D-10 ✓).
+
+**Consecuencias**:
+
+- **P-10 se cierra** ✓. Y el único resto de scheduler que queda abierto es
+  **P-6** (el reintento en otro device ✓).
+- `vram_mb` sigue siendo **pista opcional** ✓ (D-26 ✓): una cota inferior
+  declarada, no el footprint ✓.
+- `estimate_model_size/1` sigue siendo **suelo y mutex** ✓, documentado como
+  tal ✓ — y **no** es la medida de una víctima ✓: sin medición, el tamaño de
+  una instancia es `nil` ✓ («no lo sé» ✓).
+- Se borran el módulo y su test ✓, y la tabla de módulos internos de
+  `docs/09` deja de listarlo ✓.
+
+**Se revisa cuando**: exista un scheduler de **destinos remotos** con coste y
+cuota ✓, o un **segundo consumidor real** de la señal ✓.
+
 ---
 
 
