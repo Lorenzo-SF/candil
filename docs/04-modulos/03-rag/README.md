@@ -13,7 +13,7 @@
 > escaneo lineal» que **no tiene una línea de código**. Que `search/3` exista no
 > significa que el escaneo exista, y esa confusion es justo lo que hay que
 > evitar aquí.
-> **Fase en el orden global**: la **7** de [`docs/02-orden/`](../../02-orden/README.md),
+> **Fase en el orden global**: la **6** de [`docs/02-orden/`](../../02-orden/README.md),
 > más la tarea **0.3** (RAG mínimo) de la fase 0.
 > **Estado**: **nada de esto está escrito.** Este documento es el plano, no el
 > parte.

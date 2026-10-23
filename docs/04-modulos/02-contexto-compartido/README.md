@@ -587,7 +587,7 @@ empezar.**
 | **F2.1** | `Turn` y `SharedSession`, structs solos, sin storage nuevo | [`03-convenciones`](../../03-convenciones/README.md) escrito · `Candil.Context` en verde | F2.2, F2.3, F2.5 |
 | **F2.2** | `Candil.Storage.Adapter` + `Candil.Storage.ETS` + `Candil.Storage.Store` | **F2.1** | F2.3 |
 | **F2.3** | `Candil.Context` detrás de `Store`, **sin cambiar un `@spec`** | **F2.2** | F2.4, F2.6, F2.7 |
-| **F2.4** | `Candil.Context.SharedMemory` — la memoria común | **F2.3** · **fase 6 (RAG)** de [`02-orden`](../../02-orden/README.md) · decisión abierta nº 2 cerrada (§5.4) | La mesa camilla (9) |
+| **F2.4** | `Candil.Context.SharedMemory` — la memoria común | **F2.3** · decisión abierta nº 2 cerrada (§5.4) · **sin** dependencia del RAG ✓ (D-22 ✓) | La mesa camilla (9) |
 | **F2.5** | Prefijo estable, `capabilities/0`, `cache_control`, contadores reales | **F2.1** · `Candil.Backend` con `capabilities/0` | Ahorro de tokens cloud |
 | **F2.6** | Compresión asíncrona al 80 % | **F2.3** · `Candil.Context.Summarizer` con modelo configurado | Sesiones largas sin 400 |
 | **F2.7** | La línea de cajas FIFO con VIP | **Decisión abierta §2.4 cerrada** · **F2.3** | La 8b |
@@ -945,8 +945,16 @@ es exactamente la alarma que se quiere.
 ### 5.4 · F2.4 — la memoria común (**fase 9**)
 
 Esta fase **no se puede empezar** hasta que la decisión abierta nº 2 de
-[`01-inventario`](../../01-inventario/README.md) §7 esté contestada, y **no se
-puede terminar** hasta que el RAG (fase 7) tenga un `Embedder` que no sea un stub.
+[`01-inventario`](../../01-inventario/README.md) §7 esté contestada ✓.
+
+**Y no depende del RAG** ✓: lo decía esta misma sección antes ✓ —*«no se puede
+terminar hasta que el RAG (fase 7) tenga un `Embedder` que no sea un stub»* ✓— y
+**eso ya no es verdad** ✓. **D-22** ✓ lo corrige: `SharedMemory` es un mapa
+clave → valor ✓, **no** necesita embeddings ✓, y la recuperación semántica es
+un **enriquecimiento futuro** ✓, no un prerrequisito ✓.
+
+El plano de la fase 9 está en
+[`FASE-9-MESA-CAMILLA.md`](FASE-9-MESA-CAMILLA.md) ✓.
 
 El enunciado dice: **el historial es privado, la memoria es común**. Lo que implica,
 y que hay que decidir antes de escribir una línea:
@@ -959,7 +967,7 @@ y que hay que decidir antes de escribir una línea:
 | ¿La memoria compartida se resume? | **No.** Se poda por antigüedad y por caducidad | Resumir una memoria compartida produce una memoria que nadie reconoce | Un `expires_at` por entrada |
 
 **Mi recomendación**: `SharedMemory` es **una tabla plana, clave `String.t()`,
-valor `%{value: term(), author: atom(), meta: map(), inserted_at: DateTime.t(), expires_at: DateTime.t() | nil}`**, y su scrap es `Candil.RAG` (fase 7). **No** depende de `SharedSession` y **no** la envuelve.
+valor `%{value: term(), author: atom(), meta: map(), inserted_at: DateTime.t(), expires_at: DateTime.t() | nil}`**, y su scrap es `Candil.RAG` (fase 6) — **un enriquecimiento, no un prerrequisito** ✓ (D-22 ✓). **No** depende de `SharedSession` y **no** la envuelve.
 
 **Su coste, dicho sin adornos**: son **tres** capas (SharedSession, SharedMemory,
 RAG) hablando de «lo que el modelo sabe», y el número de sitios donde una

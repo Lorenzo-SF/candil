@@ -76,7 +76,7 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 | **6** | RAG | 1 | La mesa camilla | ⬜ |
 | **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ |
 | **8** | **Gateway** `candil serve` | 3, 5 | Que otro proceso use Candil sin escribir Elixir | ✅ **cerrada el 2026-10-16**: el comando existe y sirve, medido con `curl` |
-| **9** | Mesa camilla | 4, 6 | Voces con memoria compartida | ⬜ |
+| **9** | Mesa camilla | 4 | Voces con memoria compartida | ⬜ |
 | **10** | **Agentes** — el behaviour y el bucle, en Candil (D-13) | 4 | Agentes | ⬜ |
 | **11** | `candil stats` | 4 | Saber si está funcionando | ✅ |
 | **12** | El CLI entero | 8 | — | ⬜ |
@@ -145,13 +145,40 @@ mirar el código con lo que el `@doc` prometía al lado.
 | Se puede en paralelo | No se puede en paralelo |
 |---|---|
 | Fase 0 con la documentación de módulos | El enrutado y la política: la política decide para el enrutado |
-| Los documentos de los módulos 3, 4 y 5 | El refusal y la política: uno define las razones del otro |
+| Los documentos de los módulos 3, 4, 5 y el plano de la fase 9 | El refusal y la política: uno define las razones del otro |
 | RAG (6) con la política (4) | El CLI y cualquier otra cosa |
 | Todo lo local aparcado, si algún día vuelve | El Gateway y el CLI: el CLI lo usa |
 
 **Un carril de código, varios de documentación.** La documentación se escribe
 en paralelo porque no se toca; el código, no, porque casi todo acaba tocando el
 mismo `Store` y el mismo `Router`.
+
+### 5.1 · El plan rehecho (2026-10-23)
+
+**La definición del dueño** ✓: *«terminado» = el 100 % de las tareas definidas
+como framework para Candil, excluyendo todas las relativas al CLI* ✓. Entran las
+fases **6** ✓, **7** ✓, **9** ✓ y **10** ✓, y con ellas **P-1** ✓, **P-6** ✓,
+**P-9** ✓, **P-10** ✓ —cerrado por **D-29** ✓— y **P-12** ✓.
+
+**Los tres prerrequisitos de la extracción** (el draft ✓, `remove` ✓ y el
+`Holder` ✓) **sí son de framework** ✓, porque son API del núcleo ✓. **Mover el
+CLI a otro proyecto no lo es** ✓, y por eso **no espera a las fases** ✓: se
+hace **en paralelo** ✓ con ellas ✓, en cuanto el contrato esté cerrado ✓.
+
+| Carril | Qué | Espera a | No toca |
+|---|---|---|---|
+| **0 · contrato** | El draft en `Installer` ✓, `Candil.remove/1` + `forget/1` ✓, el `Holder` con `Engine.stop/1` ✓, la numeración de fases ✓ | — | el scheduler |
+| **1 · MCP (7)** | M-1…M-6 ✓ | el carril 0 ✓ | el scheduler, el RAG |
+| **2 · RAG (6)** | La léxica ✓, `[rag]` ✓, y la semántica **si hay embedder** ✓ | la decisión del embedder ✓ | MCP, la mesa |
+| **3 · Agentes (10)** | F5.6 ✓, F5.7 ✓, F5.8 ✓, F5.9 ✓, P-9 ✓ | P-12 y P-6 para F5.6 ✓ | RAG, MCP |
+| **4 · Mesa (9)** | F9.1 `SharedMemory` ✓ → las voces ✓ | el spec ✓ (ya escrito ✓) | el CLI |
+| **5 · P-6** | El reintento en otro device ✓ | la decisión de alcance ✓ | — |
+
+**Los ficheros que obligan a secuenciar** ✓: `config/schema.ex` ✓,
+`config/template.ex` ✓ y `application.ex` ✓ los tocan el RAG y la mesa ✓ — un
+carril los posee primero ✓ y el otro escribe sus módulos y espera para el
+cableado ✓. `scheduler.ex` ✓ y `engine/*` ✓ los tocan P-6 y los agentes ✓, y
+**no se editan a la vez** ✓.
 
 ---
 

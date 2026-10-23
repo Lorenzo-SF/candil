@@ -7,7 +7,7 @@
 > —una fachada con dos stubs— en un servidor **y** un cliente.
 >
 > **Base**: rama `docs-v2`, `main` en `e168ccd` · **Medido el**: 2026-10-07
-> **Fase en el orden global**: la **6** de [`docs/02-orden/`](../../02-orden/README.md),
+> **Fase en el orden global**: la **7** de [`docs/02-orden/`](../../02-orden/README.md),
 > cuyo prerrequisito declarado es la **1** (los behaviours que faltan).
 > **Estado**: **el protocolo está escrito y desfasado.** El resto no existe.
 
