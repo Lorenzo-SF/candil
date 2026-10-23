@@ -456,7 +456,10 @@ defmodule Candil.Engine do
             start(engine, model, device)
 
           {:evict, victims, device} ->
-            Enum.each(victims, &Candil.Llm.stop_engine/1)
+            # `Candil.Engine.stop/1` y no `Candil.Llm.stop_engine/1`: el
+            # núcleo no depende de un módulo que su propio contrato declara
+            # interno. El helper solo delegaba aquí (`llm.ex:76-78`).
+            Enum.each(victims, &Candil.Engine.stop/1)
             start(engine, model, device)
 
           {:error, :no_gpu} ->
