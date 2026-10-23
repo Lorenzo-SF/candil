@@ -1,5 +1,10 @@
 # 05-agentes · Taxonomía de Agentes Autónomos
 
+> **Plano aparte**: [`FASE-10-AGENTES.md`](FASE-10-AGENTES.md) — la fase 10
+> completa ✓: la admisión ✓, el `StepRouter` ✓, `GoalBased` ✓, `UtilityBased` ✓
+> y la identidad derivada ✓. Borrador del 2026-10-23 ✓, pendiente de
+> aprobación ✓.
+
 > **Estado**: escrito leyendo el código de `docs-v2`. **Nada de este documento se ha
 > ejecutado**: el contenedor donde se escribió no tiene `mix` en el `PATH` y
 > `_build` es un enlace simbólico a un directorio que no existe. Todo lo que aquí

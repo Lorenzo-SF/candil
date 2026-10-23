@@ -1,5 +1,9 @@
 # 01 · Módulo 1 — Smart Routing y ciclo de vida de los LLMs locales
 
+> **Plano aparte**: [`P-6-REINTENTO-DEVICE.md`](P-6-REINTENTO-DEVICE.md) — el
+> reintento en otro device ✓, que es la parte de este módulo que **todavía no
+> está escrita** ✓. Borrador del 2026-10-23 ✓, pendiente de aprobación ✓.
+
 > **Qué es este documento.** El plano del módulo 1 de los cinco: la parte que
 > decide **qué modelo contesta** y la parte que decide **qué modelos están
 > cargados**. Es el módulo del que [`docs/02-orden/`](../../02-orden/) bebe: el
