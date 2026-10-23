@@ -32,13 +32,15 @@ defmodule Candil.Scheduler.CableadoTest do
     on_exit(&FakeGPU.uninstall/0)
     on_exit(fn -> Candil.Engine.Resource.stop_device(0) end)
 
-    :ok
+    # El motor de mentira: desde D-28 la lista de devices la publica **el
+    # motor**, y sin él no hay devices que colocar.
+    %{binary: FakeGPU.install_engine(tmp_dir)}
   end
 
-  test "un modelo que no cabe devuelve :no_room (cableado)" do
+  test "un modelo que no cabe devuelve :no_room (cableado)", %{binary: binary} do
     engine = %Candil.Engine{
       alias: :llama_cpp,
-      binary: "/nonexistent/llama-server",
+      binary: binary,
       host: "127.0.0.1",
       port: 9991
     }

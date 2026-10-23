@@ -50,7 +50,18 @@ defmodule Candil.Engine.Server do
   @spec args_for(Candil.Engine.t(), Candil.Model.t(), non_neg_integer() | nil, [String.t()] | nil) ::
           [binary()]
   def args_for(engine, model, device, fitted_args),
-    do: build_args(engine, model, device, fitted_args)
+    do: build_args(engine, model, device, device_name_for(engine, device), fitted_args)
+
+  # El nombre del device, el que publica el motor. Se pregunta aquí porque
+  # quien construye los argumentos es quien sabe qué motor va a arrancar.
+  defp device_name_for(%Engine{} = engine, device) when is_integer(device) and device >= 0 do
+    case Candil.Detector.EngineDevices.name_for(Engine.binary_path(engine), device) do
+      {:ok, name} -> name
+      {:error, _reason} -> nil
+    end
+  end
+
+  defp device_name_for(_engine, _device), do: nil
 
   @type state :: %{
           engine: Engine.t(),
@@ -80,10 +91,11 @@ defmodule Candil.Engine.Server do
 
     parent = Map.get(init_arg, :parent)
     device = Map.get(init_arg, :device)
+    device_name = Map.get(init_arg, :device_name)
     holder = Map.get(init_arg, :holder)
     fitted_args = Map.get(init_arg, :fitted_args)
     cd = model_dir_safe(model)
-    args = build_args(engine, model, device, fitted_args)
+    args = build_args(engine, model, device, device_name, fitted_args)
     binary = Engine.binary_path(engine)
     base_url = "http://#{engine.host}:#{engine.port}"
 
@@ -226,6 +238,7 @@ defmodule Candil.Engine.Server do
          %Engine{start_args: engine_args, host: host, port: port} = engine,
          model,
          device,
+         device_name,
          fitted_args
        ) do
     # `--n-gpu-layers` sale SIEMPRE del campo `gpu_layers` del modelo, nunca
@@ -234,12 +247,8 @@ defmodule Candil.Engine.Server do
     model_args = model_args(model) ++ ["--n-gpu-layers", to_string(layers(model, engine))]
     announce_cpu_overrides(model, engine)
 
-    if String.contains?(model.model_dir, "..") or String.contains?(model.filename, "..") do
-      raise ArgumentError, "model path must not contain path traversal (..)"
-    end
-
-    model_path = Path.join(model.model_dir, model.filename)
-    context = to_string(model.context_size || 4096)
+    model_path = model_path(model)
+    context = to_string(model.context_size)
 
     base =
       [
@@ -260,11 +269,30 @@ defmodule Candil.Engine.Server do
     # `--split-mode`). Si hay device, se fuerza un solo device con split
     # desactivado: `--fit` se queda en `on` y el `-1` (si lo hay) se recorta
     # dentro de ese device.
-    device_args = device_args_for(engine, model, device)
+    device_args = device_args_for(engine, model, device, device_name)
 
     fitted = if is_list(fitted_args) and fitted_args != [], do: fitted_args, else: []
 
     base ++ device_args ++ model_args ++ threads_args(engine) ++ engine_args ++ fitted
+  end
+
+  # La ruta del modelo, la que sabe resolver `Candil.Model.file_path/1`: el
+  # `model_dir`/`filename` de siempre, o el `source` cuando el modelo se
+  # descargó de otro sitio (y entonces el `model_dir` puede no existir).
+  #
+  # Antes esto era `Path.join(model.model_dir, model.filename)`: con un modelo
+  # declarado solo por `source` —sin `model_dir`— eso no era una ruta, era un
+  # error, y el modelo no arrancaba.
+  defp model_path(model) do
+    case Model.file_path(model) do
+      nil ->
+        raise ArgumentError,
+              "el modelo #{inspect(model.alias)} no tiene fichero: ni model_dir/filename " <>
+                "ni source"
+
+      path ->
+        path
+    end
   end
 
   # ── `--cpu`: lo que de verdad significa ir a CPU ──────────────────────────
@@ -319,13 +347,25 @@ defmodule Candil.Engine.Server do
     end
   end
 
-  defp device_args_for(%Engine{} = engine, %Model{} = model, device) do
+  # `--device` con el **nombre que publica el motor** (`CUDA0`, `ROCm0`,
+  # `Vulkan0`…), nunca `CUDA#{index}`: eso es la convención de CUDA y es
+  # falsa en ROCm, en SYCL y en Vulkan, donde el motor la rechaza con
+  # `invalid device` (D-28).
+  #
+  # Y `--main-gpu` es un **índice**, que es otra coordenada: el que el motor
+  # da a sus devices.
+  defp device_args_for(%Engine{} = engine, %Model{} = model, device, device_name) do
     cond do
       engine.cpu or model.gpu_layers == 0 ->
         ["--device", "none"]
 
+      is_binary(device_name) and is_integer(device) and device >= 0 ->
+        ["--device", device_name, "--split-mode", "none", "--main-gpu", to_string(device)]
+
       is_integer(device) and device >= 0 ->
-        ["--device", "CUDA#{device}", "--split-mode", "none", "--main-gpu", to_string(device)]
+        raise ArgumentError,
+              "no se sabe el nombre del device #{device}: el motor no se pudo preguntar, " <>
+                "y '--device' no acepta índices"
 
       true ->
         []

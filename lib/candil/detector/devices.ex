@@ -380,40 +380,147 @@ defmodule Candil.Detector.Devices do
 
   # En macOS no hay tarjetas: hay memoria unificada. Es UN dispositivo, y por
   # eso `detect/0` lo pone en una lista de uno y no en un caso especial.
+  #
+  # ## El libre se mide, y si no se puede medir no se inventa
+  #
+  # `hw.memsize` dice el **total**. Decir que ese total es también el libre es
+  # una mentira: el scheduler creería que hay memoria libre que no hay, y
+  # `Resource.sync_foreign/1` —que busca enteros— no encontraría nada que
+  # ajustar.
+  #
+  # El libre sale de `vm_stat`: las páginas **libres** más las **inactivas**,
+  # **especulativas** y **purgeables**, que son las que el sistema puede
+  # recuperar. Si `vm_stat` no se puede leer, el device sale `usable: false`
+  # con las cifras a `nil`: «no lo sé» no es «hay de sobra».
   defp unified_memory do
-    case total_system_memory_mb() do
-      nil ->
-        %{
-          index: 0,
-          name: "Apple unified memory",
-          backend: :metal,
-          total_mb: nil,
-          free_mb: nil,
-          usable: false
-        }
+    total = total_system_memory_mb()
 
-      mb ->
+    case {total, free_system_memory_mb()} do
+      {nil, _} ->
+        unusable_unified_memory()
+
+      {_total, nil} ->
+        unusable_unified_memory()
+
+      {total, free} ->
         %{
           index: 0,
           name: "Apple unified memory",
           backend: :metal,
-          total_mb: mb,
-          free_mb: mb,
+          total_mb: total,
+          free_mb: free,
           usable: true
         }
     end
+  end
+
+  defp unusable_unified_memory do
+    %{
+      index: 0,
+      name: "Apple unified memory",
+      backend: :metal,
+      total_mb: nil,
+      free_mb: nil,
+      usable: false
+    }
   end
 
   defp total_system_memory_mb do
     case System.cmd("sysctl", ["-n", "hw.memsize"], stderr_to_stdout: true) do
       {out, 0} ->
         case out |> String.trim() |> Integer.parse() do
-          {bytes, _} when bytes > 0 -> {:ok, div(bytes, 1024 * 1024)}
+          {bytes, _} when bytes > 0 -> div(bytes, 1024 * 1024)
           _ -> nil
         end
 
       _ ->
         nil
+    end
+  end
+
+  # La memoria **disponible** del sistema, en MiB, según `vm_stat`.
+  defp free_system_memory_mb do
+    case System.cmd("vm_stat", [], stderr_to_stdout: true) do
+      {out, 0} ->
+        case parse_vm_stat(out) do
+          {:ok, mb} -> mb
+          {:error, _reason} -> nil
+        end
+
+      _ ->
+        nil
+    end
+  end
+
+  @doc """
+  Parsea la salida de `vm_stat` y devuelve la memoria **disponible** en MiB.
+
+  ## Qué cuenta como disponible
+
+  Las páginas **libres**, más las **inactivas**, las **especulativas** y las
+  **purgeables**: las cuatro son recuperables por el sistema. La **activa** y
+  la **cableada** no: están en uso.
+
+  ## El tamaño de página
+
+  Va en la cabecera (`page size of 16384 bytes`) y **cambia** entre máquinas y
+  entre versiones de macOS —en Apple Silicon es de 16384, en Intel de 4096—,
+  así que se lee de ahí y no se supone.
+
+  La salida de `vm_stat` es un texto de macOS, no de Candil: el formato es el
+  de `vm_stat(1)` y este parser se prueba contra una muestra de ese formato.
+  """
+  @spec parse_vm_stat(binary()) :: {:ok, non_neg_integer()} | {:error, term()}
+  def parse_vm_stat(output) when is_binary(output) do
+    with {:ok, page_size} <- vm_stat_page_size(output),
+         {:ok, pages} <- vm_stat_pages(output) do
+      {:ok, div(pages * page_size, 1024 * 1024)}
+    end
+  end
+
+  defp vm_stat_page_size(output) do
+    case Regex.run(~r/page size of (\d+) bytes/, output) do
+      [_, size] -> {:ok, String.to_integer(size)}
+      _ -> {:error, :no_page_size}
+    end
+  end
+
+  # Las cuatro clases recuperables.
+  @vm_stat_counted ["Pages free", "Pages inactive", "Pages speculative", "Pages purgeable"]
+
+  defp vm_stat_pages(output) do
+    counted =
+      output
+      |> String.split("\n", trim: true)
+      |> Enum.reduce(%{}, &count_page/2)
+
+    missing = Enum.reject(@vm_stat_counted, &Map.has_key?(counted, &1))
+
+    if missing == [] do
+      {:ok, counted |> Map.values() |> Enum.sum()}
+    else
+      {:error, {:missing, missing}}
+    end
+  end
+
+  # Una línea de `vm_stat`: `Pages free:  12345.` → 12345, si es de una de
+  # las cuatro clases que cuentan como memoria recuperable.
+  defp count_page(line, acc) do
+    case String.split(line, ":", parts: 2) do
+      [key, value] ->
+        key = String.trim(key)
+
+        if key in @vm_stat_counted do
+          case value |> String.trim() |> String.trim_trailing(".") |> Integer.parse() do
+            {n, _} when n >= 0 -> Map.put(acc, key, n)
+            _ -> acc
+          end
+        else
+          acc
+        end
+
+      _ ->
+        acc
     end
   end
 end

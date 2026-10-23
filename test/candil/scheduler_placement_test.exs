@@ -30,7 +30,10 @@ defmodule Candil.Scheduler.PlacementTest do
   setup %{tmp_dir: tmp_dir} do
     FakeGPU.install(tmp_dir, total_mb: 16_303, free_mb: 16_000)
     on_exit(&FakeGPU.uninstall/0)
-    :ok
+
+    # El motor de mentira: desde D-28 la lista de devices (con su nombre) la
+    # publica **el motor**, no `nvidia-smi`.
+    %{binary: FakeGPU.install_engine(tmp_dir)}
   end
 
   defp model(opts \\ []) do
@@ -47,30 +50,38 @@ defmodule Candil.Scheduler.PlacementTest do
   end
 
   describe "las capas fijas" do
-    test "un modelo que las fija NO se puede colocar" do
+    test "un modelo que las fija NO se puede colocar", %{binary: binary} do
       # Sin esto, `llama-fit-params` aborta («n_gpu_layers already set by user
       # to 99»), no hay medición, y el motor arranca sin ajustar: que es como
       # se llena la VRAM y se para en seco.
-      assert {:error, :gpu_layers_fixed} = Scheduler.plan(model(gpu_layers: 99))
+      assert {:error, :gpu_layers_fixed} = Scheduler.plan(model(gpu_layers: 99), binary)
     end
 
-    test "con --n-cpu-moe sí se puede: los expertos se van a la RAM" do
+    test "con --n-cpu-moe sí se puede: los expertos se van a la RAM", %{binary: binary} do
       # La excepción: lo que queda en la VRAM cabe aunque las capas estén
       # fijadas, y el modelo arranca (su reserva NO se mide, y de eso avisa el
       # motor).
       m = model(gpu_layers: 99, model_args: ["--n-cpu-moe", "30"])
 
-      assert {:ok, device} = Scheduler.plan(m)
+      assert {:ok, device} = Scheduler.plan(m, binary)
       assert is_integer(device)
     end
 
-    test "un modelo con -1 se coloca: se puede ajustar" do
-      assert {:ok, device} = Scheduler.plan(model(gpu_layers: -1))
+    test "un modelo con -1 se coloca: se puede ajustar", %{binary: binary} do
+      assert {:ok, device} = Scheduler.plan(model(gpu_layers: -1), binary)
       assert is_integer(device)
     end
 
-    test "un modelo de CPU no pide GPU" do
-      assert {:ok, nil} = Scheduler.plan(model(gpu_layers: 0))
+    test "un modelo de CPU no pide GPU", %{binary: binary} do
+      assert {:ok, nil} = Scheduler.plan(model(gpu_layers: 0), binary)
+    end
+
+    test "sin motor no hay device que colocar, y se dice que no se sabe", %{tmp_dir: tmp_dir} do
+      # Sin el motor no se puede preguntar por los devices: hay GPU, pero no
+      # lo sé. Y «no lo sé» no es «no cabe» (D-28).
+      nada = Path.join(tmp_dir, "no-existe-llama-server")
+
+      assert {:error, :memory_unknown} = Scheduler.plan(model(gpu_layers: -1), nada)
     end
   end
 
@@ -84,14 +95,17 @@ defmodule Candil.Scheduler.PlacementTest do
       assert Scheduler.size_mb(m, %{used_mb: 7978, device_index: 0}) == 7978
     end
 
-    test "sin medición, es lo declarado" do
+    test "sin medición y sin declaración, no se sabe" do
+      # La estimación (512 MiB para un modelo que ocupa 7978) era una
+      # suposición, y una suposición no puede decidir a quién se expulsa. Sin
+      # medición ni declaración, el tamaño es `nil`: «no lo sé».
+      assert Scheduler.size_mb(model(), nil) == nil
+    end
+
+    test "sin medición, lo declarado es una cota inferior" do
       m = %{model() | vram_mb: 3000}
 
       assert Scheduler.size_mb(m, nil) == 3000
-    end
-
-    test "sin medición y sin declaración, es la estimación" do
-      assert Scheduler.size_mb(model(), nil) == 512
     end
 
     test "una medición de 0 MiB es 0, no la estimación" do

@@ -19,7 +19,7 @@ defmodule Candil.Engine.Resource.MachineTest do
     # El device tiene que estar registrado ANTES de medir: `available/1` de un
     # device sin registrar devuelve 0, y comparar contra ese 0 haría pasar el
     # test sin haber reservado nada.
-    :ok = Candil.Engine.Resource.ensure_registered(0)
+    :ok = Candil.Engine.Resource.ensure_registered(measurement())
 
     on_exit(fn ->
       Application.put_env(:apero, :http_adapter, previous_adapter)
@@ -56,6 +56,12 @@ defmodule Candil.Engine.Resource.MachineTest do
 
     :ok = Store.register_engine(engine)
     :ok
+  end
+
+  # La medición del device, tal y como la publica el motor real (D-28).
+  defp measurement do
+    {:ok, record} = Candil.Detector.EngineDevices.device(@binary, 0)
+    record
   end
 
   # La sonda de salud del motor: `Engine.healthy?/1` consulta al server por
@@ -129,10 +135,14 @@ defmodule Candil.Engine.Resource.MachineTest do
     :ok = Store.register_model(model)
 
     # 1 · El peso ajustado cabe en la memoria libre REAL, y es el ajustado.
-    [device] = Candil.Scheduler.Devices.detect()
+    [device] = Candil.Scheduler.Devices.detect(@binary)
 
     assert {:ok, weight, args} =
-             Candil.Engine.FitParams.run(elem(Store.get_engine(:llama_cpp), 1), model, 0)
+             Candil.Engine.FitParams.run(
+               elem(Store.get_engine(:llama_cpp), 1),
+               model,
+               measurement()
+             )
 
     assert weight > 0, "el peso ajustado es 0"
 
@@ -166,7 +176,7 @@ defmodule Candil.Engine.Resource.MachineTest do
     #
     # El ledger se reajusta antes de medir, porque `start_placed` sincroniza la
     # memoria ajena y eso cambia la disponible.
-    :ok = Candil.Engine.Resource.sync_foreign(0)
+    :ok = Candil.Engine.Resource.sync_foreign(measurement())
     available_before = Candil.Engine.Resource.available(0)
     engine = elem(Store.get_engine(:llama_cpp), 1)
 

@@ -61,11 +61,74 @@ defmodule Candil.FakeGPU do
     File.write!(script, content)
     File.chmod!(script, 0o755)
 
+    # El motor de mentira va al lado: desde D-28 la lista de devices la
+    # publica **el motor**, no el sistema. Sin él, no hay nombres y no hay
+    # devices que colocar.
+    install_engine(dir, opts)
+
     previous = System.get_env("PATH")
     System.put_env("PATH", bin_dir <> ":" <> (previous || ""))
     push(previous)
 
     previous
+  end
+
+  @doc """
+  Escribe un `llama-server` de mentira y devuelve **su ruta**.
+
+  El motor es quien publica la lista de devices (`--list-devices`), con el
+  nombre con el que se le habla (`CUDA0`, `ROCm0`…) y sus cifras. Es la
+  fuente que usa el ledger (D-28), así que el fake tiene que existir para
+  probar el ledger.
+
+  Los devices por defecto son uno de CUDA. Con `devices: [...]` se puede
+  poner el que haga falta:
+
+      FakeGPU.install_engine(tmp_dir, devices: [
+        %{name: "ROCm0", total_mb: 15_933, free_mb: 16_000}
+      ])
+  """
+  @spec install_engine(Path.t(), keyword()) :: String.t()
+  def install_engine(dir, opts \\ []) do
+    bin_dir = Path.join(dir, "fake-bin")
+    File.mkdir_p!(bin_dir)
+
+    path = Path.join(bin_dir, "llama-server")
+    File.write!(path, engine_script(Keyword.get(opts, :devices, default_devices(opts))))
+    File.chmod!(path, 0o755)
+    path
+  end
+
+  # Lo que ve el motor: su total **ya sin el contexto de CUDA** (D-28), y su
+  # libre. El libre por defecto son 15 000 MiB: con 16 000 el device estaría
+  # más lleno que su total, y el motor no publica eso.
+  defp default_devices(opts) do
+    total = Keyword.get(opts, :engine_total_mb, 15_933)
+    free = Keyword.get(opts, :engine_free_mb, min(Keyword.get(opts, :free_mb, 16_000), 15_000))
+
+    [%{name: "CUDA0", total_mb: total, free_mb: free}]
+  end
+
+  # El motor solo tiene que responder a `--list-devices`: el resto de sus
+  # argumentos no los usa este fake.
+  defp engine_script(devices) do
+    lines =
+      Enum.map_join(devices, "\n", fn device ->
+        "  #{device.name}: NVIDIA GeForce RTX 5080 (#{device.total_mb} MiB, #{device.free_mb} MiB free)"
+      end)
+
+    """
+    #!/bin/sh
+    case "$*" in
+      *"--list-devices"*)
+        echo "Available devices:"
+        echo "#{lines}"
+        ;;
+      *)
+        ;;
+    esac
+    exit 0
+    """
   end
 
   @doc """
