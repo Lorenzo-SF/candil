@@ -1277,7 +1277,7 @@ el backend no usa la convención del sistema ✓ o queda `usable: false` ✓.
 
 ## D-29 · La capa de señales no se construye; el scheduler mide el modelo, no una señal
 
-**Cuándo**: 2026-10-23, escrita por el consejero.
+**Cuándo**: 2026-10-23, **a propuesta del consejero** y **decidida por el dueño** ✓.
 **Qué**: `Candil.Scheduler` **no** recibe una `Signal` con unidades distintas. Su
 entrada es `%Candil.Model{}` y su medida es `model.vram_mb || estimate_model_size/1`.
 El coste y el rate-limit de un proveedor remoto son **política del Provider y

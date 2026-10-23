@@ -165,12 +165,24 @@ fases **6** ✓, **7** ✓, **9** ✓ y **10** ✓, y con ellas **P-1** ✓, **P
 CLI a otro proyecto no lo es** ✓, y por eso **no espera a las fases** ✓: se
 hace **en paralelo** ✓ con ellas ✓, en cuanto el contrato esté cerrado ✓.
 
+**Y el contrato se cierra en dos trozos** ✓, que no es lo mismo ✓:
+
+- **0a** ✓ — las decisiones y los documentos ✓: D-29 ✓, el plano de la fase 9
+  ✓, la numeración ✓, el plan ✓ y el CHECKPOINT ✓. Es el **#137** ✓.
+- **0b** ✓ — **los tres prerrequisitos de código** ✓: el draft ✓, `remove` ✓ y
+  `forget` ✓, y el `Holder` ✓.
+
+**La extracción no puede empezar hasta cerrar 0b** ✓, no solo 0a ✓: con el
+contrato escrito pero el draft todavía en el CLI ✓, el proyecto nuevo nace
+dependiendo de una API que no existe ✓.
+
 | Carril | Qué | Espera a | No toca |
 |---|---|---|---|
-| **0 · contrato** | El draft en `Installer` ✓, `Candil.remove/1` + `forget/1` ✓, el `Holder` con `Engine.stop/1` ✓, la numeración de fases ✓ | — | el scheduler |
+| **0a · contrato y plan** | D-29 ✓, el plano de la fase 9 ✓, la numeración de fases ✓, el plan rehecho ✓, el CHECKPOINT ✓ — es el **#137** ✓ | — | el scheduler |
+| **0b · los tres prerrequisitos** | El draft en `Installer` ✓, `Candil.remove/1` + `forget/1` ✓, el `Holder` con `Engine.stop/1` ✓ | el 0a ✓ | el scheduler |
 | **1 · MCP (7)** | M-1…M-6 ✓ | el carril 0 ✓ | el scheduler, el RAG |
 | **2 · RAG (6)** | La léxica ✓, `[rag]` ✓, y la semántica **si hay embedder** ✓ | la decisión del embedder ✓ | MCP, la mesa |
-| **3 · Agentes (10)** | F5.6 ✓, F5.7 ✓, F5.8 ✓, F5.9 ✓, P-9 ✓ | P-12 y P-6 para F5.6 ✓ | RAG, MCP |
+| **3 · Agentes (10)** | F5.6 ✓, F5.7 ✓, F5.8 ✓, F5.9 ✓, P-9 ✓ | P-12 para F5.6 ✓ — **P-6 no hace falta** ✓: la admisión de una GPU es una decisión del scheduler ✓, y el reintento en otro device solo importa con **más de una** ✓ | RAG, MCP |
 | **4 · Mesa (9)** | F9.1 `SharedMemory` ✓ → las voces ✓ | el spec ✓ (ya escrito ✓) | el CLI |
 | **5 · P-6** | El reintento en otro device ✓ | la decisión de alcance ✓ | — |
 

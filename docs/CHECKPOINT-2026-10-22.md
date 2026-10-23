@@ -379,7 +379,7 @@ workflow de operador sobre primitivas que ya existen.
 
 | # | Decisión | Quién | Impacto |
 |---|---|---|---|
-| 1 | ¿Dónde está la línea de «terminado»? | **Dueño — YA DECIDIDO** | **«Terminado» = el 100 % de las tareas definidas como framework para Candil, excluyendo las del CLI.** O sea: las fases 6, 7, 9 y 10 **entran**, y también P-1, P-6, P-9, P-10 y P-12. **Ojo**: el 1.0 que recomienda el consejero (encargo 1 del mensaje 24) **deja esas fases fuera**, así que **no cumple esta definición** ✓. El CLI se extrae **después**, y entonces sí: el núcleo cerrado es el que agota la definición del dueño |
+| 1 | ¿Dónde está la línea de «terminado»? | **Dueño — YA DECIDIDO** | **«Terminado» = el 100 % de las tareas definidas como framework para Candil, excluyendo las del CLI.** O sea: las fases 6, 7, 9 y 10 **entran**, y también P-1, P-6, P-9, P-10 y P-12. **Ojo**: el 1.0 que recomienda el consejero (encargo 1 del mensaje 24) **deja esas fases fuera**, así que **no cumple esta definición** ✓. **El CLI se extrae en paralelo** ✓ con las fases 6, 7, 9 y 10 ✓, una vez cerrado el contrato ✓ (§4.6 ✓): los tres prerrequisitos **son de framework** ✓ y entran ✓; **mover el CLI no** ✓ |
 | 2 | D-28: nombre de device, detección, overhead y `:foreign` por backend | Consejero | ✅ **YA DECIDIDO** (escrita y mergeada el 2026-10-22 ✓) e **implementada** ✓ (PR #136 ✓, en revisión ✓) |
 | 3 | ¿`remove` borra ficheros o también sale del catálogo/config? | Dueño | ✅ **YA DECIDIDO**: `remove` = ficheros + catálogo + el TOML ✓, y `forget/1` para el que solo quita del catálogo ✓. Falta una cosa: **qué hace con el motor vivo** ✓ |
 | 4 | ¿`status`/`stop` son API pública o solo CLI? | Dueño | Define si hay facade en Candil |
@@ -390,7 +390,7 @@ workflow de operador sobre primitivas que ya existen.
 | 9 | **P-6**: ¿reintento en otro device, split, o ambos? ¿Vale la evidencia simulada con `FakeGPU`? | **Dueño** | Define si P-6 entra y con qué evidencia ✓ |
 | 10 | **`Agent.new/1`**: ¿`{:ok, agent}` / `{:error, reason}`, o excepción? | **Dueño** | Rompe el contrato actual ✓, que miente ✓ |
 | 11 | **P-1 `:degrade`**: ¿se implementa con la cobertura del RAG, o se cierra con la decisión escrita? | **Dueño** | Define si P-1 es código o decisión ✓ |
-| 12 | **P-10**: ¿la capa de señales entra? | Consejero | ✅ **YA DECIDIDO**: **no entra** ✓ (D-29 ✓). Se retira `Scheduler.Signal` ✓ |
+| 12 | **P-10**: ¿la capa de señales entra? | Consejero | ✅ **CERRADA** (no pendiente ✓): **no entra** ✓ (D-29 ✓), y `Scheduler.Signal` **se retira** ✓ (§4.7 ✓) |
 
 ---
 
@@ -403,7 +403,8 @@ workflow de operador sobre primitivas que ya existen.
 - **No añadir comandos nuevos al CLI de Candil.** Si hace falta uno, se anota
   para el proyecto nuevo.
 - **No rellenar `vram_mb` en el catálogo.** La medición ya demostró que varía.
-- **No apilar PRs.** #130 va aparte; P-12 va después de #129.
+- **No apilar PRs.** Cada PR tiene su base en `main` ✓, y el orden de merge
+  es **#136 → #137** ✓ (y después el de los specs ✓). Nada de PR apilados ✓.
 - **No auto-aprobar un PR propio.** El dueño revisa; el merge con admin lleva su
   aval ✓.
 - **No mover lógica de inferencia, scheduling, router o gateway al CLI.** Eso
@@ -442,11 +443,21 @@ rg -n 'id_for|LongRunning.stop' lib/candil/cli/holder.ex lib/candil/engine/serve
 
 ## 9 · Siguiente acción
 
-1. El dueño revisa y mergea **#129** y **#130** (independientes); verifica `main` en verde.
-2. El consejero decide el alcance de «terminado» y escribe **D-28**.
-3. Se abre el PR de **P-12** (backends) después de #129.
-4. Se cierran los tres prerrequisitos de **4.6**.
-5. Se extrae el CLI a su proyecto y se actualiza `zaguan`.
+1. ~~El dueño revisa y mergea **#129** y **#130**~~ — hechos el 2026-10-22 ✓.
+2. ~~El consejero decide el alcance de «terminado» y escribe **D-28**~~ — el
+   dueño lo decidió ✓ y D-28 está escrita y mergeada ✓ (#134 ✓).
+3. ~~Se abre el PR de **P-12**~~ — implementado el 2026-10-23 ✓ (**#136** ✓,
+   con la línea de `Engine.stop/1` ✓); pendiente solo la revisión del dueño ✓.
+4. ~~El carril 0~~ — **#137** ✓ abierto ✓, con D-29 ✓, el plano de la fase 9 ✓,
+   la numeración ✓, el plan rehecho ✓ y el CHECKPOINT ✓ reconciliado ✓.
+5. **El dueño mergea #136** ✓ y después **#137** ✓, y los specs nuevos en su
+   PR ✓.
+6. **El dueño decide** las decisiones abiertas de **§6** ✓: el embedder ✓, el
+   alcance de P-6 ✓, `remove/1` con el motor vivo ✓, el contrato de
+   `Agent.new/1` ✓ y el P-1 ✓.
+7. Se cierran los tres prerrequisitos de **4.6** ✓ (carril **0b** ✓).
+8. Se extrae el CLI a su proyecto **en paralelo** ✓ con las fases ✓, y se
+   actualiza `zaguan` ✓.
 
 Mientras todo eso pasa, **Candil sigue siendo la fuente de verdad** y el CLI
 actual sigue siendo una aplicación suya, no un fork. La extracción no cambia
