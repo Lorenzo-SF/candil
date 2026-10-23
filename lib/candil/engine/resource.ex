@@ -1,12 +1,18 @@
 defmodule Candil.Engine.Resource do
   # Nombres de device precalculados en compilación. `Arrea.Resource` se
-  # registra por átomo y el índice viene de `nvidia-smi`, o sea de fuera:
-  # `:"cuda#{index}"` en runtime crearía átomos desde un dato que no controla
-  # este módulo. 32 devices es de sobra; un índice mayor es un error explícito.
+  # registra por átomo y el índice viene de fuera —de la lista de devices del
+  # motor—, o sea `:"device#{index}"` en runtime crearía átomos desde un dato
+  # que no controla este módulo. 32 devices es de sobra; un índice mayor es un
+  # error explícito.
+  #
+  # El nombre es **neutro** a propósito (D-28): el backend no es parte de la
+  # identidad del device. Que el device 0 se llamara `:cuda0` convertía una
+  # convención de CUDA en la identidad del proyecto, y en ROCm o en SYCL el
+  # mismo slot se habría llamado igual de mentira.
   @max_devices 32
 
   @device_names Enum.map(0..(@max_devices - 1), fn index ->
-                  String.to_atom("cuda" <> Integer.to_string(index))
+                  String.to_atom("device" <> Integer.to_string(index))
                 end)
 
   @moduledoc """
@@ -17,18 +23,33 @@ defmodule Candil.Engine.Resource do
   es el consumidor que D-27 pedía: registra el resource al arrancar, reserva
   antes de cargar, libera si el motor muere.
 
-  ## Capacidad
+  ## Capacidad: la del motor, y solo del motor
 
-  La capacidad es la del **motor**, no la de `nvidia-smi`: la diferencia es el
-  contexto CUDA (≈370 MiB en una RTX 5080 ✓). Se registra el total de
-  `nvidia-smi` y se reserva el overhead como titular `:system` ✓, así que la
-  disponible es la del motor ✓.
+  D-28: **un device es un slot con un nombre, un presupuesto y una sola fuente
+  de medida**. Aquí la fuente es el motor —`llama-server --list-devices`—, que
+  publica el nombre (`CUDA0`, `ROCm0`…), la capacidad que él ve y el libre en
+  el mismo instante.
 
-  **Ojo: eso es la convención de CUDA** ✓, y D-28 tiene que decidir cuál se
-  usa en cada backend ✓ (la del motor —`llama-server --list-devices`—, que ya
-  excluye el overhead ✓, o la del sistema, con el overhead dentro del
-  `:foreign` ✓). Los números de arriba son de **una** tarjeta ✓, no una
-  verdad general ✓.
+  La capacidad del motor **ya viene sin el contexto de CUDA**: son 15933 MiB,
+  no los 16303 que ve `nvidia-smi`. Por eso aquí **no hay titular `:system`**:
+  el overhead ya está fuera de la capacidad, y tenerlo además como titular lo
+  descontaría dos veces.
+
+  Y por eso **no hay una constante de overhead**: los 370 MiB eran la diferencia
+  entre las dos fuentes en esta máquina (16303 − 370 = 15933), no una propiedad
+  de CUDA, y menos aún de ROCm, de SYCL o de Vulkan. Con una sola fuente, la
+  calibración no hace falta: el motor ya la aplicó.
+
+  ## La fórmula
+
+      available = capacity − foreign − candil_used
+
+  con
+
+      foreign = max(capacity − free − candil_used, 0)
+
+  de donde `available = free`: el libre que el motor ve. Y `candil_used` es la
+  suma de los titulares de los modelos de Candil, **sin** el titular `:foreign`.
 
   ## Cuota
 
@@ -57,26 +78,26 @@ defmodule Candil.Engine.Resource do
   un índice mayor es un error explícito, no un átomo nuevo.
   """
 
-  alias Candil.Scheduler.Devices
-
-  @overhead_mb 370
-
   # Cuánto puede cambiar la memoria ajena antes de reajustar el ledger. Con
   # menos de esto, cada arranque provocaría un `release`+`acquire` por unos
-  # megas de diferencia entre dos mediciones de `nvidia-smi`.
+  # megas de diferencia entre dos mediciones del motor.
   @foreign_threshold_mb 64
 
   @doc """
   Registra el resource de un device si no existe. Idempotente.
 
-  La capacidad se toma de `Devices.detect/0` (`total_mb`). El overhead se
-  reserva como titular `:system` para que la disponible sea la del motor.
-  Si la detección no da una capacidad positiva, **no se registra** el
-  resource: una capacidad 0 se comería todos los arranques para siempre y
-  «no lo sé» no es «ahora no cabe nada».
+  La capacidad es la del **motor** (`llama-server --list-devices`): la que
+  él ve, que ya está sin su contexto. Si la medición no da una capacidad
+  positiva, **no se registra** el resource: una capacidad 0 se comería todos
+  los arranques para siempre y «no lo sé» no es «ahora no cabe nada».
+
+  La medición entra como **dato** (`%{index:, total_mb:, free_mb:}`), no como
+  una forma de medir: el ledger no sabe de dónde salen las cifras, y así no
+  puede medirlas de dos maneras distintas.
   """
-  @spec ensure_registered(non_neg_integer()) :: :ok | {:error, :capacity_unknown}
-  def ensure_registered(device_index) when is_integer(device_index) and device_index >= 0 do
+  @spec ensure_registered(map()) :: :ok | {:error, :capacity_unknown}
+  def ensure_registered(%{index: device_index, total_mb: total})
+      when is_integer(device_index) and device_index >= 0 and is_integer(total) do
     name = device_name(device_index)
 
     case Registry.lookup(Arrea.Resource.Registry, name) do
@@ -84,9 +105,10 @@ defmodule Candil.Engine.Resource do
         :ok
 
       [] ->
-        case device_capacity(device_index) do
-          capacity when is_integer(capacity) and capacity > 0 -> register(name, capacity)
-          _ -> {:error, :capacity_unknown}
+        if total > 0 do
+          register(name, total)
+        else
+          {:error, :capacity_unknown}
         end
     end
   end
@@ -98,10 +120,10 @@ defmodule Candil.Engine.Resource do
   modelo local no consume un presupuesto blando, y `Arrea.Resource` exige un
   número en ese eje.
   """
-  @spec acquire(non_neg_integer(), term(), pos_integer()) :: {:ok, term()} | {:error, term()}
-  def acquire(device_index, holder, cost)
+  @spec acquire(map(), term(), pos_integer()) :: {:ok, term()} | {:error, term()}
+  def acquire(device = %{index: device_index}, holder, cost)
       when is_integer(device_index) and device_index >= 0 and is_integer(cost) and cost > 0 do
-    with :ok <- ensure_registered(device_index) do
+    with :ok <- ensure_registered(device) do
       Arrea.Resource.acquire(device_name(device_index), holder, cost, 0)
     end
   end
@@ -148,14 +170,13 @@ defmodule Candil.Engine.Resource do
   ## El 0 no es «quedan 0 MiB»
 
   Es **«no cabe»**, y no una medida. Pasa cuando la memoria ajena es MAYOR que
-  el hueco que queda tras `:system`: la memoria que usa otra gente no se
-  puede representar en el ledger, y la verdad es que no cabe un motor ni de
-  pasillo. Por eso el titular `:foreign` se recorta a lo representable y la
-  disponible cae a 0.
+  el hueco que queda: la memoria que usa otra gente no se puede representar en
+  el ledger, y la verdad es que no cabe un motor ni de pasillo. Por eso el
+  titular `:foreign` se recorta a lo representable y la disponible cae a 0.
 
-  Y por eso el scheduler decide con ESTA cifra y no con la de `nvidia-smi`:
-  los dos lados tienen que decir lo mismo, o el modelo no arranca con un
-  error que no explica nada.
+  Y por eso el scheduler decide con ESTA cifra y no con la del sistema: los dos
+  lados tienen que decir lo mismo, o el modelo no arranca con un error que no
+  explica nada.
   """
   @spec available(non_neg_integer()) :: non_neg_integer()
   def available(device_index) when is_integer(device_index) and device_index >= 0 do
@@ -166,10 +187,14 @@ defmodule Candil.Engine.Resource do
   @doc """
   El nombre con el que un device está registrado en `Arrea.Resource`.
 
-  Es público porque **el átomo no se puede inventar en runtime**: `:"cuda0"`
+  Es público porque **el átomo no se puede inventar en runtime**: `:device0`
   creado en un test es un átomo nuevo, y los átomos no se recogen. Los
   nombres de este módulo están precalculados en compilación, así que este
   `device_name/1` es la única forma correcta de referirse a ellos.
+
+  El nombre es **neutro** (D-28): no dice el backend, porque el device 0 no
+  es «una GPU NVIDIA» —es un slot— y el backend lo publica el motor, en el
+  nombre con el que se le habla (`CUDA0`, `ROCm0`…).
 
   Un índice fuera de rango es un error explícito, no un átomo nuevo.
   """
@@ -221,6 +246,28 @@ defmodule Candil.Engine.Resource do
   lo sabía. La reserva se tomaba sobre una memoria que ya no estaba, y el OOM
   pasaba con la cuenta «correcta».
 
+  ## La fuente es el motor, y es la misma que la capacidad
+
+  La capacidad con la que se registró el device y el libre que se usa aquí
+  salen **de la misma medición** —la del motor—. La fórmula
+
+      foreign = max(capacity − free − candil_used, 0)
+
+  solo vale si las dos cifras son del mismo sitio: si la capacidad fuera de
+  `nvidia-smi` y el libre del motor, la resta sería de dos coordenadas
+  distintas.
+
+  ## Sin medición no se ajusta, y se dice
+
+  Si el motor no se puede preguntar, esta función devuelve
+  `{:error, :memory_unknown}` **y no ajusta nada**. Antes devolvía `:ok` ante
+  cualquier fallo: el ledger se quedaba con una cifra vieja y el scheduler
+  decidía sobre una memoria que ya no era. Un `:ok` que no se ajustó es
+  indistinguible de un `:ok` que sí.
+
+  El scheduler que llama a esto **no coloca** cuando recibe ese error: no
+  medir no es «no cabe», es «no lo sé» (D-28).
+
   ## Por que un titular y no cambiar la capacidad
 
   `Arrea.Resource` **no tiene API para cambiar la capacidad** de un resource
@@ -229,27 +276,25 @@ defmodule Candil.Engine.Resource do
   que ya están arrancados.
 
   La vía que no pierde nada es **meter la memoria ajena en el ledger como un
-  titular más**, al lado de `:system`. Con la capacidad del device y tres
-  titulares:
+  titular más**. Con la capacidad del device y dos titulares:
 
-      available = total − (system + foreign + modelos de Candil)
+      available = capacity − (foreign + modelos de Candil)
 
-  y como `foreign = (total − free_real) − modelos_de_Candil`:
+  y como `foreign = (capacity − free) − modelos_de_Candil`:
 
-      available = free_real − system
+      available = free
 
-  que es exactamente **la memoria que un motor nuevo puede usar**: la real
-  menos su propio contexto CUDA.
+  que es exactamente **la memoria que un motor nuevo puede usar**: la que el
+  motor ve libre, con su contexto ya descontado.
 
   El criterio de aceptación es una **fórmula**, no una cifra:
 
-      available == free_real − 370
+      available == free_del_motor
 
-  Medido el 2026-10-21: con 11718 MiB libres de verdad, la disponible pasó de
-  15933 (el total del device, que no existía) a **11348** (= 11718 − 370). Las
-  dos cifras de la línea anterior eran de otro instante —la memoria ajena de
-  otra sesión cambia mientras se mide—, y por eso el criterio va en
-  fórmula: el número vale en cada momento, la cifra no.
+  Medido el 2026-10-22: el motor veía 857 MiB libres y la disponible del
+  ledger pasó a ser 857 ✓. Las dos cifras de la línea anterior eran de otro
+  instante —la memoria ajena de otra sesión cambia mientras se mide—, y por eso
+  el criterio va en fórmula: el número vale en cada momento, la cifra no.
 
   Reajustar **no** pierde el ledger: `acquire/4` añade una entrada y
   `release/2` quita la primera de ese titular, así que un `release` + `acquire`
@@ -281,35 +326,36 @@ defmodule Candil.Engine.Resource do
   caiga justo en ese hueco es despreciable. Si algún día el scheduler puede
   colocar dos modelos a la vez, esto hay que serializarlo por device.
   """
-  @spec sync_foreign(non_neg_integer()) :: :ok | {:error, term()}
-  def sync_foreign(device_index) when is_integer(device_index) and device_index >= 0 do
-    with :ok <- ensure_registered(device_index),
-         {:ok, total, free} <- device_memory(device_index),
+  @spec sync_foreign(map()) :: :ok | {:error, term()}
+  def sync_foreign(%{index: device_index, total_mb: total, free_mb: free})
+      when is_integer(device_index) and device_index >= 0 and is_integer(total) and
+             is_integer(free) do
+    with :ok <- ensure_registered(%{index: device_index, total_mb: total}),
          {:ok, used_by_models} <- used_by_models(device_index) do
-      # Lo que ocupa la GPU y no es de Candil. Puede ser **más** que lo que
-      # queda tras `:system`: con la GPU al 99 % (42 MiB libres de verdad), la
-      # memoria ajena es de 16261 MiB y el ledger solo tiene 15933 de hueco
-      # tras el overhead. Entonces el `acquire` del titular fallaría y la
-      # disponible se quedaría en 15933 — **la cifra que no existe**, que es
-      # justo lo que este módulo viene a quitar.
+      # Lo que ocupa el device y no es de Candil. Puede ser **más** que lo que
+      # queda: con el device al 99 % (42 MiB libres de verdad), la memoria ajena
+      # es de 16261 MiB y el ledger solo tiene 15933 de hueco. Entonces el
+      # `acquire` del titular fallaría y la disponible se quedaría en 15933 —
+      # **la cifra que no existe**, que es justo lo que este módulo viene a
+      # quitar.
       #
       # La verdad en ese caso es «no cabe nada», así que el titular se recorta
       # a lo que queda y la disponible cae a 0. Un 0 es honesto; un 15933 no.
       foreign = max(total - free - used_by_models, 0)
-      max_foreign = max(total - @overhead_mb - used_by_models, 0)
-      wanted = min(foreign, max_foreign)
 
       current = foreign_reserved(device_index)
 
-      if abs(wanted - current) > @foreign_threshold_mb do
-        adjust_foreign(device_index, wanted)
+      if abs(foreign - current) > @foreign_threshold_mb do
+        adjust_foreign(device_index, foreign)
       else
         :ok
       end
-    else
-      _ -> :ok
     end
   end
+
+  # Sin medición no hay nada que ajustar: y se dice, en vez de devolver un
+  # `:ok` que no ajustó nada (D-28). Un 0 aquí sería inventar una medida.
+  def sync_foreign(_device), do: {:error, :memory_unknown}
 
   # ── internos ─────────────────────────────────────────────────────────────
 
@@ -354,7 +400,7 @@ defmodule Candil.Engine.Resource do
       %{holders: holders} ->
         {:ok,
          holders
-         |> Enum.reject(&(elem(&1, 0) in [:system, :foreign]))
+         |> Enum.reject(&(elem(&1, 0) == :foreign))
          |> Enum.map(&elem(&1, 1))
          |> Enum.sum()}
 
@@ -363,28 +409,16 @@ defmodule Candil.Engine.Resource do
     end
   end
 
-  # `total` y `free` de `nvidia-smi`. `free` es la memoria que no usa NADIE:
-  # ni los modelos de Candil ni los de otras sesiones. Por eso hay que
-  # restarle las reservas de Candil para sacar lo ajeno.
-  defp device_memory(device_index) do
-    case Enum.find(Devices.detect(), &(&1.index == device_index)) do
-      %{total_mb: total, free_mb: free} when is_integer(total) and is_integer(free) ->
-        {:ok, total, free}
-
-      _ ->
-        {:error, :memory_unknown}
-    end
-  end
-
+  # `total` y `free` vienen en la medición, que es **una sola**: la del motor.
+  # `free` es la memoria que no usa NADIE: ni los modelos de Candil ni los de
+  # otras sesiones. Por eso hay que restarle las reservas de Candil para sacar
+  # lo ajeno.
   defp register(name, capacity) do
     case Arrea.Resource.start_link(name, capacity) do
       {:ok, _pid} ->
-        # El overhead del contexto CUDA, como titular `:system`. Cuota 0:
-        # `:infinity` no es un número y `acquire/4` lo rechaza.
-        if capacity > @overhead_mb do
-          {:ok, _receipt} = Arrea.Resource.acquire(name, :system, @overhead_mb, 0)
-        end
-
+        # **Sin** titular `:system` (D-28): la capacidad que se registra es la
+        # del motor, que ya viene sin su contexto. Un titular `:system` aquí lo
+        # descontaría dos veces.
         :ok
 
       {:error, {:already_started, _}} ->
@@ -392,13 +426,6 @@ defmodule Candil.Engine.Resource do
 
       {:error, _reason} ->
         {:error, :capacity_unknown}
-    end
-  end
-
-  defp device_capacity(device_index) do
-    case Enum.find(Devices.detect(), &(&1.index == device_index)) do
-      %{total_mb: total} when is_integer(total) and total > 0 -> total
-      _ -> 0
     end
   end
 end

@@ -70,8 +70,18 @@ defmodule Candil.CLITest do
     # esperando a un presupuesto entero. Un binario de mentira que hace lo que
     # uno de verdad hace cuando se niega a arrancar —salir— es lo que
     # reproduce el caso.
-    unless File.exists?(binary), do: File.write!(binary, "#!/bin/sh\nexit 1\n")
+    #
+    # Y sabe responder a `--list-devices`, como el motor de verdad: desde D-28
+    # la lista de devices la publica **el motor**, y sin ella el scheduler no
+    # tiene dónde colocar (y no dependería de la máquina, que es lo que se
+    # quiere).
+    File.write!(
+      binary,
+      ~s|#!/bin/sh\ncase "$*" in\n  *"--list-devices"*) echo "Available devices:"; echo "  CUDA0: NVIDIA GeForce RTX 5080 (15933 MiB, 15000 MiB free)"; exit 0;;\nesac\nexit 1\n|
+    )
+
     File.chmod!(binary, 0o755)
+    on_exit(fn -> File.rm(binary) end)
     Store.register_engine(%Candil.Engine{alias: :e, binary: binary})
   end
 

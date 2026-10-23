@@ -162,9 +162,13 @@ defmodule Candil.CLITest.CpuArgsTest do
 
     # El binario de mentira ESCRIBE sus argv y sale. No importa que no
     # responda: lo que se comprueba es lo que recibio.
+    #
+    # Y tambien sabe responder a `--list-devices`, como el motor de verdad:
+    # desde D-28 la lista de devices la publica el motor, y sin ella no hay
+    # device donde colocar (D-28).
     File.write!(
       binary,
-      ~s|#!/bin/sh\nprintf '%s\\n' "$@" > #{argv_file}\nexit 0\n|
+      ~s|#!/bin/sh\ncase "$*" in\n  *"--list-devices"*) echo "Available devices:"; echo "  CUDA0: NVIDIA GeForce RTX 5080 (15933 MiB, 15000 MiB free)";;\n  *) printf '%s\\n' "$@" > #{argv_file};;\nesac\nexit 0\n|
     )
 
     File.chmod!(binary, 0o755)

@@ -33,10 +33,17 @@ defmodule Candil.Scheduler do
 
   @type device :: %{
           index: non_neg_integer(),
-          name: String.t(),
+          # El nombre con el que se le habla al motor (`CUDA0`, `ROCm0`…). Es
+          # `nil` cuando el motor no se pudo preguntar: sin nombre no hay
+          # `--device`, y ese device no se puede colocar.
+          name: String.t() | nil,
+          backend: atom(),
           total_mb: non_neg_integer() | nil,
           free_mb: non_neg_integer() | nil,
-          usable: boolean()
+          usable: boolean(),
+          # De dónde salen las cifras: `:engine` (el motor) o `:system`. Nunca
+          # las dos para el mismo número (D-28).
+          source: :engine | :system
         }
 
   @type instance :: %{
@@ -44,7 +51,10 @@ defmodule Candil.Scheduler do
           # `nil` = no se sabe en qué dispositivo está (modelo de CPU, o
           # `nvidia-smi` no lo lista). No es «device 0»: es un hecho distinto.
           device_index: non_neg_integer() | nil,
-          size_mb: non_neg_integer(),
+          # `nil` = **no se sabe** cuánto ocupa. No es 0: es «no lo sé», y un
+          # device cuyo tamaño se desconoce no se puede expulsar (no se sabe
+          # cuánto liberaría).
+          size_mb: non_neg_integer() | nil,
           in_use: boolean(),
           pinned: boolean(),
           last_used_at: DateTime.t() | nil
@@ -54,6 +64,7 @@ defmodule Candil.Scheduler do
           {:ok, non_neg_integer() | :proceed}
           | {:evict, [term()], non_neg_integer()}
           | {:error, :no_gpu}
+          | {:error, :memory_unknown}
           | {:error, :gpu_layers_fixed}
           | {:error, :no_room}
 
@@ -105,16 +116,29 @@ defmodule Candil.Scheduler do
   puro), devuelve `{:ok, :proceed}` sin mirar dispositivos: no hay nada que
   colocar ni que expulsar.
 
-  Si pide VRAM y **no hay GPU** (sin devices usables, o sin `nvidia-smi`),
-  devuelve `{:error, :no_gpu}`. Y si hay GPU pero no cabe,
-  `{:error, :no_room}`. Son hechos distintos: el primero se resuelve con
-  `--cpu`, el segundo no.
+  Si pide VRAM y **no hay GPU**, devuelve `{:error, :no_gpu}`. Si hay GPU pero
+  no se puede **medir** —el motor no se puede preguntar, o su memoria no se
+  puede leer—, devuelve `{:error, :memory_unknown}`: son hechos distintos, y
+  el primero se resuelve con `--cpu` y el segundo no. Y si hay GPU pero no
+  cabe, `{:error, :no_room}`.
 
   Devuelve `{:ok, :proceed}` si no hay que hacer nada especial, o la
   decisión de `place/3`.
   """
   @spec plan(Candil.Model.t()) :: decision()
   def plan(%Candil.Model{} = model) do
+    plan(model, binary_for(model))
+  end
+
+  @doc """
+  Planifica la colocación con el binario del motor dado.
+
+  `binary` es la ruta del binario del motor (`llama-server`): es quien publica
+  la lista de devices con sus nombres y su memoria, y la única fuente que
+  funciona en todos los backends (D-28).
+  """
+  @spec plan(Candil.Model.t(), binary() | nil) :: decision()
+  def plan(%Candil.Model{} = model, binary) do
     cond do
       # Un modelo de CPU no pide VRAM: no hay nada que colocar. Sin esto, con la
       # GPU llena, un modelo de CPU se rechazaba con `:no_room` — y un modelo que
@@ -142,9 +166,21 @@ defmodule Candil.Scheduler do
         {:error, :gpu_layers_fixed}
 
       true ->
-        plan_on_gpu(model)
+        plan_on_gpu(model, binary)
     end
   end
+
+  # El binario del motor del modelo, si el catálogo lo sabe. Sin él, la
+  # medición cae a la fuente del sistema, que no trae nombres: los devices
+  # salen inservibles y el scheduler dice `:memory_unknown`.
+  defp binary_for(%Candil.Model{engine: engine_alias}) when is_atom(engine_alias) do
+    case Candil.Store.get_engine(engine_alias) do
+      {:ok, engine} -> Candil.Engine.binary_path(engine)
+      _ -> nil
+    end
+  end
+
+  defp binary_for(_model), do: nil
 
   @doc """
   Si el modelo **fija** las capas en GPU en vez de dejar que se ajusten.
@@ -170,44 +206,60 @@ defmodule Candil.Scheduler do
     end)
   end
 
-  defp plan_on_gpu(model) do
+  defp plan_on_gpu(model, binary) do
     size_mb = model.vram_mb || estimate_model_size(model)
 
     # El ledger tiene que estar al día ANTES de decidir, o la decisión se toma
     # sobre una memoria que ya no existe. La memoria ajena —la que usan
     # procesos que Candil no gestiona— se ajusta aquí.
     #
-    # Y la decisión se toma con la cifra **del ledger**, no con la de
-    # `nvidia-smi`. No es un detalle: `free_mb` de `nvidia-smi` es lo que hay
-    # libre ahora mismo, y el ledger descuenta además el overhead del
-    # contexto CUDA (370 MiB) que el motor **nuevo** va a crear. Si uno
-    # decidiera con `free_mb` y el otro reservara con `available`, los dos
-    # podrían decir cosas distintas: el scheduler «cabe» y la reserva «no
-    # cabe», y el modelo no arrancaría con un error que nadie entiende.
+    # Y la decisión se toma con la cifra **del ledger**, no con la del sistema.
+    # No es un detalle: `free_mb` del sistema es lo que hay libre ahora mismo,
+    # y el ledger descuenta además lo que Candil ya tiene reservado y la
+    # memoria que usa otra gente. Si uno decidiera con `free_mb` y el otro
+    # reservara con `available`, los dos podrían decir cosas distintas: el
+    # scheduler «cabe» y la reserva «no cabe», y el modelo no arrancaría con
+    # un error que nadie entiende.
     #
     # Con la misma cifra en los dos lados, la respuesta es la misma por
     # construcción: `available` es exactamente lo que le cabe a un motor
-    # nuevo, contexto CUDA incluido.
+    # nuevo, contexto incluido.
     devices =
-      Enum.map(Candil.Scheduler.Devices.detect(), fn device ->
-        if device.usable do
-          :ok = Candil.Engine.Resource.sync_foreign(device.index)
-          %{device | free_mb: Candil.Engine.Resource.available(device.index)}
-        else
-          device
-        end
-      end)
+      binary
+      |> Candil.Scheduler.Devices.detect()
+      |> Enum.map(&sync_foreign/1)
 
-    # «No hay GPU» y «no cabe» son **hechos distintos**, y el mensaje tiene
-    # que distinguirlos: `--cpu` es la salida del primero, y del segundo no
-    # hay salida que no sea liberar memoria.
+    # «No hay GPU» y «no lo sé» y «no cabe» son **hechos distintos**, y el
+    # mensaje tiene que distinguirlos: `--cpu` es la salida del primero, del
+    # segundo no hay salida, y del tercero la hay si se libera memoria.
     #
-    # Antes los dos salían como `:no_room`, que en una máquina sin GPU decía
-    # «la GPU está llena» cuando la verdad es «aquí no hay GPU».
-    if Enum.any?(devices, & &1.usable) do
-      place(size_mb, devices, build_instances())
+    # Antes los dos primeros salían como `:no_room`, que en una máquina sin
+    # GPU decía «la GPU está llena» cuando la verdad es «aquí no hay GPU».
+    cond do
+      devices == [] ->
+        {:error, :no_gpu}
+
+      Enum.any?(devices, & &1.usable) ->
+        place(size_mb, devices, build_instances())
+
+      true ->
+        {:error, :memory_unknown}
+    end
+  end
+
+  # Sincroniza el ledger de un device y devuelve su cifra **del ledger**.
+  #
+  # Si no se puede medir, el device queda inservible: no se coloca con una
+  # cifra vieja, y el scheduler acaba diciendo `:memory_unknown` (D-28). Un
+  # `:ok` que no ajustó nada sería indistinguible de un ajuste de verdad.
+  defp sync_foreign(device) do
+    if device.usable do
+      case Candil.Engine.Resource.sync_foreign(device) do
+        :ok -> %{device | free_mb: Candil.Engine.Resource.available(device.index)}
+        {:error, _reason} -> %{device | usable: false, free_mb: nil}
+      end
     else
-      {:error, :no_gpu}
+      device
     end
   end
 
@@ -266,16 +318,30 @@ defmodule Candil.Scheduler do
   modelo de 7978 MiB la diferencia es de 7 GB, y la expulsión no libera lo
   que cree que libera.
 
-  Cuando no hay medición (un modelo en CPU, o una máquina sin `nvidia-smi`)
-  se cae al valor declarado, y a la estimación si no hay declarado: es una
-  suposición, pero es la mejor que hay.
+  ## Cuando no hay medición, se dice que no se sabe
+
+  Sin medición, el valor **declarado** (`vram_mb`) es una **cota inferior**: el
+  mínimo que el modelo ocupa con seguridad. Expulsarlo libera al menos eso,
+  así que usarlo para decidir una expulsión es conservador: se puede expulsar
+  de menos, nunca de más.
+
+  Y si no hay medición **ni declaración**, no se inventa el número: se
+  devuelve `nil`. La estimación (`estimate_model_size/1`) era una suposición
+  —512 MiB para un modelo que ocupa 7978— y una suposición no puede decidir
+  a quién se expulsa. Un device cuyo tamaño se desconoce **no se expulsa**:
+  no se sabe cuánto liberaría, y expulsar a ciegas es peor que no expulsar.
+
+  ## Por qué no 0
+
+  Un `0` significaría «no ocupa nada», que es un hecho. `nil` es «no lo sé»,
+  que es otro hecho. Y el planificador tiene que poder distinguirlos.
   """
-  @spec size_mb(Candil.Model.t(), map() | nil) :: non_neg_integer()
+  @spec size_mb(Candil.Model.t(), map() | nil) :: non_neg_integer() | nil
   def size_mb(_model, %{used_mb: used}) when is_integer(used) and used >= 0, do: used
 
-  def size_mb(model, _usage) do
-    (model && model.vram_mb) || estimate_model_size(model) || 0
-  end
+  def size_mb(%Candil.Model{vram_mb: vram}, _usage) when is_integer(vram) and vram >= 0, do: vram
+
+  def size_mb(_model, _usage), do: nil
 
   defp build_instances do
     usage_by_pid = process_usage_by_pid()
@@ -342,7 +408,15 @@ defmodule Candil.Scheduler do
     candidates_per_device =
       Enum.map(devices, fn device ->
         device_instances = Enum.filter(instances, &(&1.device_index == device.index))
-        evictable = Enum.filter(device_instances, fn i -> not i.in_use and not i.pinned end)
+
+        # Solo son víctimas las que se pueden medir: una instancia cuyo
+        # tamaño se desconoce no libera una cantidad que se pueda contar, y
+        # contar con una suposición sería decidir una expulsión con un
+        # número inventado (D-28).
+        evictable =
+          Enum.filter(device_instances, fn i ->
+            not i.in_use and not i.pinned and is_integer(i.size_mb)
+          end)
 
         needed = size_mb - (device.free_mb || 0)
 

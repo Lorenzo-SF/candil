@@ -1274,6 +1274,56 @@ el backend no usa la convención del sistema ✓ o queda `usable: false` ✓.
   `:cuda0`… `:cuda31` ✓ → D-28 tiene que decidir si es el nombre del backend
   ✓ o un identificador neutro ✓; no se deja como deuda oculta ✓.
 
+### Implementación (2026-10-23)
+
+**La convención que se ha implementado es la del motor** ✓, y el resultado es
+que **la fórmula del overhead desaparece** ✓: con la fuente del motor la
+capacidad que se registra **ya viene sin el contexto** ✓, así que no hay
+titular `:system` ✓ ni constante de overhead ✓.
+
+Medido el 2026-10-22 con el motor real:
+
+```
+$ llama-server --list-devices
+Available devices:
+  CUDA0: NVIDIA GeForce RTX 5080 Laptop GPU (15933 MiB, 857 MiB free)
+
+$ nvidia-smi --query-gpu=memory.total,memory.free --format=csv,noheader,nounits
+16303, 1057
+```
+
+Las dos fuentes dan **la misma disponible** ✓ —15933 − (15933 − 857) = 857 ✓—
+y no es casualidad: es la misma memoria contada desde dos sitios ✓.
+
+**Una corrección a esta misma decisión** ✓: las dos líneas de `available` de
+más arriba —la de la convención A y la de la B— restan `candil_used` **dos
+veces** ✓. La invariante —`available = capacity − foreign − candil_used`— ya
+lo dice bien ✓, y de ella sale:
+
+```
+available = free                   (convención A: la del motor)
+available = free_os − overhead     (convención B: la del sistema)
+```
+
+El `free` que publica el motor **ya excluye** lo que ocupa Candil ✓, así que
+restarlo otra vez sería descontarlo dos veces ✓. Lo que se ha implementado es
+la invariante ✓, y las dos líneas quedaban mal ✓.
+
+**Y el resto de lo que D-28 exigía**, con dónde quedó ✓:
+
+| Lo que D-28 pedía | Dónde está |
+|---|---|
+| El nombre lo publica el motor | `Candil.Detector.EngineDevices` ✓ |
+| Una sola fuente por backend | el ledger mide con la del motor ✓ |
+| Se retira `:system` | `Resource.register/2` no lo adquiere ✓ |
+| Sin medición no hay cifra | `sync_foreign/1` devuelve `{:error, :memory_unknown}` ✓ y el scheduler no coloca ✓ |
+| `unified_memory/0` no dice `free = total` | mide con `vm_stat` ✓, y si no puede, `usable: false` ✓ |
+| El nombre interno del resource | `:device0`…`:device31` ✓ (neutro) ✓ |
+
+**Lo que la implementación ha añadido** ✓, y que D-28 no decía ✓: el error
+`:memory_unknown` ✓, que es un **tercero** —«no hay GPU» ✓, «no lo sé» ✓ y
+«no cabe» ✓— y que antes no existía ✓: los tres se confundían en `:no_room` ✓.
+
 ---
 
 

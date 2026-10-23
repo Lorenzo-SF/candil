@@ -26,6 +26,11 @@
 - **La extracción del CLI es viable**, pero no es el siguiente paso. Antes hay
   que cerrar tres cosas del núcleo: descarga del draft, borrado de modelos y
   desacoplo del `Holder` de una API interna del engine.
+- **P-12 está implementado** (2026-10-23, rama `feat/p12-devices-d28`): la
+  lista de devices la publica **el motor** (`llama-server --list-devices`),
+  el `--device` es su nombre y no un índice, el ledger mide con esa fuente
+  (sin titular `:system` ni constante de overhead), y sin medición se dice
+  `:memory_unknown` en vez de inventar un 0. Ver §4.2.
 - **La fase 12 cambia de significado.** Ya no es «construir el CLI entero
   dentro de Candil»: es «cerrar el contrato de librería y mover el CLI a su
   proyecto». El binario puede seguir llamándose `candil`.
@@ -193,31 +198,42 @@ mergearse antes si el dueño lo prefiere.
 **No** apilar #130 sobre #129. **No** abrir el PR de backends antes de #129:
 tocan los mismos ficheros.
 
-### 4.2 · Backends genéricos (P-12 y D-28)
+### 4.2 · Backends genéricos (P-12 y D-28) — ✅ hecho el 2026-10-23
 
-Va **después** de #129, en PR propio. Toca `engine/server.ex`,
-`engine/fit_params.ex`, `engine/resource.ex`, `scheduler.ex` y
-`detector/devices.ex`.
+**D-28 escrita** (PR #134, mergeada) e **implementada** (rama
+`feat/p12-devices-d28`).
 
-Lo que falta:
+Lo que se hizo, con lo que D-28 pedía:
 
-1. **Nombre del device desde el engine.** Hoy se escribe `CUDA#{device}` a
-   mano. `llama-server --list-devices` ya publica
-   `CUDA0: NVIDIA GeForce RTX 5080 Laptop GPU (15933 MiB, 15683 MiB free)`.
-2. **Lista de devices desde el engine.** Hoy sale de `nvidia-smi`; en
-   ROCm/SYCL/Vulkan eso deja `devices: []` y Candil no ve el acelerador.
-3. **Overhead por backend.** 370 MiB es el overhead de CUDA; 16303 − 370 =
-   15933, que es exactamente lo que ve llama-server. Para otros backends hay
-   que medirlo, no heredarlo.
-4. **`:foreign` por backend.** En `nvidia-smi` el `memory.free` es por device;
-   en memoria unificada de macOS es del sistema. La fórmula cambia.
-5. **Bug `unified_memory/0`.** Pone `free_mb` igual al total (`hw.memsize`) y
-   marca `usable: true`; el scheduler cree que hay memoria que no hay.
-6. **D-28.** La decisión de qué significa «device» en cada backend la tiene que
-   escribir el consejero. Sin ella, el PR no debe empezar.
+1. **Nombre del device desde el engine.** `Candil.Detector.EngineDevices` lee
+   `llama-server --list-devices` y devuelve el nombre (`CUDA0`, `ROCm0`…) con
+   su capacidad y su libre, **de la misma medición**. El `--device` es ese
+   nombre; `CUDA#{index}` no aparece ya en ninguna parte.
+2. **Lista de devices desde el engine.** El scheduler y el ledger miden con el
+   motor, que ve ROCm, SYCL y Vulkan; `nvidia-smi` se queda con lo que sabe
+   hacer bien (el uso por proceso, que es lo que decide a quién se expulsa).
+3. **Overhead por backend.** Desaparece: con la fuente del motor la capacidad
+   ya viene sin el contexto (15933 = 16303 − 370, medido), así que no hay
+   titular `:system` ni constante. El nombre interno del resource pasa a ser
+   neutro (`:device0`…`:device31`).
+4. **`:foreign` por backend.** Con una sola fuente, la fórmula es una sola:
+   `foreign = max(capacity − free − candil_used, 0)` y `available = free`.
+   La memoria unificada de macOS mide su libre con `vm_stat`.
+5. **Bug `unified_memory/0`.** Corregido: el libre se mide, y si no se puede
+   medir el device sale `usable: false` — nunca `free = total`.
+6. **Sin medición no hay cifra.** `sync_foreign/1` devuelve
+   `{:error, :memory_unknown}` (antes se tragaba el fallo) y el scheduler
+   responde `:memory_unknown`, que es un **tercero** distinto de `:no_gpu` y
+   de `:no_room`.
 
-Cierre: tests con `Candil.FakeGPU`, un caso por backend simulado y una puerta
-de máquina con GPU real; `usable: false` cuando no se sabe, nunca 0 inventado.
+De paso, y porque estaban en la cola de la auditoría: la ruta del modelo sale
+de `Model.file_path/1` (un modelo declarado solo por `source` ya arranca), y
+el tamaño de las **víctimas** ya no se inventa —sin medición ni declaración es
+`nil`, y esa instancia no se expulsa.
+
+Evidencia: suite **1380 tests + 33 doctests, 0 fallos** (semillas 0 y 1),
+`mix credo` sin avisos, `mix dialyzer` **0 errores**, y la **puerta de
+máquina 3/3** con el motor real y un modelo que necesita recorte.
 
 ### 4.3 · Deuda del scheduler y colocación
 
@@ -420,11 +436,16 @@ rg -n 'id_for|LongRunning.stop' lib/candil/cli/holder.ex lib/candil/engine/serve
 
 ## 9 · Siguiente acción
 
-1. El dueño revisa y mergea **#129** y **#130** (independientes); verifica `main` en verde.
-2. El consejero decide el alcance de «terminado» y escribe **D-28**.
-3. Se abre el PR de **P-12** (backends) después de #129.
-4. Se cierran los tres prerrequisitos de **4.6**.
-5. Se extrae el CLI a su proyecto y se actualiza `zaguan`.
+1. ~~El dueño revisa y mergea **#129** y **#130**~~ — hechos el 2026-10-22.
+2. ~~El consejero decide el alcance de «terminado» y escribe **D-28**~~ — el
+   dueño lo decidió y D-28 está escrita y mergeada (#134).
+3. ~~Se abre el PR de **P-12**~~ — implementado el 2026-10-23; pendiente solo
+   la revisión del dueño.
+4. Se manda el **mensaje 25 al consejero** con el plan rehecho bajo la
+   definición de «terminado» del dueño, y se mandan **#130** y **#132** como
+   follow-ups en paralelo.
+5. Se cierran los tres prerrequisitos de **4.6**.
+6. Se extrae el CLI a su proyecto y se actualiza `zaguan`.
 
 Mientras todo eso pasa, **Candil sigue siendo la fuente de verdad** y el CLI
 actual sigue siendo una aplicación suya, no un fork. La extracción no cambia

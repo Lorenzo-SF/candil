@@ -7,7 +7,7 @@ defmodule Candil.Engine.FitParams do
   alias Candil.Engine
   alias Candil.Model
 
-  @spec run(Engine.t(), Model.t(), non_neg_integer() | nil) ::
+  @spec run(Engine.t(), Model.t(), map() | nil) ::
           {:ok, non_neg_integer(), [String.t()]} | :fallback
   def run(%Engine{} = engine, %Model{} = model, device) do
     with {:ok, fit_binary} <- fetch_binary(engine),
@@ -64,26 +64,39 @@ defmodule Candil.Engine.FitParams do
   end
 
   defp compatible_args(%Engine{} = engine, %Model{} = model, device) do
-    model_path = Path.join(model.model_dir, model.filename)
-    context = to_string(model.context_size || 4096)
+    model_path = model_path(model)
+    context = to_string(model.context_size)
     layers = if engine.cpu or model.gpu_layers == 0, do: 0, else: model.gpu_layers
 
     base = ["--model", model_path, "--ctx-size", context]
 
     device_args = device_args_for(engine, model, device)
 
-    cache_args = cache_args_from(model.model_args || [])
+    cache_args = cache_args_from(model.model_args)
 
     base ++ device_args ++ cache_args ++ ["--n-gpu-layers", to_string(layers)]
   end
 
+  # La ruta del modelo, la que sabe resolver `Candil.Model.file_path/1`: el
+  # `model_dir`/`filename` de siempre, o el `source` cuando el modelo se
+  # descargó de otro sitio.
+  defp model_path(model) do
+    case Model.file_path(model) do
+      nil -> "model.gguf"
+      path -> path
+    end
+  end
+
+  # `--device` con el **nombre que publica el motor** (`CUDA0`, `ROCm0`…),
+  # nunca `CUDA#{index}`: eso es la convención de CUDA y es falsa en ROCm, en
+  # SYCL y en Vulkan (D-28).
   defp device_args_for(%Engine{} = engine, %Model{} = model, device) do
     cond do
       engine.cpu or model.gpu_layers == 0 ->
         ["--device", "none"]
 
-      is_integer(device) and device >= 0 ->
-        ["--device", "CUDA#{device}", "--split-mode", "none", "--main-gpu", to_string(device)]
+      is_map(device) and is_binary(device.name) and is_integer(device.index) and device.index >= 0 ->
+        ["--device", device.name, "--split-mode", "none", "--main-gpu", to_string(device.index)]
 
       true ->
         []
@@ -101,8 +114,6 @@ defmodule Candil.Engine.FitParams do
       _ -> []
     end)
   end
-
-  defp cache_args_from(_), do: []
 
   # El peso es el de la línea `mem=`, que es **lo que el modelo va a ocupar**:
   # pesos + KV cache + compute. Medido el 2026-10-21 con

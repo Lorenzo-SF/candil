@@ -17,17 +17,23 @@ defmodule Candil.Engine.HolderGenerationTest do
 
   @moduletag :tmp_dir
 
-  @total 16_303
-  @overhead 370
+  # Lo que ve el motor: el total ya sin su contexto (D-28).
+  @engine_total 15_933
 
   setup %{tmp_dir: tmp_dir} do
-    FakeGPU.install(tmp_dir, total_mb: @total, free_mb: 16_000)
+    FakeGPU.install(tmp_dir, total_mb: 16_303, free_mb: 16_000)
     on_exit(&FakeGPU.uninstall/0)
 
     Resource.stop_device(0)
     on_exit(fn -> Resource.stop_device(0) end)
 
-    :ok
+    %{binary: FakeGPU.install_engine(tmp_dir)}
+  end
+
+  # La medición del device, tal y como la publica el motor.
+  defp measurement(binary, device) do
+    {:ok, record} = Candil.Detector.EngineDevices.device(binary, device)
+    record
   end
 
   defp engine do
@@ -61,18 +67,22 @@ defmodule Candil.Engine.HolderGenerationTest do
     assert is_reference(gen1)
   end
 
-  test "un release tardío no suelta la reserva del modelo nuevo", %{tmp_dir: tmp_dir} do
+  test "un release tardío no suelta la reserva del modelo nuevo", %{
+    tmp_dir: tmp_dir,
+    binary: binary
+  } do
     _ = tmp_dir
-    :ok = Resource.ensure_registered(0)
+    device = measurement(binary, 0)
+    :ok = Resource.ensure_registered(device)
 
     old_holder = Engine.holder(model(), engine())
     new_holder = Engine.holder(model(), engine())
 
     # El modelo nuevo reserva 5000 MiB con SU titular.
-    {:ok, _receipt} = Resource.acquire(0, new_holder, 5000)
+    {:ok, _receipt} = Resource.acquire(device, new_holder, 5000)
 
     available = Resource.available(0)
-    assert available == @total - @overhead - 5000
+    assert available == @engine_total - 5000
 
     # Y ahora llega el `terminate/2` del server VIEJO, con su titular viejo.
     # Sin generación, `release/2` habría quitado la primera entrada de
@@ -84,6 +94,6 @@ defmodule Candil.Engine.HolderGenerationTest do
 
     # Y el titular bueno sí la suelta.
     _ = Resource.release(0, new_holder)
-    assert Resource.available(0) == @total - @overhead
+    assert Resource.available(0) == @engine_total
   end
 end
