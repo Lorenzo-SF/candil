@@ -40,7 +40,7 @@ defmodule Candil.RAG.ChunkerTest do
 
   describe "el contrato" do
     test "cortar devuelve chunks, y cada chunk cumple el tipo congelado" do
-      chunks = Chunker.chunk("Hola mundo. Esto es un texto.", strategy: :sentence)
+      assert {:ok, chunks} = Chunker.chunk("Hola mundo. Esto es un texto.", strategy: :sentence)
 
       assert is_list(chunks)
       assert chunks != []
@@ -53,7 +53,7 @@ defmodule Candil.RAG.ChunkerTest do
     end
 
     test "cada chunk sabe de que documento vino y en que posicion esta" do
-      chunks = Chunker.chunk(@tres, document_id: "doc:uno", strategy: :sentence)
+      assert {:ok, chunks} = Chunker.chunk(@tres, document_id: "doc:uno", strategy: :sentence)
 
       for {chunk, i} <- Enum.with_index(chunks) do
         assert chunk.document_id == "doc:uno"
@@ -64,10 +64,39 @@ defmodule Candil.RAG.ChunkerTest do
     end
 
     test "los ids son distintos, porque son la clave del indice" do
-      chunks = Chunker.chunk(String.duplicate(@tres <> " ", 3), strategy: :sentence)
+      assert {:ok, chunks} = Chunker.chunk(String.duplicate(@tres <> " ", 3), strategy: :sentence)
 
       ids = Enum.map(chunks, & &1.id)
       assert length(Enum.uniq(ids)) == length(ids)
+    end
+
+    test "los ids son estables: el mismo texto da el mismo id" do
+      # El id es la **clave del indice** ✓. Si cambia cada vez que se corta el
+      # mismo texto ✓, reindexar crea chunks nuevos con ids nuevos ✓ y los
+      # viejos se quedan ahi ✓, compitiendo con los nuevos ✓ por el mismo
+      # documento ✓.
+      assert {:ok, a} = Chunker.chunk(@tres, document_id: "doc:uno", strategy: :sentence)
+      assert {:ok, b} = Chunker.chunk(@tres, document_id: "doc:uno", strategy: :sentence)
+
+      assert Enum.map(a, & &1.id) == Enum.map(b, & &1.id)
+    end
+
+    test "pero si el texto cambia, el id cambia" do
+      # El hash lleva el texto dentro a proposito ✓: si el texto cambio ✓, el
+      # chunk es **otro** chunk ✓, y el indice viejo tiene que quedarse sin el
+      # id viejo ✓.
+      assert {:ok, [a]} = Chunker.chunk("Uno.", document_id: "doc:uno", strategy: :sentence)
+      assert {:ok, [b]} = Chunker.chunk("Dos.", document_id: "doc:uno", strategy: :sentence)
+
+      refute a.id == b.id
+    end
+
+    test "la estrategia por defecto tiene dos nombres, y los dos valen" do
+      # `strategy/0` es el canonico ✓ (lo dice el contrato ✓) y
+      # `default_strategy/0` el que se usaba antes ✓. Los dos existen ✓ para
+      # que nadie se rompa ✓.
+      assert Chunker.strategy() == Chunker.default_strategy()
+      assert Chunker.strategy() == :sentence
     end
   end
 
@@ -76,7 +105,7 @@ defmodule Candil.RAG.ChunkerTest do
   describe "sentence, el default" do
     test "parte por frases y no parte ninguna" do
       texto = "Primera frase. Segunda frase. Tercera frase."
-      chunks = Chunker.chunk(texto, strategy: :sentence)
+      assert {:ok, chunks} = Chunker.chunk(texto, strategy: :sentence)
 
       for chunk <- chunks do
         refute chunk.text =~ "Primera frase. Seg"
@@ -86,8 +115,8 @@ defmodule Candil.RAG.ChunkerTest do
     end
 
     test "es el default cuando no se dice nada" do
-      a = Chunker.chunk(@tres)
-      b = Chunker.chunk(@tres, strategy: :sentence)
+      assert {:ok, a} = Chunker.chunk(@tres)
+      assert {:ok, b} = Chunker.chunk(@tres, strategy: :sentence)
 
       assert Enum.map(a, & &1.text) == Enum.map(b, & &1.text)
     end
@@ -96,7 +125,7 @@ defmodule Candil.RAG.ChunkerTest do
   describe "fixed" do
     test "parte por tamano, aunque parta palabras" do
       texto = String.duplicate("palabra ", 40)
-      chunks = Chunker.chunk(texto, strategy: :fixed, size: 10)
+      assert {:ok, chunks} = Chunker.chunk(texto, strategy: :fixed, size: 10)
 
       assert length(chunks) > 1
       # Y eso esta bien: `fixed` es el modo mecanico, y su valor es que NUNCA
@@ -108,7 +137,7 @@ defmodule Candil.RAG.ChunkerTest do
   describe "paragraph" do
     test "respeta los saltos de parrafo" do
       texto = "Uno.\n\nDos.\n\nTres."
-      chunks = Chunker.chunk(texto, strategy: :paragraph)
+      assert {:ok, chunks} = Chunker.chunk(texto, strategy: :paragraph)
 
       assert length(chunks) == 3
       assert Enum.all?(chunks, &(&1.text =~ ~r/Uno|Dos|Tres/))
@@ -119,7 +148,9 @@ defmodule Candil.RAG.ChunkerTest do
 
   describe "lo que no hace" do
     test "un texto vacio devuelve lista vacia, no un error" do
-      assert Chunker.chunk("", strategy: :sentence) == []
+      # `{:ok, []}` y no un error ✓: un texto que no da chunks es un texto
+      # corto ✓, no un fallo ✓.
+      assert Chunker.chunk("", strategy: :sentence) == {:ok, []}
     end
 
     test "un texto sin puntuacion no se pierde: sale entero" do
@@ -127,7 +158,7 @@ defmodule Candil.RAG.ChunkerTest do
       # el chunker exigiera puntuacion, ese texto se descartaria entero, y con
       # el se pierde la pregunta.
       texto = "donde esta el formulario de renovacion de prestamos"
-      chunks = Chunker.chunk(texto, strategy: :sentence)
+      assert {:ok, chunks} = Chunker.chunk(texto, strategy: :sentence)
 
       assert chunks != []
       assert Enum.map_join(chunks, " ", & &1.text) =~ "renovacion"
@@ -144,7 +175,8 @@ defmodule Candil.RAG.ChunkerTest do
       # Un `str_to_atom` sobre lo que pone el usuario crearia atomos; una lista
       # escrita en un sitio y leida en otro se queda vieja. Sale de aqui.
       for strategy <- Chunker.strategies() do
-        assert Chunker.chunk("Uno. Dos.", strategy: strategy) != []
+        assert {:ok, chunks} = Chunker.chunk("Uno. Dos.", strategy: strategy)
+        assert chunks != []
       end
     end
   end
@@ -172,7 +204,7 @@ defmodule Candil.RAG.ChunkerTest do
       # Este es EL test del modulo. Si pasa, un tercero corta como quiera.
       assert :ok = Chunker.register(:preguntas, PorPreguntas)
 
-      chunks = Chunker.chunk("Uno\nDos\nTres", strategy: :preguntas)
+      assert {:ok, chunks} = Chunker.chunk("Uno\nDos\nTres", strategy: :preguntas)
       assert length(chunks) == 3
       assert Enum.map(chunks, & &1.text) == ["Uno", "Dos", "Tres"]
     end

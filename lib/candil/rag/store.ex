@@ -110,6 +110,45 @@ defmodule Candil.RAG.Store do
     |> length()
   end
 
+  @doc """
+  Borra los chunks de un indice cuyo id **no** esta en `keep_ids`.
+
+  Es lo que hace que reindexar un documento **no deje restos** ✓: si el
+  documento cambio y ahora tiene tres chunks en vez de cinco ✓, los dos
+  viejos desaparecen ✓ en vez de quedarse ahi competediendo con los
+  nuevos ✓.
+
+  Devuelve **cuantos** borro ✓, para que quien llama pueda decirlo ✓.
+  """
+  @spec delete_missing_chunks(Candil.RAG.index_name(), [binary()]) :: non_neg_integer()
+  def delete_missing_chunks(name, keep_ids) when is_binary(name) and is_list(keep_ids) do
+    keep = MapSet.new(keep_ids)
+
+    @chunks_table
+    |> :ets.match_object({{name, :_}, :_})
+    |> Enum.reduce(0, fn {{_name, id}, _chunk}, acc ->
+      if MapSet.member?(keep, id) do
+        acc
+      else
+        :ets.delete(@chunks_table, {name, id})
+        acc + 1
+      end
+    end)
+  end
+
+  @doc """
+  Borra todos los indices y todos sus chunks.
+
+  Para tests ✓ y para empezar de cero ✓. No borra la configuracion ✓ —eso es
+  otra cosa ✓— ni los ficheros ✓.
+  """
+  @spec reset() :: :ok
+  def reset do
+    :ets.delete_all_objects(@indexes_table)
+    :ets.delete_all_objects(@chunks_table)
+    :ok
+  end
+
   # ── GenServer ───────────────────────────────────────────────────────────
 
   @impl GenServer

@@ -50,8 +50,15 @@ defmodule Candil.RAG.Chunker do
           | {:overlap, non_neg_integer()}
           | {:document_id, binary()}
 
-  @doc "Corta un texto en chunks."
-  @callback chunk(text :: binary(), opts :: [option()]) :: [Chunk.t()]
+  @doc """
+  Corta un texto en chunks.
+
+  Devuelve `{:ok, chunks}` ✓ y `{:error, {:unknown_strategy, s}}` ✓ si la
+  estrategia no existe ✓. **Un `{:ok, []}`** es un texto que no ha dado
+  chunks ✓ —no un fallo ✓— y por eso es un `ok` y no un error ✓.
+  """
+  @callback chunk(text :: binary(), opts :: [option()]) ::
+              {:ok, [Chunk.t()]} | {:error, {:unknown_strategy, term()}}
 
   @doc false
   @callback split(text :: binary(), opts :: [option()]) :: [binary()]
@@ -101,16 +108,19 @@ defmodule Candil.RAG.Chunker do
 
   ## Ejemplos
 
-      iex> Chunker.chunk("Uno. Dos.") |> length()
+      iex> {:ok, chunks} = Chunker.chunk("Uno. Dos.")
+      iex> length(chunks)
       1
 
-      iex> Chunker.chunk("Uno. Dos. Tres.", strategy: :paragraph) |> length()
+      iex> {:ok, chunks} = Chunker.chunk("Uno. Dos. Tres.", strategy: :paragraph)
+      iex> length(chunks)
       1
   """
-  @spec chunk(binary(), [option()]) :: [Chunk.t()] | {:error, {:unknown_strategy, term()}}
+  @spec chunk(binary(), [option()]) ::
+          {:ok, [Chunk.t()]} | {:error, {:unknown_strategy, term()}}
   def chunk(text, opts \\ [])
 
-  def chunk("", _opts), do: []
+  def chunk("", _opts), do: {:ok, []}
 
   def chunk(text, opts) when is_binary(text) do
     strategy = Keyword.get(opts, :strategy, @default_strategy)
@@ -130,19 +140,40 @@ defmodule Candil.RAG.Chunker do
   defp do_chunk(text, opts, strategy, document_id) do
     splitter = splitter_for(strategy)
 
-    text
-    |> splitter.split(opts)
-    |> Enum.map(&String.trim/1)
-    |> Enum.reject(&(&1 == ""))
-    |> Enum.with_index()
-    |> Enum.map(fn {part, position} ->
-      %Chunk{
-        id: "#{document_id || "doc"}:#{position}",
-        text: part,
-        document_id: document_id,
-        position: position
-      }
-    end)
+    chunks =
+      text
+      |> splitter.split(opts)
+      |> Enum.map(&String.trim/1)
+      |> Enum.reject(&(&1 == ""))
+      |> Enum.with_index()
+      |> Enum.map(fn {part, position} ->
+        %Chunk{
+          id: chunk_id(document_id, position, part),
+          text: part,
+          document_id: document_id,
+          position: position
+        }
+      end)
+
+    {:ok, chunks}
+  end
+
+  # El id de un chunk tiene que ser **estable**: el mismo documento, en la
+  # misma posicion y con el mismo texto, es **el mismo chunk** ✓. Con el id
+  # por posicion (`"doc:0"`), reindexar un documento cuyo inicio cambio
+  # reescribe todos los ids ✓, y lo que estaba ahi se queda viejo ✓.
+  #
+  # El hash lleva el **texto** dentro ✓ a proposito: si el texto cambia, el
+  # chunk es otro chunk ✓, y el indice viejo tiene que quedarse sin ese id ✓.
+  @doc false
+  @spec chunk_id(binary() | nil, non_neg_integer(), binary()) :: binary()
+  def chunk_id(document_id, position, text) do
+    payload = "#{document_id || "doc"}:#{position}:#{text}"
+
+    payload
+    |> then(&:crypto.hash(:sha256, &1))
+    |> Base.encode16(case: :lower)
+    |> binary_part(0, 16)
   end
 
   defp splitter_for(strategy) do
@@ -167,8 +198,18 @@ defmodule Candil.RAG.Chunker do
   def strategies, do: @strategies
 
   @doc "La estrategia por defecto."
+  @spec strategy() :: strategy()
+  def strategy, do: @default_strategy
+
+  @doc """
+  La estrategia por defecto.
+
+  Es un alias de `strategy/0` ✓, que es el nombre canonico ✓: `strategy/0` es
+  el que dice el contrato ✓ y `default_strategy/0` el que se usaba antes ✓.
+  Los dos devuelven lo mismo ✓, y asi nadie rompe por el nombre ✓.
+  """
   @spec default_strategy() :: strategy()
-  def default_strategy, do: @default_strategy
+  def default_strategy, do: strategy()
 
   defmodule Sentence do
     @moduledoc "Por frases. El que respeta el significado, y el default."
