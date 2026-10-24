@@ -73,10 +73,10 @@ debajo son las que hoy están a medias. Un enrutado que solo sabe rules y caché
 | **3** | **El enrutado: las capas que faltan** | 1, 2 | Que el enrutado elija por significado y no solo por regla | ✅ |
 | **4** | **La política: quién va primero** | 3 | Que varios compitan por un destino y no se estorben | ✅ **mergeada y medida** (§2.1 de la deuda); `rest_for_one` no está, a propósito (P-3) |
 | **5** | **El refusal, en los tres tipos** | 4 | Que un "no" diga qué corregir | ✅ **cerrada el 2026-10-17**: `fail` y `wait` llegan al cliente HTTP —503 con `Retry-After` y el motivo dentro—; `:degrade` queda declarado y no alcanzable, con su porqué en P-1 |
-| **6** | RAG | 1 | La mesa camilla | ⬜ |
-| **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ |
+| **6** | RAG | 1 | La mesa camilla | ⬜ **a medias** ✓: el vector, el índice, el rewrite y el rerank **ya están** ✓ en `main` ✓; faltan la léxica ✓, el RRF cableado ✓, el incremental con ids estables ✓, el watcher ✓ y el behaviour de embedder ✓ — que depende de una decisión del dueño ✓ (§6 ✓) |
+| **7** | MCP | 1, 4 | Herramientas para cualquier agente | ⬜ **a medias** ✓: el protocolo ✓ y el servidor stdio ✓ **ya están** ✓ en `main` ✓; faltan el HTTP ✓, la negociación real ✓ —el servidor **ignora** el `protocolVersion` del cliente ✓—, el cliente ✓, y `Candil.Tool` con su `@callback` ✓ y su `validate_args/2` **llamado** ✓ |
 | **8** | **Gateway** `candil serve` | 3, 5 | Que otro proceso use Candil sin escribir Elixir | ✅ **cerrada el 2026-10-16**: el comando existe y sirve, medido con `curl` |
-| **9** | Mesa camilla | 4, 6 | Voces con memoria compartida | ⬜ |
+| **9** | Mesa camilla | 4 | Voces con memoria compartida | ⬜ |
 | **10** | **Agentes** — el behaviour y el bucle, en Candil (D-13) | 4 | Agentes | ⬜ |
 | **11** | `candil stats` | 4 | Saber si está funcionando | ✅ |
 | **12** | El CLI entero | 8 | — | ⬜ |
@@ -145,13 +145,52 @@ mirar el código con lo que el `@doc` prometía al lado.
 | Se puede en paralelo | No se puede en paralelo |
 |---|---|
 | Fase 0 con la documentación de módulos | El enrutado y la política: la política decide para el enrutado |
-| Los documentos de los módulos 3, 4 y 5 | El refusal y la política: uno define las razones del otro |
+| Los documentos de los módulos 3, 4, 5 y el plano de la fase 9 | El refusal y la política: uno define las razones del otro |
 | RAG (6) con la política (4) | El CLI y cualquier otra cosa |
 | Todo lo local aparcado, si algún día vuelve | El Gateway y el CLI: el CLI lo usa |
 
 **Un carril de código, varios de documentación.** La documentación se escribe
 en paralelo porque no se toca; el código, no, porque casi todo acaba tocando el
 mismo `Store` y el mismo `Router`.
+
+### 5.1 · El plan rehecho (2026-10-23)
+
+**La definición del dueño** ✓: *«terminado» = el 100 % de las tareas definidas
+como framework para Candil, excluyendo todas las relativas al CLI* ✓. Entran las
+fases **6** ✓, **7** ✓, **9** ✓ y **10** ✓, y con ellas **P-1** ✓, **P-6** ✓,
+**P-9** ✓, **P-10** ✓ —cerrado por **D-29** ✓— y **P-12** ✓.
+
+**Los tres prerrequisitos de la extracción** (el draft ✓, `remove` ✓ y el
+`Holder` ✓) **sí son de framework** ✓, porque son API del núcleo ✓. **Mover el
+CLI a otro proyecto no lo es** ✓, y por eso **no espera a las fases** ✓: se
+hace **en paralelo** ✓ con ellas ✓, en cuanto el contrato esté cerrado ✓.
+
+**Y el contrato se cierra en dos trozos** ✓, que no es lo mismo ✓:
+
+- **0a** ✓ — las decisiones y los documentos ✓: D-29 ✓, el plano de la fase 9
+  ✓, la numeración ✓, el plan ✓ y el CHECKPOINT ✓. Es el **#137** ✓.
+- **0b** ✓ — **los tres prerrequisitos de código** ✓: el draft ✓, `remove` ✓ y
+  `forget` ✓, y el `Holder` ✓.
+
+**La extracción no puede empezar hasta cerrar 0b** ✓, no solo 0a ✓: con el
+contrato escrito pero el draft todavía en el CLI ✓, el proyecto nuevo nace
+dependiendo de una API que no existe ✓.
+
+| Carril | Qué | Espera a | No toca |
+|---|---|---|---|
+| **0a · contrato y plan** | D-29 ✓, el plano de la fase 9 ✓, la numeración de fases ✓, el plan rehecho ✓, el CHECKPOINT ✓ — es el **#137** ✓ | — | el scheduler |
+| **0b · los tres prerrequisitos** | El draft en `Installer` ✓, `Candil.remove/1` + `forget/1` ✓, el `Holder` con `Engine.stop/1` ✓ | el 0a ✓ | el scheduler |
+| **1 · MCP (7)** | M-1…M-6 ✓ | el carril 0 ✓ | el scheduler, el RAG |
+| **2 · RAG (6)** | La léxica ✓, `[rag]` ✓, y la semántica **si hay embedder** ✓ | la decisión del embedder ✓ | MCP, la mesa |
+| **3 · Agentes (10)** | F5.6 ✓, F5.7 ✓, F5.8 ✓, F5.9 ✓, P-9 ✓ | P-12 para F5.6 ✓ — **P-6 no hace falta** ✓: la admisión de una GPU es una decisión del scheduler ✓, y el reintento en otro device solo importa con **más de una** ✓ | RAG, MCP |
+| **4 · Mesa (9)** | F9.1 `SharedMemory` ✓ → las voces ✓ | el spec ✓ (ya escrito ✓) | el CLI |
+| **5 · P-6** | El reintento en otro device ✓ | la decisión de alcance ✓ | — |
+
+**Los ficheros que obligan a secuenciar** ✓: `config/schema.ex` ✓,
+`config/template.ex` ✓ y `application.ex` ✓ los tocan el RAG y la mesa ✓ — un
+carril los posee primero ✓ y el otro escribe sus módulos y espera para el
+cableado ✓. `scheduler.ex` ✓ y `engine/*` ✓ los tocan P-6 y los agentes ✓, y
+**no se editan a la vez** ✓.
 
 ---
 
