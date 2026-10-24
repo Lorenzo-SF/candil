@@ -106,17 +106,27 @@ defmodule Candil.RAG do
     strategy = Keyword.get(opts, :strategy, meta.strategy)
     document_id = Keyword.get(opts, :document_id, name)
 
-    chunks = Candil.RAG.Chunker.chunk(text, strategy: strategy, document_id: document_id)
+    case Candil.RAG.Chunker.chunk(text, strategy: strategy, document_id: document_id) do
+      {:ok, chunks} ->
+        chunks =
+          enrich_chunks(
+            chunks,
+            Keyword.get(opts, :embeddings),
+            Keyword.get(opts, :embedder, meta.embedder)
+          )
 
-    chunks =
-      enrich_chunks(
-        chunks,
-        Keyword.get(opts, :embeddings),
-        Keyword.get(opts, :embedder, meta.embedder)
-      )
+        Candil.RAG.Store.put_chunks(name, chunks)
 
-    Candil.RAG.Store.put_chunks(name, chunks)
-    {:ok, length(chunks)}
+        # Los chunks que ya **no** estan en el documento se van ✓. Sin esto,
+        # reindexar un documento que encogio deja los chunks viejos ✓
+        # compitiendo con los nuevos ✓.
+        Candil.RAG.Store.delete_missing_chunks(name, Enum.map(chunks, & &1.id))
+
+        {:ok, length(chunks)}
+
+      {:error, reason} ->
+        {:error, reason}
+    end
   end
 
   defp enrich_chunks(chunks, embeddings, _embedder)
@@ -133,13 +143,18 @@ defmodule Candil.RAG do
   @doc """
   Searches an index.
 
-  Devuelve los chunks que superaron el umbral, del mejor al peor. **La parte
-  vectorial esta implementada** ✓; la lexica y la fusion RRF no ✓ (ver el
-  `@moduledoc`).
+  Devuelve los chunks que superaron el umbral, del mejor al peor.
 
-  Ojo con el caso sin embeddings: si los chunks no tienen embedding, la
-  puntuacion es `nil` y **se devuelven igual**, ordenados por id. Es un
-  comportamiento provisional y esta documentado como tal, no es un acierto.
+  **Las dos busquedas estan implementadas** ✓: la vectorial ✓ —el coseno ✓— y
+  la **lexica** ✓ —el solape de palabras ✓—, y se **fusionan** ✓ con
+  `rrf/2` ✓ cuando las dos tienen algo que decir ✓.
+
+  **El score** es el de la busqueda que produjo el chunk ✓ —el coseno ✓ si lo
+  hay ✓, el solape ✓ si no ✓— y el **orden** es el de la fusion ✓. Son dos
+  cosas distintas ✓ y no se mezclan ✓.
+
+  Y **sin embedder la busqueda no se cae** ✓: la lexica siempre esta ✓. Lo que
+  se pierde es el **significado** ✓ —los sinonimos ✓— no la busqueda ✓.
   """
   @spec search(index_name(), binary(), keyword()) :: {:ok, [Chunk.t()]} | {:error, term()}
   def search(name, query, opts \\ []) do
@@ -160,38 +175,79 @@ defmodule Candil.RAG do
     # rerank, que es quien mejor entiende la intencion del usuario.
     rewritten = rewrite_query(query, Keyword.get(opts, :rewrite))
 
-    query_emb = resolve_query_embedding(rewritten, opts, meta)
+    rerank? = Keyword.get(opts, :rerank, false) or Keyword.has_key?(opts, :reranker)
+
+    retrieve_limit =
+      if rerank?, do: Keyword.get(opts, :retrieve_limit, 20), else: Keyword.get(opts, :limit, 5)
+
+    final_limit = Keyword.get(opts, :limit, 5)
+    min_score = Keyword.get(opts, :min_score, 0.0)
+
+    vector = vector_ranking(chunks, rewritten, opts, meta, min_score, retrieve_limit)
+    lexical = lexical_ranking(chunks, rewritten, retrieve_limit)
+
+    {order, scores} = fuse(vector, lexical)
+
+    retrieved =
+      order
+      |> Enum.map(&chunk_with_score(chunks, &1, scores))
+      |> Enum.reject(&is_nil/1)
+
+    reranker = Keyword.get(opts, :reranker)
+
+    results =
+      if reranker != nil and retrieved != [] do
+        rerank(retrieved, query, reranker)
+      else
+        retrieved
+      end
+      |> Enum.take(final_limit)
+
+    {:ok, results}
+  end
+
+  # La **vectorial** ✓: el coseno ✓. Solo existe si hay embeddings ✓ en los
+  # chunks ✓ y se puede resolver el embedding de la consulta ✓. `min_score` es
+  # de ella ✓ —es un umbral de coseno ✓— y no toca la lexica ✓.
+  defp vector_ranking(chunks, query, opts, meta, min_score, limit) do
+    query_emb = resolve_query_embedding(query, opts, meta)
     has_emb = Enum.any?(chunks, &(&1.embedding != nil))
 
-    if has_emb and query_emb == nil do
-      {:error, :no_query_embedding}
+    if has_emb and query_emb != nil do
+      chunks
+      |> Enum.map(fn chunk -> {chunk.id, score_chunk(chunk, query_emb)} end)
+      |> Enum.filter(fn {_id, score} -> score != nil and score >= min_score end)
+      |> Enum.sort_by(fn {id, score} -> {-score, id} end)
+      |> Enum.take(limit)
     else
-      rerank? = Keyword.get(opts, :rerank, false) or Keyword.has_key?(opts, :reranker)
+      []
+    end
+  end
 
-      retrieve_limit =
-        if rerank?, do: Keyword.get(opts, :retrieve_limit, 20), else: Keyword.get(opts, :limit, 5)
+  # La **lexica** ✓: el solape de palabras ✓. **Siempre esta** ✓ —es la que
+  # funciona sin embedder ✓— y su umbral es el solape ✓ (> 0 ✓).
+  defp lexical_ranking(chunks, query, limit) do
+    chunks
+    |> Candil.RAG.Lexical.rank(query)
+    |> Enum.take(limit)
+  end
 
-      final_limit = Keyword.get(opts, :limit, 5)
-      min_score = Keyword.get(opts, :min_score, 0.0)
+  # El **orden** es la fusion ✓; el **score** sigue siendo el de la busqueda
+  # que lo produjo ✓ —el coseno ✓ si lo hay ✓, el solape ✓ si no ✓—. Mezclar
+  # las dos puntuaciones en un numero seria comparar peras con manzanas ✓.
+  defp fuse([], []), do: {[], %{}}
+  defp fuse(vector, []), do: {Enum.map(vector, &elem(&1, 0)), Map.new(vector)}
+  defp fuse([], lexical), do: {Enum.map(lexical, &elem(&1, 0)), Map.new(lexical)}
 
-      retrieved =
-        chunks
-        |> Enum.map(fn chunk -> %{chunk | score: score_chunk(chunk, query_emb)} end)
-        |> Enum.filter(fn c -> c.score == nil or c.score >= min_score end)
-        |> Enum.sort_by(fn c -> {-(c.score || 0.0), c.id} end)
-        |> Enum.take(retrieve_limit)
+  defp fuse(vector, lexical) do
+    fused = Candil.RAG.rrf([vector, lexical])
+    {Enum.map(fused, &elem(&1, 0)), Map.new(vector)}
+  end
 
-      reranker = Keyword.get(opts, :reranker)
-
-      results =
-        if reranker != nil and retrieved != [] do
-          rerank(retrieved, query, reranker)
-        else
-          retrieved
-        end
-        |> Enum.take(final_limit)
-
-      {:ok, results}
+  defp chunk_with_score(chunks, id, scores) do
+    case Enum.find(chunks, &(&1.id == id)) do
+      nil -> nil
+      chunk -> %{chunk | score: Map.get(scores, id, chunk.score)}
     end
   end
 

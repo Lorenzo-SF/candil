@@ -13,7 +13,7 @@ defmodule Candil.Config.Schema do
   a user fixing a config file sees all of it in one pass.
   """
 
-  @sections ~w(general engine model provider consumer)
+  @sections ~w(general engine model provider consumer rag)
 
   @doc """
   The section names the schema knows about.

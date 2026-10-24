@@ -305,6 +305,19 @@ defmodule Candil.Config.Template do
     #
     # Y en cualquier momento, `candil doctor` te dice que falta.
 
+    # ── rag ──────────────────────────────────────────────────────────────────
+    #
+    # Como se busca en los indices. La parte **lexica** (solape de palabras)
+    # funciona siempre; la **semantica** (embeddings) es lo que hace que
+    # «quien decide el presupuesto» encuentre «quien aprueba el gasto».
+    #
+    # [rag]
+    #   # El modelo que hace los embeddings. Vacio = solo busqueda lexica.
+    #   embedder = ""
+    #
+    #   # Como se corta un documento en trozos: sentence, fixed o paragraph.
+    #   strategy = "sentence"
+
     # ── consumer.<nombre> ───────────────────────────────────────────────────
     #
     # Quien pregunta. Cada uno puede tener sus propios modelos y su propia

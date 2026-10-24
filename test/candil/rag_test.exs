@@ -97,6 +97,85 @@ defmodule Candil.RAGTest do
     end
   end
 
+  describe "la busqueda sin embedder" do
+    # Un indice con nombre unico ✓: las tablas del Store son globales ✓ y
+    # este test es `async` ✓.
+    defp unique_index, do: "test:#{System.unique_integer([:positive])}"
+
+    test "encuentra el chunk por las palabras de la consulta" do
+      name = unique_index()
+      on_exit(fn -> RAG.drop_index(name) end)
+
+      :ok = RAG.create_index(name)
+      {:ok, 2} = RAG.index(name, "Quien decide el presupuesto. Quien aprueba el gasto.")
+
+      assert {:ok, [chunk | _]} = RAG.search(name, "presupuesto")
+      assert chunk.text =~ "presupuesto"
+    end
+
+    test "y sin embeddings NO se cae: la lexica siempre esta" do
+      # El caso que motivó la fase: un RAG sin embedder no puede devolver
+      # «no hay resultados» por no tener embedder — eso es un fallo, no una
+      # respuesta. La busqueda sin significado es una busqueda peor, no una
+      # busqueda nula.
+      name = unique_index()
+      on_exit(fn -> RAG.drop_index(name) end)
+
+      :ok = RAG.create_index(name)
+      {:ok, _} = RAG.index(name, "El presupuesto lo decide el director.")
+
+      assert {:ok, results} = RAG.search(name, "presupuesto")
+      assert results != []
+    end
+
+    test "reindexar un documento que encogio borra los chunks viejos" do
+      name = unique_index()
+      on_exit(fn -> RAG.drop_index(name) end)
+
+      :ok = RAG.create_index(name)
+      {:ok, 3} = RAG.index(name, "Uno. Dos. Tres.")
+
+      assert Candil.RAG.Store.count_chunks(name) == 3
+
+      # Ahora el documento tiene un solo chunk. Los otros dos tienen que
+      # irse: si se quedan, compiten con el nuevo por el mismo documento.
+      {:ok, 1} = RAG.index(name, "Uno.")
+
+      assert Candil.RAG.Store.count_chunks(name) == 1
+    end
+
+    test "el RRF ordena: el chunk que encuentran las dos busquedas va primero" do
+      name = unique_index()
+      on_exit(fn -> RAG.drop_index(name) end)
+
+      :ok = RAG.create_index(name)
+
+      texto = "Quien decide el presupuesto. Quien decide el gasto."
+      {:ok, 2} = RAG.index(name, texto)
+
+      # El vector pone primero al segundo chunk (el del gasto) y la lexica al
+      # primero (el del presupuesto). El que aparece en las dos busquedas
+      # gana: es lo que RRF significa.
+      {:ok, 2} =
+        RAG.index(name, texto, embeddings: [[0.0, 1.0], [1.0, 0.0]])
+
+      assert {:ok, [first | _]} = RAG.search(name, "presupuesto", embedding: [1.0, 0.0])
+      assert first.text =~ "presupuesto"
+    end
+
+    test "el store se puede vaciar entero" do
+      name = unique_index()
+      on_exit(fn -> RAG.drop_index(name) end)
+
+      :ok = RAG.create_index(name)
+      {:ok, 1} = RAG.index(name, "Uno.")
+
+      assert :ok = Candil.RAG.Store.reset()
+      assert Candil.RAG.Store.list_indexes() == []
+      assert Candil.RAG.Store.count_chunks(name) == 0
+    end
+  end
+
   describe "Chunk" do
     test "requires an id and a text, and keeps the position for citation" do
       chunk = %Chunk{id: "c1", text: "hola", position: 4}
