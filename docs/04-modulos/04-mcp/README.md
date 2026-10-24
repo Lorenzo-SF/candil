@@ -16,10 +16,11 @@
 > revisado contra el código ✓:
 >
 > - El **protocolo** ✓ está escrito ✓, en `2025-11-25` ✓ (`protocol.ex:30` ✓),
->   y el servidor **anuncia** esa versión ✓ (`server.ex:20` ✓). Lo que **no**
->   hay es la revisión `2026-07-28` ✓ que propone este plan ✓ —y esa fecha
->   **no está en `@supported`** ✓ (`protocol.ex:33` ✓), así que **hay que
->   validarla contra la especificación** ✓ antes de cambiar una línea ✓.
+>   y el servidor **anuncia** esa versión ✓ (`server.ex:20` ✓). La revisión
+>   `2026-07-28` que propone este plan **existe oficialmente** ✓ —
+>   https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning ✓ —
+>   pero **no está en `@supported`** ✓ (`protocol.ex:33` ✓): el código sigue sin
+>   hablarla ✓. **Y no es solo cambiar una fecha** ✓ — ver M-2 en el Anexo I ✓.
 > - El **servidor stdio** ✓ **existe y funciona** ✓ (`server.ex:41-69` ✓), y usa
 >   `Tool.list/0` ✓ en `tools/list` ✓ (`:123-131` ✓) y convierte la excepción
 >   de un tool en `-32603` ✓ (`:133-154` ✓). Este plan lo daba por **pendiente**
@@ -815,11 +816,47 @@ se borra.
 | Fase original | Qué era | Estado real hoy | Acción |
 |---|---|---|---|
 | **M-1** | `Candil.Tool` con `@callback` y `validate_args/2` llamado | **Pendiente** ✓: `lib/candil/tool.ex:64` tiene `@behaviour` sin `@callback`; `call/2` (`:114`) no llama a `validate_args/2` (`:134`) | **Se mantiene** |
-| **M-2** | Protocolo a `2026-07-28` | **Pendiente de validación**: el código sigue en `2025-11-25` (`protocol.ex:30`, `server.ex:20`); `2026-07-28` no está en `@supported` (`protocol.ex:33`) | **Validar contra la spec antes de tocar; si la fecha no existe, el plan la inventó** |
+| **M-2** | Protocolo a `2026-07-28` | **La fecha existe** ✓ — https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning ✓. El código sigue en `2025-11-25` (`protocol.ex:30`, `server.ex:20`); `2026-07-28` no está en `@supported` (`protocol.ex:33`) | **No es cambiar una fecha** ✓: es **otra era de protocolo** ✓ (ver abajo ✓). O se implementa la era moderna ✓, o se sigue en la legacy ✓ y se dice ✓ |
 | **M-3** | Servidor stdio | **Ya existe y funciona** (`server.ex:41-69`), con `Tool.list/0` en `tools/list` (`:123-131`) y `-32603` por tool que revienta (`:133-154`) | **Se borra como fase**; queda como hecho |
 | **M-4** | Servidor HTTP | **Pendiente**: no hay HTTP; `transports/0` anuncia `[:stdio, :http]` sin HTTP (`mcp.ex:58-59`) | **Se mantiene** |
 | **M-5** | Cliente | **Pendiente**: `connect/1` devuelve `not_implemented` (`mcp.ex:44-48`) | **Se mantiene** |
 | **M-6** | Endurecer | **Parcialmente hecho**: `-32603` por tool que lanza ya está (`server.ex:133-154`); falta `-32600` por batch, `-32602` por tool desconocida sin crear átomo, y `ttlMs`/`cacheScope` | **Se mantiene, podado** |
+
+### Por qué M-2 no es «cambiar la fecha»
+
+La especificación de `2026-07-28` (https://modelcontextprotocol.io/specification/2026-07-28/basic/versioning ✓)
+no es una revision mas: **es otra era** ✓. Textos suyos ✓:
+
+- **Modern** ✓: *«protocol versions that convey version, identity, and
+  capabilities as per-request metadata (revision `2026-07-28` and later)»* ✓.
+- **Legacy** ✓: *«protocol versions that establish a session with an
+  `initialize` handshake (`2025-11-25` and earlier)»* ✓.
+- *«There is no negotiation handshake. Every request carries its protocol
+  version»* ✓, en el campo **`_meta`** ✓ —y en HTTP, tambien en la cabecera
+  **`MCP-Protocol-Version`** ✓.
+- Si el servidor **no implementa** la version pedida ✓, **debe** responder con
+  `UnsupportedProtocolVersionError` ✓ —codigo **`-32022`** ✓—	listando las que
+  si soporta ✓.
+- Los servidores **deben** implementar **`server/discover`** ✓; los clientes
+  **pueden** llamarlo ✓ antes que nada ✓.
+
+**El servidor de Candil hoy es legacy** ✓: `initialize` con handshake ✓
+(`2025-11-25` ✓). Cambiar `@latest` ✓ y `@supported` ✓ **sin** cambiar el
+handshake ✓ seria **anunciar una era que no se implementa** ✓: el cliente
+moderno manda su version en `_meta` ✓, el servidor la ignora ✓, y el
+`2026-07-28` que el servidor dice anunciar no es el que habla ✓.
+
+Por eso M-2 **decide** antes de escribir ✓:
+
+- **(a) Quedarse en la era legacy** ✓ —`2025-11-25` ✓ ya esta en `@supported`
+  ✓ y el handshake funciona ✓. Se documenta que Candil es un servidor
+  **legacy** ✓, y se acepta que los clientes modernos no puedan hablarle ✓.
+- **(b) Implementar la era moderna** ✓: `_meta` en cada peticion ✓, la
+  cabecera `MCP-Protocol-Version` ✓ en HTTP ✓, el `-32022` ✓ con la lista de
+  versiones soportadas ✓, y `server/discover` ✓. Es **mas** que una fase
+  corta ✓.
+
+Lo que **no** hay que hacer ✓: cambiar la fecha y nada mas ✓.
 
 ### Fases que quedan
 
