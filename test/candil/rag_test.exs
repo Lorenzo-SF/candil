@@ -163,16 +163,27 @@ defmodule Candil.RAGTest do
       assert first.text =~ "presupuesto"
     end
 
-    test "el store se puede vaciar entero" do
+    test "un chunk que solo encuentra la lexica conserva SU score" do
+      # Este test caza un bug que el review encontro: el mapa de scores era
+      # **solo** el vectorial, asi que un chunk que solo aparecia en la lexica
+      # se quedaba con `nil` -o con el 0.0 de un coseno- que no es lo que la
+      # busqueda habia dicho.
       name = unique_index()
       on_exit(fn -> RAG.drop_index(name) end)
 
       :ok = RAG.create_index(name)
-      {:ok, 1} = RAG.index(name, "Uno.")
 
-      assert :ok = Candil.RAG.Store.reset()
-      assert Candil.RAG.Store.list_indexes() == []
-      assert Candil.RAG.Store.count_chunks(name) == 0
+      texto = "Quien decide el presupuesto. Quien decide el gasto."
+
+      # El segundo chunk **no** tiene embedding: solo lo encuentra la lexica.
+      {:ok, 2} = RAG.index(name, texto, embeddings: [[0.0, 1.0], nil])
+
+      assert {:ok, results} = RAG.search(name, "gasto", embedding: [1.0, 0.0])
+
+      gasto = Enum.find(results, &(&1.text =~ "gasto"))
+      assert gasto
+      # Su score es el **solape** (1.0), no nil ni el 0.0 del vector.
+      assert gasto.score == 1.0
     end
   end
 

@@ -161,7 +161,7 @@ defmodule Candil.RAG.Chunker do
   # El id de un chunk tiene que ser **estable**: el mismo documento, en la
   # misma posicion y con el mismo texto, es **el mismo chunk** ✓. Con el id
   # por posicion (`"doc:0"`), reindexar un documento cuyo inicio cambio
-  # reescribe todos los ids ✓, y lo que estaba Learn nil se queda viejo ✓.
+  # reescribe todos los ids ✓, y lo que estaba ahi se queda viejo ✓.
   #
   # El hash lleva el **texto** dentro ✓ a proposito: si el texto cambia, el
   # chunk es otro chunk ✓, y el indice viejo tiene que quedarse sin ese id ✓.

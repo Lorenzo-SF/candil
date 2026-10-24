@@ -153,6 +153,13 @@ defmodule Candil.RAG do
   hay ✓, el solape ✓ si no ✓— y el **orden** es el de la fusion ✓. Son dos
   cosas distintas ✓ y no se mezclan ✓.
 
+  Y por eso un chunk puede ir **primero con un score de 0.0** ✓: el vector lo
+  encuentra pero lo encuentra **ortogonal** ✓ (coseno 0.0 ✓) mientras la lexica
+  lo clava ✓ (solape 1.0 ✓). Son dos verdades ✓, y el score es el de una de
+  ellas ✓. Quien filtre por score en vez de por orden ✓ esta filtrando por la
+  busqueda semantica ✓, no por la fusion ✓ — y eso se decide con `min_score` ✓,
+  que es de ella ✓.
+
   Y **sin embedder la busqueda no se cae** ✓: la lexica siempre esta ✓. Lo que
   se pierde es el **significado** ✓ —los sinonimos ✓— no la busqueda ✓.
   """
@@ -241,7 +248,17 @@ defmodule Candil.RAG do
 
   defp fuse(vector, lexical) do
     fused = Candil.RAG.rrf([vector, lexical])
-    {Enum.map(fused, &elem(&1, 0)), Map.new(vector)}
+
+    # Los dos mapas de scores, **no solo el vectorial** ✓. Un chunk que solo
+    # entro por la lexica ✓ tiene su solape ✓, y sin el se queda con `nil` ✓
+    # —o con el 0.0 de un coseno ✓— que no es lo que la busqueda dijo ✓.
+    #
+    # El vectorial manda en los chunks que estan en las dos ✓, porque el
+    # coseno es la medida de la busqueda semantica ✓ y el solape de la
+    # lexica ✓: son dos verdades y el score es el de la que lo produjo ✓.
+    scores = Map.merge(Map.new(lexical), Map.new(vector))
+
+    {Enum.map(fused, &elem(&1, 0)), scores}
   end
 
   defp chunk_with_score(chunks, id, scores) do
